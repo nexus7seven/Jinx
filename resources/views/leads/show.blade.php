@@ -20,48 +20,6 @@
         </a>
     </div>
 
-    <div
-        id="caseNotesWidget"
-        style="position:sticky; top:10px; z-index:25; margin:0 0 14px 0; display:flex; justify-content:flex-end;"
-    >
-        <div style="width:100%; max-width:420px;">
-            <button
-                type="button"
-                id="caseNotesToggle"
-                style="display:inline-flex; align-items:center; gap:8px; min-height:42px; width:auto; max-width:100%; padding:10px 12px; border-radius:999px; border:1px solid #4b5563; background:#1f2937; color:#f9fafb; font-size:13px; font-weight:700; cursor:pointer;"
-            >
-                📝 Scribble Notes
-            </button>
-
-            <div
-                id="caseNotesPanel"
-                style="display:none; margin-top:10px; background:#111827; border:1px solid #374151; border-radius:12px; padding:12px;"
-            >
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:8px;">
-                    Private scratchpad for this case
-                </div>
-
-                <textarea
-                    id="caseNotesInput"
-                    style="width:100%; min-height:140px; resize:vertical; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px;"
-                    placeholder="Write quick case thoughts here..."
-                >{{ $lead->case_notes }}</textarea>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
-                    <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Idle</div>
-
-                    <button
-                        type="button"
-                        id="caseNotesSaveBtn"
-                        style="min-height:40px; background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
-                    >
-                        Save Notes
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
@@ -612,28 +570,23 @@
     const addActionPointBtn = document.getElementById('addActionPointBtn');
     const actionPointStatus = document.getElementById('actionPointStatus');
     const actionPointsList = document.getElementById('actionPointsList');
-    const hasCaseNotesUI = !!(caseNotesToggle && caseNotesPanel && caseNotesInput && caseNotesSaveBtn && caseNotesStatus);
-    const hasActionPointsUI = !!(actionPointInput && addActionPointBtn && actionPointStatus && actionPointsList);
 
     let caseNotesOpen = false;
     let caseNotesSaveTimer = null;
-    let caseNotesLastSavedValue = hasCaseNotesUI ? caseNotesInput.value : '';
+    let caseNotesLastSavedValue = caseNotesInput.value;
 
     function setCaseNotesOpen(nextOpen) {
-        if (!hasCaseNotesUI) return;
         caseNotesOpen = nextOpen;
         caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
         caseNotesToggle.innerHTML = caseNotesOpen ? '📝 Hide Scribble Notes' : '📝 Scribble Notes';
     }
 
     function setCaseNotesStatus(message, color = '#9ca3af') {
-        if (!hasCaseNotesUI) return;
         caseNotesStatus.textContent = message;
         caseNotesStatus.style.color = color;
     }
 
     async function saveCaseNotes() {
-        if (!hasCaseNotesUI) return;
         const value = caseNotesInput.value;
 
         if (value === caseNotesLastSavedValue) {
@@ -693,13 +646,11 @@
     }
 
     function setActionPointStatus(message, color = '#9ca3af') {
-        if (!hasActionPointsUI) return;
         actionPointStatus.textContent = message;
         actionPointStatus.style.color = color;
     }
 
     function removeNoActionPointsMessage() {
-        if (!hasActionPointsUI) return;
         const emptyMessage = document.getElementById('noActionPointsMessage');
         if (emptyMessage) {
             emptyMessage.remove();
@@ -707,7 +658,6 @@
     }
 
     async function addActionPoint() {
-        if (!hasActionPointsUI) return;
         const note = actionPointInput.value.trim();
         if (!note) {
             setActionPointStatus('Write a prep point first.', '#f59e0b');
@@ -746,7 +696,6 @@
     }
 
     async function deleteActionPoint(id, row, button) {
-        if (!hasActionPointsUI) return;
         if (!id) return;
 
         button.disabled = true;
@@ -783,56 +732,52 @@
         }
     }
 
-    if (hasCaseNotesUI) {
-        caseNotesToggle.addEventListener('click', function () {
-            setCaseNotesOpen(!caseNotesOpen);
-        });
+    caseNotesToggle.addEventListener('click', function () {
+        setCaseNotesOpen(!caseNotesOpen);
+    });
 
-        caseNotesSaveBtn.addEventListener('click', async function () {
-            await saveCaseNotes();
-        });
+    caseNotesSaveBtn.addEventListener('click', async function () {
+        await saveCaseNotes();
+    });
 
-        caseNotesInput.addEventListener('input', function () {
-            setCaseNotesStatus('Typing...', '#9ca3af');
+    caseNotesInput.addEventListener('input', function () {
+        setCaseNotesStatus('Typing...', '#9ca3af');
 
-            if (caseNotesSaveTimer) {
-                clearTimeout(caseNotesSaveTimer);
-            }
-
-            caseNotesSaveTimer = setTimeout(() => {
-                saveCaseNotes();
-            }, 700);
-        });
-
-        if (window.innerWidth >= 768) {
-            setCaseNotesOpen(true);
-        } else {
-            setCaseNotesOpen(false);
+        if (caseNotesSaveTimer) {
+            clearTimeout(caseNotesSaveTimer);
         }
-    }
 
-    if (hasActionPointsUI) {
-        addActionPointBtn.addEventListener('click', async function () {
-            await addActionPoint();
-        });
+        caseNotesSaveTimer = setTimeout(() => {
+            saveCaseNotes();
+        }, 700);
+    });
 
-        actionPointInput.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                addActionPoint();
-            }
-        });
+    addActionPointBtn.addEventListener('click', async function () {
+        await addActionPoint();
+    });
 
-        actionPointsList.addEventListener('click', function (event) {
-            const deleteButton = event.target.closest('.delete-action-point-btn');
-            if (!deleteButton) return;
+    actionPointInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            addActionPoint();
+        }
+    });
 
-            const row = deleteButton.closest('.action-point-row');
-            if (!row) return;
+    actionPointsList.addEventListener('click', function (event) {
+        const deleteButton = event.target.closest('.delete-action-point-btn');
+        if (!deleteButton) return;
 
-            const id = row.dataset.actionPointId;
-            deleteActionPoint(id, row, deleteButton);
-        });
+        const row = deleteButton.closest('.action-point-row');
+        if (!row) return;
+
+        const id = row.dataset.actionPointId;
+        deleteActionPoint(id, row, deleteButton);
+    });
+
+    if (window.innerWidth >= 768) {
+        setCaseNotesOpen(true);
+    } else {
+        setCaseNotesOpen(false);
     }
 
     const leadInputs = document.querySelectorAll('input[data-field]');
