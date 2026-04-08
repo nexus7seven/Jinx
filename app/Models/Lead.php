@@ -26,6 +26,7 @@ class Lead extends Model
         'house_number',
         'postcode',
         'address_line_1',
+        'case_notes',
     ];
 
     protected $casts = [
@@ -41,5 +42,10 @@ class Lead extends Model
     public function creditReports()
     {
         return $this->hasMany(\App\Models\CreditReport::class);
+    }
+
+    public function actionPoints()
+    {
+        return $this->hasMany(\App\Models\LeadActionPoint::class)->latest();
     }
 }
