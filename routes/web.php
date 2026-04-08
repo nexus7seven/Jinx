@@ -12,6 +12,7 @@ use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
 use App\Http\Controllers\DebtController;
 use App\Http\Controllers\WipController;
+use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 
 Route::redirect('/', '/wip');
@@ -29,6 +30,7 @@ Route::get('/lead/{id}', function ($id) {
     $lead = Lead::with([
         'debts.creditor',
         'debts.document',
+        'actionPoints',
     ])->findOrFail($id);
 
     $creditors = Creditor::orderBy('name')->get();
@@ -81,6 +83,10 @@ Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         'value' => $value,
     ]);
 });
+
+Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
+Route::post('/lead/{lead}/action-points', [LeadCaseController::class, 'storeActionPoint'])->name('lead.action-points.store');
+Route::delete('/lead/{lead}/action-points/{item}', [LeadCaseController::class, 'destroyActionPoint'])->name('lead.action-points.destroy');
 
 Route::post('/lead/{id}/debts', function ($id, Request $request, LeadChecklistService $checklistService) {
     $lead = Lead::findOrFail($id);
