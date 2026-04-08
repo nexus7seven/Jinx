@@ -10,6 +10,16 @@
 
 <div style="max-width:980px; margin:0 auto; padding:20px 20px 40px 20px; box-sizing:border-box;">
 
+    <div style="margin:0 0 12px 0;">
+        <a
+            href="/wip"
+            style="display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:8px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; text-decoration:none; font-size:13px; font-weight:700;"
+        >
+            <span aria-hidden="true">←</span>
+            <span>Back to WIP</span>
+        </a>
+    </div>
+
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
