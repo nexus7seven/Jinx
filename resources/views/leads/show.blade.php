@@ -10,11 +10,114 @@
 
 <div style="max-width:980px; margin:0 auto; padding:20px 20px 40px 20px; box-sizing:border-box;">
 
+    <div style="margin:0 0 12px 0;">
+        <a
+            href="/wip"
+            style="display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:8px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; text-decoration:none; font-size:13px; font-weight:700;"
+        >
+            <span aria-hidden="true">←</span>
+            <span>Back to WIP</span>
+        </a>
+    </div>
+
+    <div
+        id="caseNotesWidget"
+        style="position:sticky; top:10px; z-index:25; margin:0 0 14px 0; display:flex; justify-content:flex-end;"
+    >
+        <div style="width:100%; max-width:420px;">
+            <button
+                type="button"
+                id="caseNotesToggle"
+                style="display:inline-flex; align-items:center; gap:8px; min-height:42px; width:auto; max-width:100%; padding:10px 12px; border-radius:999px; border:1px solid #4b5563; background:#1f2937; color:#f9fafb; font-size:13px; font-weight:700; cursor:pointer;"
+            >
+                📝 Scribble Notes
+            </button>
+
+            <div
+                id="caseNotesPanel"
+                style="display:none; margin-top:10px; background:#111827; border:1px solid #374151; border-radius:12px; padding:12px;"
+            >
+                <div style="font-size:12px; color:#9ca3af; margin-bottom:8px;">
+                    Private scratchpad for this case
+                </div>
+
+                <textarea
+                    id="caseNotesInput"
+                    style="width:100%; min-height:140px; resize:vertical; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px;"
+                    placeholder="Write quick case thoughts here..."
+                >{{ $lead->case_notes }}</textarea>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                    <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Idle</div>
+
+                    <button
+                        type="button"
+                        id="caseNotesSaveBtn"
+                        style="min-height:40px; background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                    >
+                        Save Notes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
         <div id="saveStatus" style="margin-bottom:22px; font-size:14px; color:#9ca3af;">
             Ready
+        </div>
+
+        <div id="appointmentPrepSection" style="margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                <h2 style="margin:0; font-size:18px;">IVA Appointment Prep</h2>
+                <div style="font-size:12px; color:#94a3b8;">Key talking points</div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:12px;">
+                <textarea
+                    id="actionPointInput"
+                    style="width:100%; min-height:80px; resize:vertical; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px;"
+                    placeholder="Add an appointment prep point..."
+                ></textarea>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <div id="actionPointStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+                    <button
+                        type="button"
+                        id="addActionPointBtn"
+                        style="min-height:42px; background:#10b981; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                    >
+                        Add Prep Point
+                    </button>
+                </div>
+            </div>
+
+            <div id="actionPointsList" style="display:flex; flex-direction:column; gap:10px;">
+                @forelse($lead->actionPoints as $point)
+                    <div
+                        class="action-point-row"
+                        data-action-point-id="{{ $point->id }}"
+                        style="background:#111827; border:1px solid #475569; border-radius:10px; padding:12px;"
+                    >
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+                            <div style="font-size:14px; color:#e5e7eb; line-height:1.5; white-space:pre-wrap; word-break:break-word; flex:1;">{{ $point->note }}</div>
+                            <button
+                                type="button"
+                                class="delete-action-point-btn"
+                                style="min-height:36px; background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:8px 10px; font-size:12px; font-weight:700; cursor:pointer; flex-shrink:0;"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                @empty
+                    <div id="noActionPointsMessage" style="background:#020617; border:1px dashed #374151; border-radius:10px; padding:12px; color:#94a3b8; font-size:13px;">
+                        No prep points yet.
+                    </div>
+                @endforelse
+            </div>
         </div>
 
         <div style="display:flex; flex-direction:column; gap:16px; width:100%; box-sizing:border-box;">
@@ -500,6 +603,224 @@
 
     const saveStatus = document.getElementById('saveStatus');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const caseNotesToggle = document.getElementById('caseNotesToggle');
+    const caseNotesPanel = document.getElementById('caseNotesPanel');
+    const caseNotesInput = document.getElementById('caseNotesInput');
+    const caseNotesSaveBtn = document.getElementById('caseNotesSaveBtn');
+    const caseNotesStatus = document.getElementById('caseNotesStatus');
+    const actionPointInput = document.getElementById('actionPointInput');
+    const addActionPointBtn = document.getElementById('addActionPointBtn');
+    const actionPointStatus = document.getElementById('actionPointStatus');
+    const actionPointsList = document.getElementById('actionPointsList');
+
+    let caseNotesOpen = false;
+    let caseNotesSaveTimer = null;
+    let caseNotesLastSavedValue = caseNotesInput.value;
+
+    function setCaseNotesOpen(nextOpen) {
+        caseNotesOpen = nextOpen;
+        caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
+        caseNotesToggle.innerHTML = caseNotesOpen ? '📝 Hide Scribble Notes' : '📝 Scribble Notes';
+    }
+
+    function setCaseNotesStatus(message, color = '#9ca3af') {
+        caseNotesStatus.textContent = message;
+        caseNotesStatus.style.color = color;
+    }
+
+    async function saveCaseNotes() {
+        const value = caseNotesInput.value;
+
+        if (value === caseNotesLastSavedValue) {
+            setCaseNotesStatus('Saved', '#10b981');
+            return;
+        }
+
+        setCaseNotesStatus('Saving...', '#fbbf24');
+
+        try {
+            const response = await fetch('/lead/{{ $lead->id }}/case-notes', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    case_notes: value,
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error('Failed saving notes');
+            }
+
+            caseNotesLastSavedValue = value;
+            setCaseNotesStatus('Saved', '#10b981');
+        } catch (e) {
+            setCaseNotesStatus('Save failed', '#ef4444');
+        }
+    }
+
+    function renderActionPointRow(item) {
+        const row = document.createElement('div');
+        row.className = 'action-point-row';
+        row.dataset.actionPointId = item.id;
+        row.style.cssText = 'background:#111827; border:1px solid #475569; border-radius:10px; padding:12px;';
+
+        row.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+                <div class="action-point-note" style="font-size:14px; color:#e5e7eb; line-height:1.5; white-space:pre-wrap; word-break:break-word; flex:1;"></div>
+                <button
+                    type="button"
+                    class="delete-action-point-btn"
+                    style="min-height:36px; background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:8px 10px; font-size:12px; font-weight:700; cursor:pointer; flex-shrink:0;"
+                >
+                    Delete
+                </button>
+            </div>
+        `;
+
+        row.querySelector('.action-point-note').textContent = item.note ?? '';
+
+        return row;
+    }
+
+    function setActionPointStatus(message, color = '#9ca3af') {
+        actionPointStatus.textContent = message;
+        actionPointStatus.style.color = color;
+    }
+
+    function removeNoActionPointsMessage() {
+        const emptyMessage = document.getElementById('noActionPointsMessage');
+        if (emptyMessage) {
+            emptyMessage.remove();
+        }
+    }
+
+    async function addActionPoint() {
+        const note = actionPointInput.value.trim();
+        if (!note) {
+            setActionPointStatus('Write a prep point first.', '#f59e0b');
+            return;
+        }
+
+        addActionPointBtn.disabled = true;
+        setActionPointStatus('Adding...', '#fbbf24');
+
+        try {
+            const response = await fetch('/lead/{{ $lead->id }}/action-points', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ note }),
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success || !data.item) {
+                throw new Error('Failed adding prep point');
+            }
+
+            removeNoActionPointsMessage();
+            const row = renderActionPointRow(data.item);
+            actionPointsList.prepend(row);
+            actionPointInput.value = '';
+            setActionPointStatus('Added.', '#10b981');
+        } catch (e) {
+            setActionPointStatus('Add failed.', '#ef4444');
+        } finally {
+            addActionPointBtn.disabled = false;
+        }
+    }
+
+    async function deleteActionPoint(id, row, button) {
+        if (!id) return;
+
+        button.disabled = true;
+        button.textContent = 'Deleting...';
+
+        try {
+            const response = await fetch(`/lead/{{ $lead->id }}/action-points/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error('Failed deleting prep point');
+            }
+
+            row.remove();
+            setActionPointStatus('Deleted.', '#10b981');
+
+            if (!actionPointsList.querySelector('.action-point-row')) {
+                const empty = document.createElement('div');
+                empty.id = 'noActionPointsMessage';
+                empty.style.cssText = 'background:#020617; border:1px dashed #374151; border-radius:10px; padding:12px; color:#94a3b8; font-size:13px;';
+                empty.textContent = 'No prep points yet.';
+                actionPointsList.appendChild(empty);
+            }
+        } catch (e) {
+            setActionPointStatus('Delete failed.', '#ef4444');
+            button.disabled = false;
+            button.textContent = 'Delete';
+        }
+    }
+
+    caseNotesToggle.addEventListener('click', function () {
+        setCaseNotesOpen(!caseNotesOpen);
+    });
+
+    caseNotesSaveBtn.addEventListener('click', async function () {
+        await saveCaseNotes();
+    });
+
+    caseNotesInput.addEventListener('input', function () {
+        setCaseNotesStatus('Typing...', '#9ca3af');
+
+        if (caseNotesSaveTimer) {
+            clearTimeout(caseNotesSaveTimer);
+        }
+
+        caseNotesSaveTimer = setTimeout(() => {
+            saveCaseNotes();
+        }, 700);
+    });
+
+    addActionPointBtn.addEventListener('click', async function () {
+        await addActionPoint();
+    });
+
+    actionPointInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            addActionPoint();
+        }
+    });
+
+    actionPointsList.addEventListener('click', function (event) {
+        const deleteButton = event.target.closest('.delete-action-point-btn');
+        if (!deleteButton) return;
+
+        const row = deleteButton.closest('.action-point-row');
+        if (!row) return;
+
+        const id = row.dataset.actionPointId;
+        deleteActionPoint(id, row, deleteButton);
+    });
+
+    if (window.innerWidth >= 768) {
+        setCaseNotesOpen(true);
+    } else {
+        setCaseNotesOpen(false);
+    }
 
     const leadInputs = document.querySelectorAll('input[data-field]');
     const originalLeadValues = {};
