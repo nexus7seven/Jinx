@@ -20,47 +20,58 @@
         </a>
     </div>
 
+    <div
+        id="caseNotesStickyWrap"
+        style="position:fixed; top:72px; left:50%; transform:translateX(-50%); width:min(980px, calc(100vw - 40px)); z-index:200; pointer-events:none;"
+    >
+        <div style="max-width:360px; pointer-events:auto;">
+            <div style="background:#111827; border:1px solid #374151; border-radius:12px; padding:12px; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
+                <div style="margin:0;">
+                    <button
+                        type="button"
+                        id="caseNotesToggle"
+                        style="display:inline-flex; align-items:center; gap:8px; min-height:42px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                    >
+                        📝 Scribble Notes
+                    </button>
+                </div>
+
+                <div
+                    id="caseNotesPanel"
+                    style="display:none; margin-top:12px; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;"
+                >
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                        <h2 style="margin:0; font-size:18px;">Case Notes</h2>
+                        <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+                    </div>
+
+                    <textarea
+                        id="caseNotesInput"
+                        style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;"
+                        placeholder="Write quick scribble notes here..."
+                    >{{ old('case_notes', $lead->case_notes ?? '') }}</textarea>
+
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button
+                            type="button"
+                            id="caseNotesSaveBtn"
+                            style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                        >
+                            Save Notes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="caseNotesSpacer" style="height:56px;"></div>
+
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
         <div id="saveStatus" style="margin-bottom:22px; font-size:14px; color:#9ca3af;">
             Ready
-        </div>
-
-        <div style="margin:0 0 20px 0;">
-            <button
-                type="button"
-                id="caseNotesToggle"
-                style="display:inline-flex; align-items:center; gap:8px; min-height:42px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
-            >
-                📝 Scribble Notes
-            </button>
-        </div>
-
-        <div
-            id="caseNotesPanel"
-            style="display:none; margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;"
-        >
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-                <h2 style="margin:0; font-size:18px;">Case Notes</h2>
-                <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
-            </div>
-
-            <textarea
-                id="caseNotesInput"
-                style="width:100%; min-height:140px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;"
-                placeholder="Write quick scribble notes here..."
-            >{{ old('case_notes', $lead->case_notes ?? '') }}</textarea>
-
-            <div style="display:flex; justify-content:flex-end;">
-                <button
-                    type="button"
-                    id="caseNotesSaveBtn"
-                    style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
-                >
-                    Save Notes
-                </button>
-            </div>
         </div>
 
         <div id="appointmentPrepSection" style="margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;">
@@ -597,6 +608,8 @@
 
     const saveStatus = document.getElementById('saveStatus');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const caseNotesStickyWrap = document.getElementById('caseNotesStickyWrap');
+    const caseNotesSpacer = document.getElementById('caseNotesSpacer');
     const caseNotesToggle = document.getElementById('caseNotesToggle');
     const caseNotesPanel = document.getElementById('caseNotesPanel');
     const caseNotesInput = document.getElementById('caseNotesInput');
@@ -611,12 +624,26 @@
     let caseNotesSaveTimer = null;
     let caseNotesLastSavedValue = caseNotesInput ? caseNotesInput.value : '';
 
+    function updateCaseNotesSpacer() {
+        if (!caseNotesStickyWrap || !caseNotesSpacer || !caseNotesToggle) return;
+
+        if (!caseNotesOpen) {
+            caseNotesSpacer.style.height = '56px';
+            return;
+        }
+
+        const box = caseNotesStickyWrap.getBoundingClientRect();
+        caseNotesSpacer.style.height = Math.max(56, Math.ceil(box.height) + 8) + 'px';
+    }
+
     function setCaseNotesOpen(nextOpen) {
         if (!caseNotesPanel || !caseNotesToggle) return;
 
         caseNotesOpen = nextOpen;
         caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
         caseNotesToggle.innerHTML = caseNotesOpen ? '📝 Hide Scribble Notes' : '📝 Scribble Notes';
+
+        requestAnimationFrame(updateCaseNotesSpacer);
     }
 
     function setCaseNotesStatus(message, color = '#9ca3af') {
@@ -805,6 +832,8 @@
             caseNotesSaveTimer = setTimeout(() => {
                 saveCaseNotes();
             }, 700);
+
+            requestAnimationFrame(updateCaseNotesSpacer);
         });
     }
 
@@ -837,11 +866,9 @@
     }
 
     if (caseNotesToggle && caseNotesPanel) {
-        if (window.innerWidth >= 768) {
-            setCaseNotesOpen(true);
-        } else {
-            setCaseNotesOpen(false);
-        }
+        setCaseNotesOpen(false);
+        requestAnimationFrame(updateCaseNotesSpacer);
+        window.addEventListener('resize', updateCaseNotesSpacer);
     }
 
     const leadInputs = document.querySelectorAll('input[data-field]');
