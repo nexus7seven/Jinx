@@ -15,9 +15,7 @@ use App\Http\Controllers\WipController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::redirect('/', '/wip');
 
 Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
 Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
