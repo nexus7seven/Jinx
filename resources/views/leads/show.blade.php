@@ -27,6 +27,42 @@
             Ready
         </div>
 
+        <div style="margin:0 0 20px 0;">
+            <button
+                type="button"
+                id="caseNotesToggle"
+                style="display:inline-flex; align-items:center; gap:8px; min-height:42px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+            >
+                📝 Scribble Notes
+            </button>
+        </div>
+
+        <div
+            id="caseNotesPanel"
+            style="display:none; margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;"
+        >
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                <h2 style="margin:0; font-size:18px;">Case Notes</h2>
+                <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+            </div>
+
+            <textarea
+                id="caseNotesInput"
+                style="width:100%; min-height:140px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;"
+                placeholder="Write quick scribble notes here..."
+            >{{ old('case_notes', $lead->case_notes ?? '') }}</textarea>
+
+            <div style="display:flex; justify-content:flex-end;">
+                <button
+                    type="button"
+                    id="caseNotesSaveBtn"
+                    style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                >
+                    Save Notes
+                </button>
+            </div>
+        </div>
+
         <div id="appointmentPrepSection" style="margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
                 <h2 style="margin:0; font-size:18px;">IVA Appointment Prep</h2>
@@ -573,20 +609,26 @@
 
     let caseNotesOpen = false;
     let caseNotesSaveTimer = null;
-    let caseNotesLastSavedValue = caseNotesInput.value;
+    let caseNotesLastSavedValue = caseNotesInput ? caseNotesInput.value : '';
 
     function setCaseNotesOpen(nextOpen) {
+        if (!caseNotesPanel || !caseNotesToggle) return;
+
         caseNotesOpen = nextOpen;
         caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
         caseNotesToggle.innerHTML = caseNotesOpen ? '📝 Hide Scribble Notes' : '📝 Scribble Notes';
     }
 
     function setCaseNotesStatus(message, color = '#9ca3af') {
+        if (!caseNotesStatus) return;
+
         caseNotesStatus.textContent = message;
         caseNotesStatus.style.color = color;
     }
 
     async function saveCaseNotes() {
+        if (!caseNotesInput) return;
+
         const value = caseNotesInput.value;
 
         if (value === caseNotesLastSavedValue) {
@@ -610,6 +652,7 @@
             });
 
             const data = await response.json();
+
             if (!response.ok || !data.success) {
                 throw new Error('Failed saving notes');
             }
@@ -646,6 +689,8 @@
     }
 
     function setActionPointStatus(message, color = '#9ca3af') {
+        if (!actionPointStatus) return;
+
         actionPointStatus.textContent = message;
         actionPointStatus.style.color = color;
     }
@@ -658,7 +703,10 @@
     }
 
     async function addActionPoint() {
+        if (!actionPointInput || !addActionPointBtn || !actionPointsList) return;
+
         const note = actionPointInput.value.trim();
+
         if (!note) {
             setActionPointStatus('Write a prep point first.', '#f59e0b');
             return;
@@ -679,6 +727,7 @@
             });
 
             const data = await response.json();
+
             if (!response.ok || !data.success || !data.item) {
                 throw new Error('Failed adding prep point');
             }
@@ -696,7 +745,7 @@
     }
 
     async function deleteActionPoint(id, row, button) {
-        if (!id) return;
+        if (!id || !actionPointsList) return;
 
         button.disabled = true;
         button.textContent = 'Deleting...';
@@ -711,6 +760,7 @@
             });
 
             const data = await response.json();
+
             if (!response.ok || !data.success) {
                 throw new Error('Failed deleting prep point');
             }
@@ -732,52 +782,66 @@
         }
     }
 
-    caseNotesToggle.addEventListener('click', function () {
-        setCaseNotesOpen(!caseNotesOpen);
-    });
+    if (caseNotesToggle) {
+        caseNotesToggle.addEventListener('click', function () {
+            setCaseNotesOpen(!caseNotesOpen);
+        });
+    }
 
-    caseNotesSaveBtn.addEventListener('click', async function () {
-        await saveCaseNotes();
-    });
+    if (caseNotesSaveBtn) {
+        caseNotesSaveBtn.addEventListener('click', async function () {
+            await saveCaseNotes();
+        });
+    }
 
-    caseNotesInput.addEventListener('input', function () {
-        setCaseNotesStatus('Typing...', '#9ca3af');
+    if (caseNotesInput) {
+        caseNotesInput.addEventListener('input', function () {
+            setCaseNotesStatus('Typing...', '#9ca3af');
 
-        if (caseNotesSaveTimer) {
-            clearTimeout(caseNotesSaveTimer);
+            if (caseNotesSaveTimer) {
+                clearTimeout(caseNotesSaveTimer);
+            }
+
+            caseNotesSaveTimer = setTimeout(() => {
+                saveCaseNotes();
+            }, 700);
+        });
+    }
+
+    if (addActionPointBtn) {
+        addActionPointBtn.addEventListener('click', async function () {
+            await addActionPoint();
+        });
+    }
+
+    if (actionPointInput) {
+        actionPointInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                addActionPoint();
+            }
+        });
+    }
+
+    if (actionPointsList) {
+        actionPointsList.addEventListener('click', function (event) {
+            const deleteButton = event.target.closest('.delete-action-point-btn');
+            if (!deleteButton) return;
+
+            const row = deleteButton.closest('.action-point-row');
+            if (!row) return;
+
+            const id = row.dataset.actionPointId;
+            deleteActionPoint(id, row, deleteButton);
+        });
+    }
+
+    if (caseNotesToggle && caseNotesPanel) {
+        if (window.innerWidth >= 768) {
+            setCaseNotesOpen(true);
+        } else {
+            setCaseNotesOpen(false);
         }
-
-        caseNotesSaveTimer = setTimeout(() => {
-            saveCaseNotes();
-        }, 700);
-    });
-
-    addActionPointBtn.addEventListener('click', async function () {
-        await addActionPoint();
-    });
-
-    actionPointInput.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            addActionPoint();
-        }
-    });
-
-    actionPointsList.addEventListener('click', function (event) {
-        const deleteButton = event.target.closest('.delete-action-point-btn');
-        if (!deleteButton) return;
-
-        const row = deleteButton.closest('.action-point-row');
-        if (!row) return;
-
-        const id = row.dataset.actionPointId;
-        deleteActionPoint(id, row, deleteButton);
-    });
-
-    if (window.innerWidth >= 768) {
-        setCaseNotesOpen(true);
-    } else {
-        setCaseNotesOpen(false);
     }
 
     const leadInputs = document.querySelectorAll('input[data-field]');
@@ -903,43 +967,43 @@
 
         return map[source] || source;
     }
-	
-	function normaliseVotingType(value) {
-    return String(value || '').trim().toLowerCase();
-}
 
-function formatVotingTypeLabel(value) {
-    const normalised = normaliseVotingType(value);
-
-    if (normalised === 'accept') return 'ACCEPT';
-    if (normalised === 'reject') return 'REJECT';
-    if (normalised === 'cbc') return 'CBC';
-    if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') return 'NON VOTE';
-
-    return String(value || '').toUpperCase();
-}
-
-function getVotingTypePillStyle(value) {
-    const normalised = normaliseVotingType(value);
-
-    if (normalised === 'accept') {
-        return 'background:#14532d; color:#dcfce7;';
+    function normaliseVotingType(value) {
+        return String(value || '').trim().toLowerCase();
     }
 
-    if (normalised === 'reject') {
-        return 'background:#7f1d1d; color:#fecaca;';
+    function formatVotingTypeLabel(value) {
+        const normalised = normaliseVotingType(value);
+
+        if (normalised === 'accept') return 'ACCEPT';
+        if (normalised === 'reject') return 'REJECT';
+        if (normalised === 'cbc') return 'CBC';
+        if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') return 'NON VOTE';
+
+        return String(value || '').toUpperCase();
     }
 
-    if (normalised === 'cbc') {
-        return 'background:#92400e; color:#fde68a;';
-    }
+    function getVotingTypePillStyle(value) {
+        const normalised = normaliseVotingType(value);
 
-    if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') {
-        return 'background:#3f3f46; color:#f4f4f5;';
-    }
+        if (normalised === 'accept') {
+            return 'background:#14532d; color:#dcfce7;';
+        }
 
-    return 'background:#1f2937; color:#e5e7eb;';
-}
+        if (normalised === 'reject') {
+            return 'background:#7f1d1d; color:#fecaca;';
+        }
+
+        if (normalised === 'cbc') {
+            return 'background:#92400e; color:#fde68a;';
+        }
+
+        if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') {
+            return 'background:#3f3f46; color:#f4f4f5;';
+        }
+
+        return 'background:#1f2937; color:#e5e7eb;';
+    }
 
     function getVotingTypeForPractice(row, practiceKey) {
         if (practiceKey === 'practice2') return row.dataset.votePractice2;
@@ -960,10 +1024,11 @@ function getVotingTypePillStyle(value) {
         rows.forEach(row => {
             const votingType = getVotingTypeForPractice(row, practiceKey);
             const votingTypeEl = row.querySelector('.debt-voting-type');
-if (votingTypeEl) {
-    votingTypeEl.textContent = formatVotingTypeLabel(votingType);
-    votingTypeEl.style.cssText = getVotingTypePillStyle(votingType) + ' padding:6px 10px; border-radius:999px; font-size:12px;';
-}
+
+            if (votingTypeEl) {
+                votingTypeEl.textContent = formatVotingTypeLabel(votingType);
+                votingTypeEl.style.cssText = getVotingTypePillStyle(votingType) + ' padding:6px 10px; border-radius:999px; font-size:12px;';
+            }
 
             const balance = parseFloat(row.dataset.balance || '0');
             const house = row.dataset.votingHouse || '';
@@ -1180,9 +1245,9 @@ if (votingTypeEl) {
                             ${sourceLabel(debt.source_expected)}
                         </span>
 
-<span style="${getVotingTypePillStyle(votingType)} padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
-    ${formatVotingTypeLabel(votingType)}
-</span>
+                        <span style="${getVotingTypePillStyle(votingType)} padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
+                            ${formatVotingTypeLabel(votingType)}
+                        </span>
 
                         <span style="background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house">
                             ${debt.voting_house}
