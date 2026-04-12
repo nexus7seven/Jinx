@@ -41,4 +41,9 @@ return [
     'base_url' => env('TEMP_MAIL_BASE_URL', 'https://api.temp-mail.io'),
 ],
 
+'vicidial' => [
+    'partner_list_id' => env('VICIDIAL_PARTNER_LIST_ID'),
+    'partner_status' => env('VICIDIAL_PARTNER_STATUS', 'WIP'),
+],
+
 ];

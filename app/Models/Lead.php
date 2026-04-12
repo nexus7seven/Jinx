@@ -7,27 +7,29 @@ use App\Models\Debt;
 
 class Lead extends Model
 {
-    protected $fillable = [
-        'vicidial_lead_id',
-        'phone_number',
-        'first_name',
-        'last_name',
-        'dob',
-        'email',
-        'temp_mail',
-        'temp_mail_provider',
-        'temp_mail_created_at',
-        'temp_mail_last_checked_at',
-        'temp_mail_last_code',
-        'temp_mail_last_subject',
-        'temp_mail_last_from',
-        'temp_mail_last_message_id',
-        'temp_mail_last_body_text',
-        'house_number',
-        'postcode',
-        'address_line_1',
-        'case_notes',
-    ];
+protected $fillable = [
+    'vicidial_lead_id',
+    'phone_number',
+    'first_name',
+    'last_name',
+    'dob',
+    'email',
+    'temp_mail',
+    'temp_mail_provider',
+    'temp_mail_created_at',
+    'temp_mail_last_checked_at',
+    'temp_mail_last_code',
+    'temp_mail_last_subject',
+    'temp_mail_last_from',
+    'temp_mail_last_message_id',
+    'temp_mail_last_body_text',
+    'house_number',
+    'postcode',
+    'address_line_1',
+    'case_notes',
+    'source',
+    'wip_status',
+];
 
     protected $casts = [
         'temp_mail_created_at' => 'datetime',
