@@ -54,6 +54,9 @@ Route::get('/partner/{token}/lead/{lead}/complete', [PartnerLeadController::clas
 Route::get('/partner/{token}/thank-you', [PartnerLeadController::class, 'thankyou'])
     ->name('partner.lead.thankyou');
 
+Route::patch('/partner/{token}/lead/{lead}/financial-statement', [PartnerLeadController::class, 'updateFinancialStatement'])
+    ->name('partner.lead.financial-statement.update');
+
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
@@ -82,14 +85,9 @@ Route::middleware('auth')->group(function () {
             ->latest()
             ->get();
 
-        $financialStatement = app(FinancialStatementService::class)->mergeForLead($lead);
-        $fsClientPayload = [
-            'income' => config('financial_statement.income'),
-            'expenditure_sections' => config('financial_statement.expenditure_sections'),
-            'guidelineBands' => config('sfs_spending_guidelines.bands'),
-            'guidelinesVersion' => config('sfs_spending_guidelines.version'),
-            'household_limits' => config('financial_statement.household_limits'),
-        ];
+        $financialStatementService = app(FinancialStatementService::class);
+        $financialStatement = $financialStatementService->mergeForLead($lead);
+        $fsClientPayload = $financialStatementService->clientViewPayload();
 
         return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports', 'financialStatement', 'fsClientPayload'));
     });

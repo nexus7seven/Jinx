@@ -16,10 +16,7 @@ class LeadFinancialStatementController extends Controller
 
     public function update(Request $request, Lead $lead): JsonResponse
     {
-        $payload = $this->financialStatementService->normalizeFromRequest($request->all());
-
-        $lead->financial_statement = $payload;
-        $lead->save();
+        $payload = $this->financialStatementService->persistForLead($lead, $request->all());
 
         return response()->json([
             'success' => true,

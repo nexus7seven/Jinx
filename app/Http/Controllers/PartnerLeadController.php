@@ -6,6 +6,7 @@ use App\Models\Creditor;
 use App\Models\Debt;
 use App\Models\Lead;
 use App\Models\Partner;
+use App\Services\FinancialStatementService;
 use App\Services\VicidialLeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,7 +17,8 @@ use Illuminate\View\View;
 class PartnerLeadController extends Controller
 {
     public function __construct(
-        private VicidialLeadService $vicidialLeadService
+        private VicidialLeadService $vicidialLeadService,
+        private FinancialStatementService $financialStatementService
     ) {
     }
 
@@ -122,10 +124,27 @@ class PartnerLeadController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
+        $financialStatement = $this->financialStatementService->mergeForLead($lead);
+        $fsClientPayload = $this->financialStatementService->clientViewPayload();
+
         return view('partner.lead-debts', [
             'partner' => $partner,
             'lead' => $lead,
             'creditors' => $creditors,
+            'financialStatement' => $financialStatement,
+            'fsClientPayload' => $fsClientPayload,
+        ]);
+    }
+
+    public function updateFinancialStatement(Request $request, string $token, Lead $lead): JsonResponse
+    {
+        $this->resolvePartnerLead($token, $lead);
+
+        $payload = $this->financialStatementService->persistForLead($lead, $request->all());
+
+        return response()->json([
+            'success' => true,
+            'financial_statement' => $payload,
         ]);
     }
 
