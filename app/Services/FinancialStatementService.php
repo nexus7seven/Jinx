@@ -61,6 +61,34 @@ class FinancialStatementService
     }
 
     /**
+     * Client-side config for the Income & Expenditure UI (must stay aligned with merge/empty state).
+     *
+     * @return array{income: mixed, expenditure_sections: mixed, guidelineBands: mixed, guidelinesVersion: mixed, household_limits: mixed}
+     */
+    public function clientViewPayload(): array
+    {
+        return [
+            'income' => config('financial_statement.income'),
+            'expenditure_sections' => config('financial_statement.expenditure_sections'),
+            'guidelineBands' => config('sfs_spending_guidelines.bands'),
+            'guidelinesVersion' => config('sfs_spending_guidelines.version'),
+            'household_limits' => config('financial_statement.household_limits'),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function persistForLead(Lead $lead, array $input): array
+    {
+        $payload = $this->normalizeFromRequest($input);
+        $lead->financial_statement = $payload;
+        $lead->save();
+
+        return $payload;
+    }
+
+    /**
      * @return array{household: array, income: array<string, float>, expenditure: array<string, float>, guidelines_version: string}
      */
     public function normalizeFromRequest(array $input): array

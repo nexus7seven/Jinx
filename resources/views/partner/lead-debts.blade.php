@@ -54,6 +54,8 @@
         </div>
     </div>
 
+    @include('partials.financial-statement-card')
+
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
             <h2 style="margin:0; font-size:24px;">Debts</h2>
@@ -666,6 +668,10 @@ const deleteDebtBaseUrl = @json($deleteDebtBaseUrl);
     bindEditButtons();
     bindDeleteButtons();
 </script>
+
+@include('partials.financial-statement-init', [
+    'financialStatementSaveUrl' => route('partner.lead.financial-statement.update', ['token' => $partner->token, 'lead' => $lead->id]),
+])
 
 </body>
 </html>
