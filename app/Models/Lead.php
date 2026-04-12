@@ -29,11 +29,13 @@ protected $fillable = [
     'case_notes',
     'source',
     'wip_status',
+    'financial_statement',
 ];
 
     protected $casts = [
         'temp_mail_created_at' => 'datetime',
         'temp_mail_last_checked_at' => 'datetime',
+        'financial_statement' => 'array',
     ];
 
     public function debts()

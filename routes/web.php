@@ -16,6 +16,8 @@ use App\Http\Controllers\WipController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 use App\Http\Controllers\PartnerLeadController;
+use App\Http\Controllers\LeadFinancialStatementController;
+use App\Services\FinancialStatementService;
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -80,7 +82,16 @@ Route::middleware('auth')->group(function () {
             ->latest()
             ->get();
 
-        return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports'));
+        $financialStatement = app(FinancialStatementService::class)->mergeForLead($lead);
+        $fsClientPayload = [
+            'income' => config('financial_statement.income'),
+            'expenditure_sections' => config('financial_statement.expenditure_sections'),
+            'guidelineBands' => config('sfs_spending_guidelines.bands'),
+            'guidelinesVersion' => config('sfs_spending_guidelines.version'),
+            'household_limits' => config('financial_statement.household_limits'),
+        ];
+
+        return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports', 'financialStatement', 'fsClientPayload'));
     });
 
     Route::get('/leads/{id}/credit-check-helper', function ($id) {
@@ -123,6 +134,9 @@ Route::middleware('auth')->group(function () {
             'value' => $value,
         ]);
     });
+
+    Route::patch('/lead/{lead}/financial-statement', [LeadFinancialStatementController::class, 'update'])
+        ->name('lead.financial-statement.update');
 
     Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
     Route::post('/lead/{lead}/action-points', [LeadCaseController::class, 'storeActionPoint'])->name('lead.action-points.store');
