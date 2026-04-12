@@ -326,7 +326,7 @@
                         $summaryId = 'fs-sum-'.$section['id'];
                         $metaId = 'fs-meta-'.$section['id'];
                     @endphp
-                    <details open style="background:#0f172a; border:1px solid #334155; border-radius:12px; padding:0;">
+                    <details style="background:#0f172a; border:1px solid #334155; border-radius:12px; padding:0;">
                         <summary style="cursor:pointer; list-style:none; padding:14px 16px; font-size:16px; font-weight:700; color:#f9fafb;">
                             {{ $section['title'] }}
                             <span style="float:right; font-weight:600; font-size:14px; color:#94a3b8;">
@@ -342,6 +342,9 @@
                                     style="margin:12px 0; padding:10px 12px; border-radius:8px; border:1px solid #334155; background:#020617; font-size:13px; line-height:1.5; color:#cbd5e1;"
                                 >
                                     <div>Guideline cap: <strong data-fs-cap-value>£0.00</strong></div>
+                                    <div style="margin-top:4px; font-size:12px; color:#94a3b8;">
+                                        Household for this cap: <span data-fs-household-label></span>
+                                    </div>
                                     <div style="margin-top:4px;"><span data-fs-pct-wrap></span></div>
                                     <div data-fs-below65 style="margin-top:4px; display:none; color:#fbbf24;"></div>
                                     <div data-fs-over style="margin-top:4px; display:none; color:#fecaca;"></div>
@@ -1133,6 +1136,18 @@
             };
         }
 
+        function formatHouseholdForCapLabel(hh) {
+            const a = hh.adults;
+            const u = hh.children_under_16;
+            const s = hh.children_16_18;
+            const adultWord = a === 1 ? 'adult' : 'adults';
+            const under16Word = u === 1 ? 'child' : 'children';
+            const teenWord = s === 1 ? 'child' : 'children';
+            return a + ' ' + adultWord
+                + ', ' + u + ' ' + under16Word + ' under 16'
+                + ', ' + s + ' ' + teenWord + ' aged 16–18';
+        }
+
         function parseAmount(el) {
             const v = el.value.trim();
             if (v === '') {
@@ -1172,6 +1187,11 @@
                     capStrong.textContent = fsFormatMoney(cap);
                 }
 
+                const hhLabelEl = meta.querySelector('[data-fs-household-label]');
+                if (hhLabelEl) {
+                    hhLabelEl.textContent = formatHouseholdForCapLabel(hh);
+                }
+
                 const pctWrap = meta.querySelector('[data-fs-pct-wrap]');
                 const below65El = meta.querySelector('[data-fs-below65]');
                 const overEl = meta.querySelector('[data-fs-over]');
@@ -1183,8 +1203,12 @@
                     if (pctWrap) {
                         pctWrap.textContent = '';
                     }
-                    below65El.style.display = 'none';
-                    overEl.style.display = 'none';
+                    if (below65El) {
+                        below65El.style.display = 'none';
+                    }
+                    if (overEl) {
+                        overEl.style.display = 'none';
+                    }
                     return;
                 }
 
@@ -1195,20 +1219,24 @@
                 }
 
                 if (pct < 65) {
-                    below65El.style.display = 'block';
-                    below65El.textContent = 'Below 65% of guideline — spending is low relative to cap.';
+                    if (below65El) {
+                        below65El.style.display = 'block';
+                        below65El.textContent = 'Below 65% of guideline — spending is low relative to cap.';
+                    }
                     meta.style.borderColor = '#854d0e';
                     meta.style.background = '#1c1917';
-                } else {
+                } else if (below65El) {
                     below65El.style.display = 'none';
                 }
 
                 if (total > cap + 0.005) {
-                    overEl.style.display = 'block';
-                    overEl.textContent = 'Exceeds guideline by ' + fsFormatMoney(total - cap) + '.';
+                    if (overEl) {
+                        overEl.style.display = 'block';
+                        overEl.textContent = 'Exceeds guideline by ' + fsFormatMoney(total - cap) + '.';
+                    }
                     meta.style.borderColor = '#991b1b';
                     meta.style.background = '#2a1215';
-                } else {
+                } else if (overEl) {
                     overEl.style.display = 'none';
                 }
             });
