@@ -59,6 +59,10 @@ class LeadChecklistService
         }
 
         if ($outstanding > 0) {
+            if (in_array($lead->wip_status, Lead::PRIORITY_WIP_STATUSES, true)) {
+                return;
+            }
+
             if ($lead->wip_status !== 'Awaiting Docs') {
                 $lead->update(['wip_status' => 'Awaiting Docs']);
             }

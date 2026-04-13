@@ -42,8 +42,8 @@ class WebsiteLeadController extends Controller
                 'phone_number' => $phone,
                 'email' => $validated['email'] ?? null,
                 'case_notes' => $validated['details'] ?? null,
-                'source' => 'WEBSITE-CLEARMYCREDIT',
-                'wip_status' => 'Awaiting Call',
+                'source' => Lead::websiteIntakeSourceId(),
+                'wip_status' => Lead::defaultWipStatusForWebsiteIntake(),
                 'vicidial_lead_id' => null,
             ]);
 

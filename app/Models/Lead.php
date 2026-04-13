@@ -2,8 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Models\Debt;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class Lead extends Model
 {
@@ -12,6 +13,13 @@ class Lead extends Model
         'Initial Assessment',
         'Awaiting Call',
     ];
+
+    /** Created within this window (hours) counts as "fresh" for immediate-attention UI. */
+    public const IMMEDIATE_ATTENTION_FRESH_HOURS = 24;
+
+    public const DEFAULT_WIP_STATUS_WEBSITE_INTAKE = 'Awaiting Call';
+
+    public const DEFAULT_WIP_STATUS_PARTNER_INTAKE = 'Initial Assessment';
 
 protected $fillable = [
     'vicidial_lead_id',
@@ -49,6 +57,47 @@ protected $fillable = [
     public function isPriorityWip(): bool
     {
         return in_array($this->wip_status, self::PRIORITY_WIP_STATUSES, true);
+    }
+
+    public static function defaultWipStatusForWebsiteIntake(): string
+    {
+        return self::DEFAULT_WIP_STATUS_WEBSITE_INTAKE;
+    }
+
+    public static function defaultWipStatusForPartnerIntake(): string
+    {
+        return self::DEFAULT_WIP_STATUS_PARTNER_INTAKE;
+    }
+
+    /**
+     * VICIdial / CRM source id for public website submissions (see config services.vicidial.website_source_id).
+     */
+    public static function websiteIntakeSourceId(): string
+    {
+        return config('services.vicidial.website_source_id', 'WEBSITE-CLEARMYCREDIT');
+    }
+
+    /**
+     * Strong WIP attention: priority intake, never dialled (requires last_dialled_at from VicidialDialActivityService), fresh.
+     */
+    public function needsImmediateAttention(?Carbon $now = null): bool
+    {
+        $now = $now ?? now();
+
+        if (! $this->isPriorityWip()) {
+            return false;
+        }
+
+        if ($this->getAttribute('last_dialled_at') !== null) {
+            return false;
+        }
+
+        $created = $this->created_at;
+        if ($created === null) {
+            return false;
+        }
+
+        return $created->greaterThanOrEqualTo($now->copy()->subHours(self::IMMEDIATE_ATTENTION_FRESH_HOURS));
     }
 
     public function debts()

@@ -135,6 +135,33 @@
             animation: wip-priority-glow 4.5s ease-in-out infinite;
             border-color: rgba(59, 130, 246, 0.45) !important;
         }
+        @keyframes wip-undialled-pulse {
+            0%, 100% {
+                box-shadow:
+                    0 0 0 2px rgba(245, 158, 11, 0.42),
+                    0 0 22px rgba(245, 158, 11, 0.12);
+            }
+            50% {
+                box-shadow:
+                    0 0 0 2px rgba(251, 191, 36, 0.58),
+                    0 0 34px rgba(251, 191, 36, 0.18);
+            }
+        }
+        .wip-card-undialled-attention {
+            animation: wip-undialled-pulse 2.4s ease-in-out infinite;
+            border-color: rgba(245, 158, 11, 0.72) !important;
+            background: linear-gradient(165deg, #1c1412 0%, #0f172a 55%, #0c1424 100%) !important;
+        }
+        .wip-card__badge--undialled {
+            background: linear-gradient(135deg, #9a3412 0%, #c2410c 100%);
+            border: 1px solid #fbbf24;
+            color: #fffbeb;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-size: 10px;
+            box-shadow: 0 0 14px rgba(251, 191, 36, 0.25);
+        }
         #wip-refresh-btn.is-spinning svg {
             animation: wip-spin 0.65s linear infinite;
         }
@@ -209,14 +236,18 @@
                     ? $lead->created_at->format('j M Y, H:i')
                     : '—';
                 $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
+                $needsImmediateAttention = $lead->needsImmediateAttention();
             @endphp
 
-            <div class="wip-card {{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}">
+            <div class="wip-card {{ $needsImmediateAttention ? 'wip-card-undialled-attention' : ($lead->isPriorityWip() ? 'wip-card-priority' : '') }}">
                 <div class="wip-card__row1">
                     <div class="wip-card__title">
                         <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
                     </div>
                     <div class="wip-card-actions">
+                        @if ($needsImmediateAttention)
+                            <span class="wip-card__badge wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
+                        @endif
                         <span id="outstanding-pill-{{ $lead->id }}"
                               class="wip-card__badge"
                               style="background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#f8fafc;">
