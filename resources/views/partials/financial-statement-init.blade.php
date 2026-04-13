@@ -71,7 +71,20 @@
         return Math.round(sum * 100) / 100;
     }
 
+    function incomeTotal() {
+        let sum = 0;
+        card.querySelectorAll('[data-fs-income]').forEach(function (el) {
+            sum += parseAmount(el);
+        });
+        return Math.round(sum * 100) / 100;
+    }
+
     function refreshTotalsAndGuidelines() {
+        const incomeSumEl = document.getElementById('fs-sum-income');
+        if (incomeSumEl) {
+            incomeSumEl.textContent = fsFormatMoney(incomeTotal());
+        }
+
         const hh = getHousehold();
         fsClientPayload.expenditure_sections.forEach(function (sec) {
             const sid = sec.id;
@@ -207,6 +220,15 @@
             scheduleFinancialSave();
         }
     });
+
+    const minimiseAllBtn = document.getElementById('fsMinimiseAllIe');
+    if (minimiseAllBtn) {
+        minimiseAllBtn.addEventListener('click', function () {
+            card.querySelectorAll('details[data-fs-ie-card]').forEach(function (d) {
+                d.removeAttribute('open');
+            });
+        });
+    }
 
     refreshTotalsAndGuidelines();
 })();

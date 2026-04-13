@@ -9,7 +9,16 @@
             <h2 style="margin:0; font-size:24px;">Income &amp; expenditure</h2>
             <div style="font-size:12px; color:#94a3b8; margin-top:6px;">SFS-style section caps for Comms &amp; Leisure, Food, Personal</div>
         </div>
-        <div id="financialStatementStatus" style="font-size:13px; color:#9ca3af; align-self:center;">Ready</div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; align-self:center;">
+            <button
+                type="button"
+                id="fsMinimiseAllIe"
+                style="background:transparent; color:#94a3b8; border:1px solid #475569; border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer; white-space:nowrap;"
+            >
+                Minimise all
+            </button>
+            <div id="financialStatementStatus" style="font-size:13px; color:#9ca3af;">Ready</div>
+        </div>
     </div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:20px;">
@@ -40,28 +49,37 @@
     </div>
 
     <div style="margin-bottom:20px;">
-        <h3 style="margin:0 0 12px 0; font-size:18px; color:#e5e7eb;">Income</h3>
-        <div style="display:flex; flex-direction:column; gap:12px;">
-            @foreach ($fsClientPayload['income'] as $row)
-                @php
-                    $amt = (float) ($financialStatement['income'][$row['code']] ?? 0);
-                    $showAmt = abs($amt) >= 0.005 ? number_format($amt, 2, '.', '') : '';
-                @endphp
-                <div>
-                    <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">{{ $row['label'] }}</label>
-                    <input
-                        type="number"
-                        inputmode="decimal"
-                        min="0"
-                        step="0.01"
-                        data-fs-income="{{ $row['code'] }}"
-                        value="{{ $showAmt }}"
-                        placeholder="0.00"
-                        style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:16px;"
-                    >
+        <details data-fs-ie-card style="background:#0f172a; border:1px solid #334155; border-radius:12px; padding:0;">
+            <summary style="cursor:pointer; list-style:none; padding:14px 16px; font-size:16px; font-weight:700; color:#f9fafb;">
+                Income
+                <span style="float:right; font-weight:600; font-size:14px; color:#94a3b8;">
+                    Total <span id="fs-sum-income">£0.00</span>
+                </span>
+            </summary>
+            <div style="padding:0 16px 14px 16px; border-top:1px solid #1e293b;">
+                <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+                    @foreach ($fsClientPayload['income'] as $row)
+                        @php
+                            $amt = (float) ($financialStatement['income'][$row['code']] ?? 0);
+                            $showAmt = abs($amt) >= 0.005 ? number_format($amt, 2, '.', '') : '';
+                        @endphp
+                        <div>
+                            <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">{{ $row['label'] }}</label>
+                            <input
+                                type="number"
+                                inputmode="decimal"
+                                min="0"
+                                step="0.01"
+                                data-fs-income="{{ $row['code'] }}"
+                                value="{{ $showAmt }}"
+                                placeholder="0.00"
+                                style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:16px;"
+                            >
+                        </div>
+                    @endforeach
                 </div>
-            @endforeach
-        </div>
+            </div>
+        </details>
     </div>
 
     <div>
@@ -73,7 +91,7 @@
                     $summaryId = 'fs-sum-'.$section['id'];
                     $metaId = 'fs-meta-'.$section['id'];
                 @endphp
-                <details style="background:#0f172a; border:1px solid #334155; border-radius:12px; padding:0;">
+                <details data-fs-ie-card style="background:#0f172a; border:1px solid #334155; border-radius:12px; padding:0;">
                     <summary style="cursor:pointer; list-style:none; padding:14px 16px; font-size:16px; font-weight:700; color:#f9fafb;">
                         {{ $section['title'] }}
                         <span style="float:right; font-weight:600; font-size:14px; color:#94a3b8;">
