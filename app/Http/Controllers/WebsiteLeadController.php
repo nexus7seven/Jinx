@@ -31,14 +31,16 @@ class WebsiteLeadController extends Controller
         $validated = $validator->validated();
 
         $fullName = trim((string) preg_replace('/\s+/', ' ', $validated['full_name']));
+        $phone = trim((string) $validated['phone']);
+        $details = isset($validated['details']) ? trim((string) $validated['details']) : null;
         [$firstName, $lastName] = $this->splitName($fullName);
 
         $lead = Lead::create([
             'first_name' => $firstName,
             'last_name' => $lastName,
-            'phone_number' => trim($validated['phone']),
+            'phone_number' => $phone,
             'email' => $validated['email'] ?? null,
-            'case_notes' => $validated['details'] ?? null,
+            'case_notes' => $details !== '' ? $details : null,
             'source' => 'WEBSITE-CLEARMYCREDIT',
             'wip_status' => 'WIP',
         ]);
