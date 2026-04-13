@@ -85,7 +85,7 @@
         .wip-meta-pill {
             display: inline-block;
             vertical-align: middle;
-            margin: 1px 0;
+            margin: 1px 0 1px 0.35em;
             padding: 2px 7px;
             border-radius: 999px;
             font-size: 10px;
@@ -229,13 +229,11 @@
                 </div>
 
                 <div class="wip-card__meta">
-                    <span class="wip-meta-k">Lead ID</span> <span class="wip-meta-v">{{ $lead->id }}</span>
-                    <span class="wip-meta-dot" aria-hidden="true">·</span>
                     <span class="wip-meta-k">Created</span> <span class="wip-meta-v">{{ $createdText }}</span>
                     <span class="wip-meta-dot" aria-hidden="true">·</span>
-                    <span class="wip-meta-pill">{{ $sourceLabel }}</span>
-                    <span class="wip-meta-dot" aria-hidden="true">·</span>
                     <span class="wip-meta-k">Last dialled</span> <span class="wip-meta-v">{{ $lastDialledText }}</span>
+                    <span class="wip-meta-dot" aria-hidden="true">·</span>
+                    <span class="wip-meta-pill">{{ $sourceLabel }}</span>
                 </div>
 
                 <div class="wip-card__controls">
