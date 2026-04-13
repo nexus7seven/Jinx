@@ -21,31 +21,50 @@ class Lead extends Model
 
     public const DEFAULT_WIP_STATUS_PARTNER_INTAKE = 'Initial Assessment';
 
-protected $fillable = [
-    'vicidial_lead_id',
-    'phone_number',
-    'first_name',
-    'last_name',
-    'dob',
-    'email',
-    'temp_mail',
-    'temp_mail_provider',
-    'temp_mail_created_at',
-    'temp_mail_last_checked_at',
-    'temp_mail_last_code',
-    'temp_mail_last_subject',
-    'temp_mail_last_from',
-    'temp_mail_last_message_id',
-    'temp_mail_last_body_text',
-    'house_number',
-    'postcode',
-    'address_line_1',
-    'case_notes',
-    'source',
-    'from_vicidial_webform',
-    'wip_status',
-    'financial_statement',
-];
+    /** All selectable WIP case statuses (lead detail, WIP screen, API validation). */
+    public const WIP_STATUSES = [
+        'Initial Assessment',
+        'Awaiting Call',
+        'WIP',
+        'Awaiting Docs',
+        'Ready to Draft',
+        'Sale',
+        'Lost Contact',
+        'DEAD',
+    ];
+
+    /** Not listed on the WIP "Active" tab (shown on "All" only). */
+    public const WIP_STATUSES_EXCLUDED_FROM_ACTIVE_TAB = [
+        'Sale',
+        'Lost Contact',
+        'DEAD',
+    ];
+
+    protected $fillable = [
+        'vicidial_lead_id',
+        'phone_number',
+        'first_name',
+        'last_name',
+        'dob',
+        'email',
+        'temp_mail',
+        'temp_mail_provider',
+        'temp_mail_created_at',
+        'temp_mail_last_checked_at',
+        'temp_mail_last_code',
+        'temp_mail_last_subject',
+        'temp_mail_last_from',
+        'temp_mail_last_message_id',
+        'temp_mail_last_body_text',
+        'house_number',
+        'postcode',
+        'address_line_1',
+        'case_notes',
+        'source',
+        'from_vicidial_webform',
+        'wip_status',
+        'financial_statement',
+    ];
 
     protected $casts = [
         'temp_mail_created_at' => 'datetime',

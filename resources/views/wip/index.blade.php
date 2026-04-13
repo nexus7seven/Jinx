@@ -218,7 +218,46 @@
 
     <div id="wip-ops-toast" role="status"></div>
 
-    <div style="display:grid; gap:12px;">
+    <div id="wip-filter-bar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px;">
+        <input
+            type="search"
+            id="wip-filter-name"
+            autocomplete="off"
+            placeholder="Filter by name…"
+            aria-label="Filter leads by name"
+            style="flex:1; min-width:180px; max-width:320px; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+        >
+        <select
+            id="wip-filter-status"
+            aria-label="Filter by status"
+            style="min-width:200px; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+        >
+            <option value="">All statuses</option>
+            @foreach($statuses as $status)
+                <option value="{{ $status }}">{{ $status }}</option>
+            @endforeach
+        </select>
+        <select
+            id="wip-filter-source"
+            aria-label="Filter by source"
+            style="min-width:200px; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+        >
+            <option value="">All sources</option>
+            @foreach($wip_source_filter_options ?? [] as $rawSource)
+                @if($rawSource === '')
+                    <option value="__EMPTY__">{{ \App\Support\LeadSourceDisplay::label(null) }}</option>
+                @else
+                    <option value="{{ $rawSource }}">{{ \App\Support\LeadSourceDisplay::label($rawSource) }}</option>
+                @endif
+            @endforeach
+        </select>
+    </div>
+
+    <div id="wip-filter-no-matches" style="display:none; margin-bottom:12px; background:#111827; border:1px solid #374151; border-radius:16px; padding:18px; color:#9ca3af;">
+        No cases match the current filters.
+    </div>
+
+    <div id="wip-leads-grid" style="display:grid; gap:12px;">
         @forelse($leads as $lead)
             @php
                 $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
@@ -230,6 +269,7 @@
                 $pillBg = $outstanding === 0 ? '#065f46' : '#92400e';
                 $pillBorder = $outstanding === 0 ? '#10b981' : '#f59e0b';
                 $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
+                $sourceRaw = $lead->source === null ? '' : trim((string) $lead->source);
                 $lastDialled = $lead->last_dialled_at;
                 $lastDialledText = $lastDialled ? $lastDialled->format('d M Y, H:i') : 'Never dialled';
                 $createdText = $lead->created_at
@@ -239,7 +279,13 @@
                 $needsImmediateAttention = $lead->needsImmediateAttention();
             @endphp
 
-            <div class="wip-card {{ $needsImmediateAttention ? 'wip-card-undialled-attention' : ($lead->isPriorityWip() ? 'wip-card-priority' : '') }}">
+            <div
+                class="wip-card wip-lead-row {{ $needsImmediateAttention ? 'wip-card-undialled-attention' : ($lead->isPriorityWip() ? 'wip-card-priority' : '') }}"
+                data-lead-id="{{ $lead->id }}"
+                data-lead-name="{{ strtolower($caseName) }}"
+                data-wip-status="{{ $lead->wip_status }}"
+                data-lead-source="{{ e($sourceRaw) }}"
+            >
                 <div class="wip-card__row1">
                     <div class="wip-card__title">
                         <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
@@ -330,6 +376,53 @@
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const wipOpsAlertLeads = @json($ops_alert_leads ?? []);
 
+    const wipFilterNameInput = document.getElementById('wip-filter-name');
+    const wipFilterStatus = document.getElementById('wip-filter-status');
+    const wipFilterSource = document.getElementById('wip-filter-source');
+    const wipFilterNoMatches = document.getElementById('wip-filter-no-matches');
+
+    function applyWipFilters() {
+        if (!wipFilterNameInput || !wipFilterStatus || !wipFilterSource) return;
+
+        const q = (wipFilterNameInput.value || '').trim().toLowerCase();
+        const st = wipFilterStatus.value;
+        const src = wipFilterSource.value;
+
+        const rows = document.querySelectorAll('.wip-lead-row');
+        let visible = 0;
+
+        rows.forEach(function (card) {
+            const name = card.dataset.leadName || '';
+            const okName = !q || name.includes(q);
+            const okStatus = !st || card.dataset.wipStatus === st;
+            let okSource = true;
+            if (src) {
+                if (src === '__EMPTY__') {
+                    okSource = (card.dataset.leadSource || '') === '';
+                } else {
+                    okSource = (card.dataset.leadSource || '') === src;
+                }
+            }
+            const show = okName && okStatus && okSource;
+            card.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+
+        if (wipFilterNoMatches) {
+            wipFilterNoMatches.style.display = (rows.length > 0 && visible === 0) ? 'block' : 'none';
+        }
+    }
+
+    if (wipFilterNameInput) {
+        wipFilterNameInput.addEventListener('input', applyWipFilters);
+    }
+    if (wipFilterStatus) {
+        wipFilterStatus.addEventListener('change', applyWipFilters);
+    }
+    if (wipFilterSource) {
+        wipFilterSource.addEventListener('change', applyWipFilters);
+    }
+
     const modal = document.getElementById('checklist-modal');
     const modalCaseName = document.getElementById('modal-case-name');
     const modalSubtitle = document.getElementById('modal-subtitle');
@@ -366,7 +459,13 @@
         const select = document.querySelector(`.status-select[data-lead-id="${leadId}"]`);
         if (select) {
             select.value = status;
+            select.setAttribute('data-original', status);
         }
+        const card = document.querySelector(`.wip-lead-row[data-lead-id="${leadId}"]`);
+        if (card) {
+            card.dataset.wipStatus = status;
+        }
+        applyWipFilters();
     }
 
     function renderChecklist(items, counts) {
@@ -482,7 +581,7 @@
                 }
 
                 const data = await response.json();
-                select.setAttribute('data-original', data.wip_status);
+                updateStatusSelect(leadId, data.wip_status);
             } catch (error) {
                 alert('Could not update status.');
                 select.value = originalValue;

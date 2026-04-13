@@ -10,20 +10,11 @@ use App\Services\LeadOpsAlertEligibility;
 use App\Services\VicidialDialActivityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class WipController extends Controller
 {
-    private const ALL_STATUSES = [
-        'Initial Assessment',
-        'Awaiting Call',
-        'WIP',
-        'Awaiting Docs',
-        'Ready to Draft',
-        'Sale',
-        'Lost Contact',
-    ];
-
     private const PRIORITY_ORDER_SQL = "CASE WHEN wip_status IN ('Initial Assessment','Awaiting Call') THEN 0 ELSE 1 END";
 
     public function __construct(
@@ -39,7 +30,7 @@ class WipController extends Controller
 
         $firstPass = Lead::query()
             ->when($show !== 'all', function ($query) {
-                $query->whereNotIn('wip_status', ['Sale', 'Lost Contact']);
+                $query->whereNotIn('wip_status', Lead::WIP_STATUSES_EXCLUDED_FROM_ACTIVE_TAB);
             })
             ->orderByRaw(self::PRIORITY_ORDER_SQL)
             ->orderByDesc('created_at')
@@ -51,7 +42,7 @@ class WipController extends Controller
 
         $leads = Lead::query()
             ->when($show !== 'all', function ($query) {
-                $query->whereNotIn('wip_status', ['Sale', 'Lost Contact']);
+                $query->whereNotIn('wip_status', Lead::WIP_STATUSES_EXCLUDED_FROM_ACTIVE_TAB);
             })
             ->whereIn('id', $firstPass->pluck('id'))
             ->orderByRaw(self::PRIORITY_ORDER_SQL)
@@ -86,18 +77,33 @@ class WipController extends Controller
             ];
         })->values()->all();
 
+        $wipSourceFilterOptions = $leads
+            ->map(function (Lead $lead) {
+                $s = $lead->source;
+                if ($s === null) {
+                    return '';
+                }
+
+                return trim((string) $s);
+            })
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
         return view('wip.index', [
             'leads' => $leads,
-            'statuses' => self::ALL_STATUSES,
+            'statuses' => Lead::WIP_STATUSES,
             'show' => $show,
             'ops_alert_leads' => $opsAlertLeads,
+            'wip_source_filter_options' => $wipSourceFilterOptions,
         ]);
     }
 
     public function updateStatus(Request $request, Lead $lead): JsonResponse
     {
         $validated = $request->validate([
-            'wip_status' => ['required', 'in:' . implode(',', self::ALL_STATUSES)],
+            'wip_status' => ['required', Rule::in(Lead::WIP_STATUSES)],
         ]);
 
         $lead->update([

@@ -17,6 +17,7 @@ class LeadChecklistService
     private const PROTECTED_STATUSES = [
         'Sale',
         'Lost Contact',
+        'DEAD',
     ];
 
     private const REQUIRED_DEBT_SOURCES = [

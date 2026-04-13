@@ -199,6 +199,19 @@
                 >
             </div>
 
+            <div>
+                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">WIP status</label>
+                <select
+                    id="lead-wip-status-select"
+                    data-lead-id="{{ $lead->id }}"
+                    style="display:block; width:100%; max-width:420px; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px;"
+                >
+                    @foreach (\App\Models\Lead::WIP_STATUSES as $status)
+                        <option value="{{ $status }}" @if($lead->wip_status === $status) selected @endif>{{ $status }}</option>
+                    @endforeach
+                </select>
+            </div>
+
             <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:12px 14px;">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
                     <div style="flex:1; min-width:220px;">
@@ -1597,6 +1610,41 @@
     bindDeleteButtons();
     bindDeleteReportButtons();
     refreshDebtInterpretation();
+
+    (function () {
+        const leadWipStatusSelect = document.getElementById('lead-wip-status-select');
+        if (!leadWipStatusSelect) return;
+
+        let originalWipStatus = leadWipStatusSelect.value;
+
+        leadWipStatusSelect.addEventListener('change', async function () {
+            const leadId = leadWipStatusSelect.dataset.leadId;
+            const newValue = leadWipStatusSelect.value;
+
+            try {
+                const response = await fetch('/lead/' + leadId + '/wip-status', {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ wip_status: newValue }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed');
+                }
+
+                const data = await response.json();
+                originalWipStatus = data.wip_status;
+                leadWipStatusSelect.value = data.wip_status;
+            } catch (e) {
+                alert('Could not update WIP status.');
+                leadWipStatusSelect.value = originalWipStatus;
+            }
+        });
+    })();
 </script>
 
 @include('partials.financial-statement-init', [
