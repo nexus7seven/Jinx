@@ -7,6 +7,12 @@ use App\Models\Debt;
 
 class Lead extends Model
 {
+    /** Shown first on WIP with highlight; partner + website intake. */
+    public const PRIORITY_WIP_STATUSES = [
+        'Initial Assessment',
+        'Awaiting Call',
+    ];
+
 protected $fillable = [
     'vicidial_lead_id',
     'phone_number',
@@ -28,6 +34,7 @@ protected $fillable = [
     'address_line_1',
     'case_notes',
     'source',
+    'from_vicidial_webform',
     'wip_status',
     'financial_statement',
 ];
@@ -36,7 +43,13 @@ protected $fillable = [
         'temp_mail_created_at' => 'datetime',
         'temp_mail_last_checked_at' => 'datetime',
         'financial_statement' => 'array',
+        'from_vicidial_webform' => 'boolean',
     ];
+
+    public function isPriorityWip(): bool
+    {
+        return in_array($this->wip_status, self::PRIORITY_WIP_STATUSES, true);
+    }
 
     public function debts()
     {

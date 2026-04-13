@@ -5,15 +5,54 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jinx WIP</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <style>
+        @keyframes wip-priority-glow {
+            0%, 100% { box-shadow: 0 0 0 1px rgba(59,130,246,0.35), 0 0 18px rgba(59,130,246,0.1); }
+            50% { box-shadow: 0 0 0 1px rgba(96,165,250,0.5), 0 0 28px rgba(59,130,246,0.2); }
+        }
+        .wip-card-priority {
+            animation: wip-priority-glow 3.2s ease-in-out infinite;
+            border-color: #3b82f6 !important;
+        }
+        #wip-refresh-btn.is-spinning svg {
+            animation: wip-spin 0.65s linear infinite;
+        }
+        @keyframes wip-spin { to { transform: rotate(360deg); } }
+        #wip-ops-toast {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            max-width: min(520px, calc(100vw - 32px));
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f8fafc;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+        }
+    </style>
 </head>
 <body style="margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 
 <div style="max-width:980px; margin:0 auto; padding:20px; box-sizing:border-box;">
 
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap;">
-        <div>
-            <div style="font-size:26px; font-weight:700;">WIP</div>
-            <div style="font-size:13px; color:#9ca3af; margin-top:4px;">Case queue</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div>
+                <div style="font-size:26px; font-weight:700;">WIP</div>
+                <div style="font-size:13px; color:#9ca3af; margin-top:4px;">Case queue</div>
+            </div>
+            <button type="button" id="wip-refresh-btn" title="Reload"
+                    style="display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; cursor:pointer;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                    <path d="M21 3v7h-7"/>
+                </svg>
+            </button>
         </div>
 
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -29,6 +68,8 @@
         </div>
     </div>
 
+    <div id="wip-ops-toast" role="status"></div>
+
     <div style="display:grid; gap:12px;">
         @forelse($leads as $lead)
             @php
@@ -40,9 +81,12 @@
                 $outstanding = (int) ($lead->checklist_outstanding_count ?? 0);
                 $pillBg = $outstanding === 0 ? '#065f46' : '#92400e';
                 $pillBorder = $outstanding === 0 ? '#10b981' : '#f59e0b';
+                $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
+                $lastDialled = $lead->last_dialled_at;
+                $lastDialledText = $lastDialled ? $lastDialled->format('d M Y, H:i') : 'Never dialled';
             @endphp
 
-            <div style="background:#111827; border:1px solid #374151; border-radius:16px; padding:14px;">
+            <div class="{{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}" style="background:#111827; border:1px solid #374151; border-radius:16px; padding:14px;">
                 <div style="display:flex; flex-direction:column; gap:12px;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
                         <div style="min-width:0; flex:1;">
@@ -53,6 +97,12 @@
                             <div style="font-size:12px; color:#9ca3af; margin-top:6px;">
                                 Lead ID: {{ $lead->id }}
                             </div>
+                            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
+                                <span style="display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600; background:#1e293b; border:1px solid #475569; color:#e2e8f0;">
+                                    {{ $sourceLabel }}
+                                </span>
+                                <span style="font-size:12px; color:#94a3b8;">Last dialled: <span style="color:#cbd5e1;">{{ $lastDialledText }}</span></span>
+                            </div>
                         </div>
 
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -61,6 +111,10 @@
                                 {{ $outstanding }} outstanding
                             </span>
                         </div>
+                    </div>
+
+                    <div style="max-width:420px;">
+                        @include('partials.lead-click-to-call', ['lead' => $lead, 'compact' => true])
                     </div>
 
                     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -127,6 +181,7 @@
 
 <script>
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const wipOpsAlertLeads = @json($ops_alert_leads ?? []);
 
     const modal = document.getElementById('checklist-modal');
     const modalCaseName = document.getElementById('modal-case-name');
@@ -408,6 +463,119 @@
             await refreshChecklist();
         }
     });
+
+    (function () {
+        const refreshBtn = document.getElementById('wip-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function () {
+                refreshBtn.classList.add('is-spinning');
+                window.location.reload();
+            });
+        }
+
+        const IDLE_MS = 60000;
+        const CHECK_MS = 5000;
+        let lastActivity = Date.now();
+
+        function markActive() {
+            lastActivity = Date.now();
+        }
+
+        ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function (ev) {
+            window.addEventListener(ev, markActive, { passive: true });
+        });
+
+        function isFormFieldFocused() {
+            const el = document.activeElement;
+            if (!el) return false;
+            const tag = el.tagName;
+            if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (tag === 'INPUT') {
+                const t = el.type || 'text';
+                if (t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return false;
+                return true;
+            }
+            return false;
+        }
+
+        setInterval(function () {
+            if (document.getElementById('checklist-modal') && document.getElementById('checklist-modal').style.display === 'block') {
+                return;
+            }
+            if (isFormFieldFocused()) return;
+            if (Date.now() - lastActivity < IDLE_MS) return;
+            window.location.reload();
+        }, CHECK_MS);
+
+        const BASELINE_KEY = 'jinx_wip_ops_baseline_done';
+        const MAX_SEEN_KEY = 'jinx_wip_max_seen_lead_id';
+
+        function playSoftBeep() {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return;
+                const ctx = new Ctx();
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'sine';
+                o.frequency.value = 880;
+                g.gain.value = 0.035;
+                o.connect(g);
+                g.connect(ctx.destination);
+                o.start();
+                setTimeout(function () {
+                    o.stop();
+                    ctx.close();
+                }, 100);
+            } catch (e) {}
+        }
+
+        function runOpsAlerts() {
+            if (!wipOpsAlertLeads || !wipOpsAlertLeads.length) return;
+
+            const ids = wipOpsAlertLeads.map(function (r) { return r.id; });
+            const currentMax = ids.length ? Math.max.apply(null, ids) : 0;
+
+            try {
+                if (!localStorage.getItem(BASELINE_KEY)) {
+                    localStorage.setItem(MAX_SEEN_KEY, String(currentMax));
+                    localStorage.setItem(BASELINE_KEY, '1');
+                    return;
+                }
+            } catch (e) {
+                return;
+            }
+
+            let storedMax = 0;
+            try {
+                storedMax = parseInt(localStorage.getItem(MAX_SEEN_KEY) || '0', 10) || 0;
+            } catch (e) {}
+
+            const fresh = wipOpsAlertLeads.filter(function (r) {
+                return r.eligible && r.id > storedMax;
+            });
+
+            if (fresh.length) {
+                const toast = document.getElementById('wip-ops-toast');
+                if (toast) {
+                    toast.style.display = 'block';
+                    toast.textContent = fresh.length === 1
+                        ? ('New lead: ' + (fresh[0].label || ('#' + fresh[0].id)))
+                        : (fresh.length + ' new leads — latest: ' + (fresh[fresh.length - 1].label || ('#' + fresh[fresh.length - 1].id)));
+                    setTimeout(function () {
+                        toast.style.display = 'none';
+                    }, 8000);
+                }
+                playSoftBeep();
+            }
+
+            try {
+                localStorage.setItem(MAX_SEEN_KEY, String(Math.max(storedMax, currentMax)));
+            } catch (e) {}
+        }
+
+        runOpsAlerts();
+    })();
 </script>
 
 </body>

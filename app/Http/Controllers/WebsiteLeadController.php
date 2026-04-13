@@ -43,7 +43,7 @@ class WebsiteLeadController extends Controller
                 'email' => $validated['email'] ?? null,
                 'case_notes' => $validated['details'] ?? null,
                 'source' => 'WEBSITE-CLEARMYCREDIT',
-                'wip_status' => 'WIP',
+                'wip_status' => 'Awaiting Call',
                 'vicidial_lead_id' => null,
             ]);
 

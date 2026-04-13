@@ -19,6 +19,8 @@ use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
 use App\Services\FinancialStatementService;
+use App\Services\VicidialDialActivityService;
+use App\Http\Controllers\ClickToCallController;
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -72,6 +74,7 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/wip');
 
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
+    Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
 
     Route::get('/lead/{lead}/checklist', [WipController::class, 'checklist'])->name('lead.checklist.index');
@@ -98,7 +101,9 @@ Route::middleware('auth')->group(function () {
         $financialStatement = $financialStatementService->mergeForLead($lead);
         $fsClientPayload = $financialStatementService->clientViewPayload();
 
-        return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports', 'financialStatement', 'fsClientPayload'));
+        $lastDialledAt = app(VicidialDialActivityService::class)->lastDialledAtForLead($lead);
+
+        return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports', 'financialStatement', 'fsClientPayload', 'lastDialledAt'));
     });
 
     Route::get('/leads/{id}/credit-check-helper', function ($id) {
@@ -263,6 +268,7 @@ Route::middleware('auth')->group(function () {
                 'postcode'         => $request->query('postal_code'),
                 'address_line_1'   => $request->query('address1'),
                 'source'           => $sourceId,
+                'from_vicidial_webform' => true,
             ]);
         } elseif ($sourceId !== null && blank($lead->source)) {
             $lead->source = $sourceId;

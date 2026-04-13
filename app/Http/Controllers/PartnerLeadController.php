@@ -76,7 +76,7 @@ class PartnerLeadController extends Controller
                 'address_line_1'   => $validated['address1'] ?? null,
                 'postcode'         => $validated['postcode'] ?? null,
                 'source'           => $partner->name,
-                'wip_status'       => 'WIP',
+                'wip_status'       => 'Initial Assessment',
                 'case_notes'       => $validated['notes'] ?? null,
                 'vicidial_lead_id' => null,
             ]);

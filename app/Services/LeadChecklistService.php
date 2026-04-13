@@ -48,6 +48,10 @@ class LeadChecklistService
             ->count();
 
         if ($total === 0) {
+            if (in_array($lead->wip_status, Lead::PRIORITY_WIP_STATUSES, true)) {
+                return;
+            }
+
             if ($lead->wip_status !== 'WIP') {
                 $lead->update(['wip_status' => 'WIP']);
             }

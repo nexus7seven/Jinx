@@ -175,6 +175,16 @@
                     value="{{ $lead->phone_number }}"
                     style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
                 >
+                <div style="margin-top:8px; font-size:12px; color:#94a3b8;">
+                    Last dialled (dialler):
+                    <span style="color:#cbd5e1;">
+                        {{ $lastDialledAt ? $lastDialledAt->format('d M Y, H:i') : 'Never dialled' }}
+                    </span>
+                </div>
+            </div>
+
+            <div style="margin-top:4px;">
+                @include('partials.lead-click-to-call', ['lead' => $lead, 'compact' => false])
             </div>
 
             <div>

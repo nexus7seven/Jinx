@@ -48,4 +48,14 @@ return [
     'website_source_id' => env('VICIDIAL_WEBSITE_SOURCE_ID', 'WEBSITE-CLEARMYCREDIT'),
 ],
 
+    /*
+    | Deckard callback_action.php — direct_dial and other actions (full URL to PHP endpoint).
+    | Agent credentials stay on the Deckard server in callback_action.php / env there, not in Jinx.
+    */
+    'deckard' => [
+        'callback_url' => env('DECKARD_CALLBACK_URL'),
+        'agent_user' => env('VICIDIAL_AGENT_USER'),
+        'agent_pass' => env('VICIDIAL_AGENT_PASS'),
+    ],
+
 ];

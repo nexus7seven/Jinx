@@ -6,16 +6,30 @@ use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use App\Services\LeadChecklistService;
+use App\Services\LeadOpsAlertEligibility;
+use App\Services\VicidialDialActivityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class WipController extends Controller
 {
-    private const ALL_STATUSES = ['WIP', 'Awaiting Docs', 'Ready to Draft', 'Sale', 'Lost Contact'];
+    private const ALL_STATUSES = [
+        'Initial Assessment',
+        'Awaiting Call',
+        'WIP',
+        'Awaiting Docs',
+        'Ready to Draft',
+        'Sale',
+        'Lost Contact',
+    ];
+
+    private const PRIORITY_ORDER_SQL = "CASE WHEN wip_status IN ('Initial Assessment','Awaiting Call') THEN 0 ELSE 1 END";
 
     public function __construct(
-        private LeadChecklistService $checklistService
+        private LeadChecklistService $checklistService,
+        private VicidialDialActivityService $dialActivityService,
+        private LeadOpsAlertEligibility $opsAlertEligibility,
     ) {
     }
 
@@ -23,14 +37,15 @@ class WipController extends Controller
     {
         $show = $request->get('show', 'active');
 
-        $leads = Lead::query()
+        $firstPass = Lead::query()
             ->when($show !== 'all', function ($query) {
                 $query->whereNotIn('wip_status', ['Sale', 'Lost Contact']);
             })
+            ->orderByRaw(self::PRIORITY_ORDER_SQL)
             ->orderByDesc('created_at')
             ->get();
 
-        foreach ($leads as $lead) {
+        foreach ($firstPass as $lead) {
             $this->checklistService->syncForLead($lead);
         }
 
@@ -38,6 +53,8 @@ class WipController extends Controller
             ->when($show !== 'all', function ($query) {
                 $query->whereNotIn('wip_status', ['Sale', 'Lost Contact']);
             })
+            ->whereIn('id', $firstPass->pluck('id'))
+            ->orderByRaw(self::PRIORITY_ORDER_SQL)
             ->orderByDesc('created_at')
             ->get();
 
@@ -50,6 +67,8 @@ class WipController extends Controller
             ->get()
             ->keyBy('lead_id');
 
+        $this->dialActivityService->attachLastDialledToLeads($leads);
+
         $leads = $leads->map(function ($lead) use ($counts) {
             $countRow = $counts->get($lead->id);
 
@@ -59,10 +78,19 @@ class WipController extends Controller
             return $lead;
         });
 
+        $opsAlertLeads = $leads->map(function (Lead $lead) {
+            return [
+                'id' => $lead->id,
+                'label' => $this->caseName($lead),
+                'eligible' => $this->opsAlertEligibility->shouldNotifyNewLeadForOps($lead),
+            ];
+        })->values()->all();
+
         return view('wip.index', [
             'leads' => $leads,
             'statuses' => self::ALL_STATUSES,
             'show' => $show,
+            'ops_alert_leads' => $opsAlertLeads,
         ]);
     }
 
