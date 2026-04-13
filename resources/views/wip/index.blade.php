@@ -597,7 +597,7 @@
             lastActivity = Date.now();
         }
 
-        ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function (ev) {
+        ['click', 'keydown', 'scroll', 'touchstart', 'focusin'].forEach(function (ev) {
             window.addEventListener(ev, markActive, { passive: true });
         });
 
