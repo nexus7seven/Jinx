@@ -5,15 +5,27 @@
 @once
     <div id="jinx-ctc-toast" role="status" aria-live="polite"
          style="display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:10001; max-width:min(420px, calc(100vw - 32px)); padding:12px 16px; border-radius:12px; font-size:14px; box-shadow:0 8px 32px rgba(0,0,0,0.45);"></div>
+    <style>
+        .jinx-ctc-btn {
+            margin: 0;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e5e7eb;
+            background: #1f2937;
+            border: 1px solid #4b5563;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .jinx-ctc-btn:hover {
+            background: #273549;
+            border-color: #64748b;
+        }
+    </style>
 @endonce
 
 @if ($canCall)
-    <button type="button"
-            class="jinx-ctc-btn"
-            data-lead-id="{{ $lead->id }}"
-            style="margin:0; padding:6px 12px; font-size:13px; font-weight:600; color:#e5e7eb; background:#1f2937; border:1px solid #4b5563; border-radius:8px; cursor:pointer;">
-        Call
-    </button>
+    <button type="button" class="jinx-ctc-btn" data-lead-id="{{ $lead->id }}">Call</button>
 @endif
 
 @once

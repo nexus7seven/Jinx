@@ -6,13 +6,134 @@
     <title>Jinx WIP</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
+        .wip-card {
+            background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .wip-card__row1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .wip-card__title {
+            margin: 0;
+            min-width: 0;
+            flex: 1;
+        }
+        .wip-card__title a {
+            color: #f8fafc;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.35;
+            letter-spacing: -0.01em;
+            display: inline-block;
+            word-break: break-word;
+        }
+        .wip-card__title a:hover {
+            color: #e2e8f0;
+        }
+        .wip-card-actions {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .wip-card__badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+        .wip-card-actions .jinx-ctc-btn {
+            min-width: 4.25rem;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e2e8f0;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .wip-card-actions .jinx-ctc-btn:hover {
+            background: #273549;
+            border-color: #475569;
+        }
+        .wip-card__meta {
+            font-size: 11px;
+            line-height: 1.55;
+            color: #64748b;
+            padding-top: 2px;
+            border-top: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .wip-meta-k { color: #64748b; font-weight: 500; }
+        .wip-meta-v { color: #94a3b8; font-weight: 400; }
+        .wip-meta-dot { color: #3f4f63; margin: 0 0.28em; user-select: none; }
+        .wip-meta-pill {
+            display: inline-block;
+            vertical-align: middle;
+            margin: 1px 0;
+            padding: 2px 7px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 600;
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid #334155;
+            color: #cbd5e1;
+        }
+        .wip-card__controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: stretch;
+        }
+        .wip-card__controls .status-select {
+            flex: 1;
+            min-width: 200px;
+            background: #0f172a;
+            color: #f1f5f9;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .wip-card__controls .open-checklist-btn {
+            background: transparent;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .wip-card__controls .open-checklist-btn:hover {
+            background: #1e293b;
+            border-color: #64748b;
+            color: #f1f5f9;
+        }
         @keyframes wip-priority-glow {
-            0%, 100% { box-shadow: 0 0 0 1px rgba(59,130,246,0.35), 0 0 18px rgba(59,130,246,0.1); }
-            50% { box-shadow: 0 0 0 1px rgba(96,165,250,0.5), 0 0 28px rgba(59,130,246,0.2); }
+            0%, 100% { box-shadow: 0 0 0 1px rgba(37,99,235,0.22), 0 0 20px rgba(37,99,235,0.06); }
+            50% { box-shadow: 0 0 0 1px rgba(59,130,246,0.35), 0 0 24px rgba(59,130,246,0.1); }
         }
         .wip-card-priority {
-            animation: wip-priority-glow 3.2s ease-in-out infinite;
-            border-color: #3b82f6 !important;
+            animation: wip-priority-glow 4.5s ease-in-out infinite;
+            border-color: rgba(59, 130, 246, 0.45) !important;
         }
         #wip-refresh-btn.is-spinning svg {
             animation: wip-spin 0.65s linear infinite;
@@ -70,7 +191,7 @@
 
     <div id="wip-ops-toast" role="status"></div>
 
-    <div style="display:grid; gap:10px;">
+    <div style="display:grid; gap:12px;">
         @forelse($leads as $lead)
             @php
                 $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
@@ -90,56 +211,51 @@
                 $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
             @endphp
 
-            <div class="{{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:12px;">
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
-                        <div style="min-width:0; flex:1;">
-                            <a href="{{ url('/lead/' . $lead->id) }}"
-                               style="color:#f9fafb; text-decoration:none; font-size:17px; font-weight:700; display:inline-block; word-break:break-word; line-height:1.3;">
-                                {{ $caseName }}
-                            </a>
-                        </div>
-
-                        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                            <span id="outstanding-pill-{{ $lead->id }}"
-                                  style="display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:12px; font-weight:700; background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#fff;">
-                                {{ $outstanding }} outstanding
-                            </span>
-                        </div>
+            <div class="wip-card {{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}">
+                <div class="wip-card__row1">
+                    <div class="wip-card__title">
+                        <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
                     </div>
-
-                    <div style="display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:10px; column-gap:12px; row-gap:6px;">
-                        <div style="flex:1; min-width:min(100%, 200px); font-size:12px; color:#94a3b8; line-height:1.5;">
-                            <span>Lead ID <span style="color:#cbd5e1;">{{ $lead->id }}</span></span><span style="color:#475569;" aria-hidden="true"> · </span><span>Created <span style="color:#cbd5e1;">{{ $createdText }}</span></span><span style="color:#475569;" aria-hidden="true"> · </span><span style="display:inline-block; vertical-align:middle; margin:2px 0; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#1e293b; border:1px solid #475569; color:#e2e8f0;">{{ $sourceLabel }}</span><span style="color:#475569;" aria-hidden="true"> · </span><span>Last dialled <span style="color:#cbd5e1;">{{ $lastDialledText }}</span></span>
-                        </div>
+                    <div class="wip-card-actions">
+                        <span id="outstanding-pill-{{ $lead->id }}"
+                              class="wip-card__badge"
+                              style="background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#f8fafc;">
+                            {{ $outstanding }} outstanding
+                        </span>
                         @if ($canCall)
-                            <div style="flex-shrink:0; align-self:center;">
-                                @include('partials.lead-click-to-call', ['lead' => $lead])
-                            </div>
+                            @include('partials.lead-click-to-call', ['lead' => $lead])
                         @endif
                     </div>
+                </div>
 
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding-top:2px;">
-                        <select
-                            data-lead-id="{{ $lead->id }}"
-                            class="status-select"
-                            style="flex:1; min-width:180px; background:#0f172a; color:#f9fafb; border:1px solid #374151; border-radius:8px; padding:10px 12px; font-size:14px;">
-                            @foreach($statuses as $status)
-                                <option value="{{ $status }}" {{ $lead->wip_status === $status ? 'selected' : '' }}>
-                                    {{ $status }}
-                                </option>
-                            @endforeach
-                        </select>
+                <div class="wip-card__meta">
+                    <span class="wip-meta-k">Lead ID</span> <span class="wip-meta-v">{{ $lead->id }}</span>
+                    <span class="wip-meta-dot" aria-hidden="true">·</span>
+                    <span class="wip-meta-k">Created</span> <span class="wip-meta-v">{{ $createdText }}</span>
+                    <span class="wip-meta-dot" aria-hidden="true">·</span>
+                    <span class="wip-meta-pill">{{ $sourceLabel }}</span>
+                    <span class="wip-meta-dot" aria-hidden="true">·</span>
+                    <span class="wip-meta-k">Last dialled</span> <span class="wip-meta-v">{{ $lastDialledText }}</span>
+                </div>
 
-                        <button
-                            type="button"
-                            class="open-checklist-btn"
-                            data-lead-id="{{ $lead->id }}"
-                            data-case-name="{{ $caseName }}"
-                            style="background:#2563eb; color:#fff; border:none; border-radius:8px; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer;">
-                            Checklist
-                        </button>
-                    </div>
+                <div class="wip-card__controls">
+                    <select
+                        data-lead-id="{{ $lead->id }}"
+                        class="status-select">
+                        @foreach($statuses as $status)
+                            <option value="{{ $status }}" {{ $lead->wip_status === $status ? 'selected' : '' }}>
+                                {{ $status }}
+                            </option>
+                        @endforeach
+                    </select>
+
+                    <button
+                        type="button"
+                        class="open-checklist-btn"
+                        data-lead-id="{{ $lead->id }}"
+                        data-case-name="{{ $caseName }}">
+                        Checklist
+                    </button>
                 </div>
             </div>
         @empty
