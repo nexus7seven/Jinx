@@ -13,6 +13,7 @@ use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
 use App\Http\Controllers\DebtController;
 use App\Http\Controllers\WipController;
+use App\Http\Controllers\RemarketingController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 use App\Http\Controllers\PartnerLeadController;
@@ -74,6 +75,7 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/wip');
 
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
+    Route::get('/remarketing', [RemarketingController::class, 'index'])->name('remarketing.index');
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
 

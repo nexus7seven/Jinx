@@ -188,6 +188,8 @@
 
 <div style="max-width:980px; margin:0 auto; padding:20px; box-sizing:border-box;">
 
+    @include('partials.app-nav')
+
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:12px;">
             <div>
