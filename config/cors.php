@@ -3,6 +3,7 @@
 return [
     'paths' => [
         'partner-lead-submit',
+        'partner-lead-submit/*',
     ],
 
     'allowed_methods' => ['POST', 'OPTIONS'],
@@ -12,11 +13,17 @@ return [
         'https://www.clearmycredit.co.uk',
         'http://localhost:5500',
         'http://127.0.0.1:5500',
+        'null',
     ],
 
     'allowed_origins_patterns' => [],
 
-    'allowed_headers' => ['*'],
+    'allowed_headers' => [
+        'Content-Type',
+        'Accept',
+        'Origin',
+        'X-Requested-With',
+    ],
 
     'exposed_headers' => [],
 
