@@ -183,9 +183,11 @@
                 </div>
             </div>
 
-            <div style="margin-top:4px;">
-                @include('partials.lead-click-to-call', ['lead' => $lead, 'compact' => false])
-            </div>
+            @if (trim((string) ($lead->phone_number ?? '')) !== '')
+                <div style="margin-top:10px;">
+                    @include('partials.lead-click-to-call', ['lead' => $lead])
+                </div>
+            @endif
 
             <div>
                 <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Email</label>

@@ -70,7 +70,7 @@
 
     <div id="wip-ops-toast" role="status"></div>
 
-    <div style="display:grid; gap:12px;">
+    <div style="display:grid; gap:10px;">
         @forelse($leads as $lead)
             @php
                 $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
@@ -84,44 +84,46 @@
                 $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
                 $lastDialled = $lead->last_dialled_at;
                 $lastDialledText = $lastDialled ? $lastDialled->format('d M Y, H:i') : 'Never dialled';
+                $createdText = $lead->created_at
+                    ? $lead->created_at->format('j M Y, H:i')
+                    : '—';
+                $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
             @endphp
 
-            <div class="{{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}" style="background:#111827; border:1px solid #374151; border-radius:16px; padding:14px;">
-                <div style="display:flex; flex-direction:column; gap:12px;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+            <div class="{{ $lead->isPriorityWip() ? 'wip-card-priority' : '' }}" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:12px;">
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
                         <div style="min-width:0; flex:1;">
                             <a href="{{ url('/lead/' . $lead->id) }}"
-                               style="color:#f9fafb; text-decoration:none; font-size:18px; font-weight:700; display:inline-block; word-break:break-word;">
+                               style="color:#f9fafb; text-decoration:none; font-size:17px; font-weight:700; display:inline-block; word-break:break-word; line-height:1.3;">
                                 {{ $caseName }}
                             </a>
-                            <div style="font-size:12px; color:#9ca3af; margin-top:6px;">
-                                Lead ID: {{ $lead->id }}
-                            </div>
-                            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
-                                <span style="display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600; background:#1e293b; border:1px solid #475569; color:#e2e8f0;">
-                                    {{ $sourceLabel }}
-                                </span>
-                                <span style="font-size:12px; color:#94a3b8;">Last dialled: <span style="color:#cbd5e1;">{{ $lastDialledText }}</span></span>
-                            </div>
                         </div>
 
-                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
                             <span id="outstanding-pill-{{ $lead->id }}"
-                                  style="display:inline-flex; align-items:center; padding:8px 12px; border-radius:999px; font-size:13px; font-weight:700; background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#fff;">
+                                  style="display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:12px; font-weight:700; background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#fff;">
                                 {{ $outstanding }} outstanding
                             </span>
                         </div>
                     </div>
 
-                    <div style="max-width:420px;">
-                        @include('partials.lead-click-to-call', ['lead' => $lead, 'compact' => true])
+                    <div style="display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:10px; column-gap:12px; row-gap:6px;">
+                        <div style="flex:1; min-width:min(100%, 200px); font-size:12px; color:#94a3b8; line-height:1.5;">
+                            <span>Lead ID <span style="color:#cbd5e1;">{{ $lead->id }}</span></span><span style="color:#475569;" aria-hidden="true"> · </span><span>Created <span style="color:#cbd5e1;">{{ $createdText }}</span></span><span style="color:#475569;" aria-hidden="true"> · </span><span style="display:inline-block; vertical-align:middle; margin:2px 0; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#1e293b; border:1px solid #475569; color:#e2e8f0;">{{ $sourceLabel }}</span><span style="color:#475569;" aria-hidden="true"> · </span><span>Last dialled <span style="color:#cbd5e1;">{{ $lastDialledText }}</span></span>
+                        </div>
+                        @if ($canCall)
+                            <div style="flex-shrink:0; align-self:center;">
+                                @include('partials.lead-click-to-call', ['lead' => $lead])
+                            </div>
+                        @endif
                     </div>
 
-                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding-top:2px;">
                         <select
                             data-lead-id="{{ $lead->id }}"
                             class="status-select"
-                            style="flex:1; min-width:180px; background:#0f172a; color:#f9fafb; border:1px solid #374151; border-radius:10px; padding:12px; font-size:14px;">
+                            style="flex:1; min-width:180px; background:#0f172a; color:#f9fafb; border:1px solid #374151; border-radius:8px; padding:10px 12px; font-size:14px;">
                             @foreach($statuses as $status)
                                 <option value="{{ $status }}" {{ $lead->wip_status === $status ? 'selected' : '' }}>
                                     {{ $status }}
@@ -134,7 +136,7 @@
                             class="open-checklist-btn"
                             data-lead-id="{{ $lead->id }}"
                             data-case-name="{{ $caseName }}"
-                            style="background:#2563eb; color:#fff; border:none; border-radius:10px; padding:12px 14px; font-size:14px; font-weight:700; cursor:pointer;">
+                            style="background:#2563eb; color:#fff; border:none; border-radius:8px; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer;">
                             Checklist
                         </button>
                     </div>
