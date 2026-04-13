@@ -5,12 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class WebsiteLeadController extends Controller
 {
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'full_name' => ['required', 'string', 'max:200'],
             'phone' => ['required', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:255'],
@@ -18,6 +19,16 @@ class WebsiteLeadController extends Controller
             // Honeypot field: real users never fill this.
             'website' => ['nullable', 'max:0'],
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
 
         $fullName = trim((string) preg_replace('/\s+/', ' ', $validated['full_name']));
         [$firstName, $lastName] = $this->splitName($fullName);
