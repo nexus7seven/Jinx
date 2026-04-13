@@ -79,7 +79,7 @@
 
             <button type="submit"
                 style="width:100%; padding:14px 18px; border:none; border-radius:14px; background:#22c55e; color:#052e16; font-size:16px; font-weight:700; cursor:pointer;">
-                Submit Lead
+                Continue to Debts
             </button>
         </form>
     </div>
