@@ -4,10 +4,6 @@
 @endphp
 
 <div id="financialStatementCard" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
-    {{-- TEMP: remove after confirming deploy renders resources/views/partials/financial-statement-card.blade.php --}}
-    <div id="fsPartialTestMarker" data-fs-partial-probe="financial-statement-card" style="background:#fbbf24; color:#1c1917; padding:10px 14px; border-radius:8px; font-size:13px; font-weight:700; margin-bottom:14px; text-align:center;">
-        TEST MARKER: shared partial <code style="background:rgba(0,0,0,0.12); padding:2px 6px; border-radius:4px;">partials/financial-statement-card</code> — remove this block after verification
-    </div>
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
         <div>
             <h2 style="margin:0; font-size:24px;">Income &amp; expenditure</h2>
