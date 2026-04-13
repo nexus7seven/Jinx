@@ -228,8 +228,18 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::get('/vicidial/open', function (Request $request) {
+        $request->validate([
+            'source_id' => ['nullable', 'string', 'max:255'],
+        ]);
+
         $vicidialLeadId = $request->query('lead_id');
         $phone = $request->query('phone_number');
+
+        $rawSourceId = $request->query('source_id');
+        $sourceId = is_string($rawSourceId) ? trim($rawSourceId) : null;
+        if ($sourceId === '') {
+            $sourceId = null;
+        }
 
         if (!$vicidialLeadId) {
             abort(400, 'Missing lead_id');
@@ -252,7 +262,11 @@ Route::middleware('auth')->group(function () {
                 'house_number'     => $request->query('house_number'),
                 'postcode'         => $request->query('postal_code'),
                 'address_line_1'   => $request->query('address1'),
+                'source'           => $sourceId,
             ]);
+        } elseif ($sourceId !== null && blank($lead->source)) {
+            $lead->source = $sourceId;
+            $lead->save();
         }
 
         return redirect('/lead/' . $lead->id);
