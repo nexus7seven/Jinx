@@ -63,6 +63,13 @@
         font-weight: 700;
         color: #f8fafc;
     }
+    .rm-card__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+    }
     .rm-card__meta {
         font-size: 13px;
         color: #94a3b8;
@@ -92,10 +99,30 @@
         background: #059669;
         color: #fff;
     }
+    .rm-card__action--secondary {
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid #475569;
+        cursor: pointer;
+    }
+    .rm-card__action--secondary:hover {
+        background: #334155;
+    }
+    .rm-complete-form {
+        display: inline;
+        margin: 0;
+    }
 </style>
 @endpush
 
 @section('content')
+    @if (session('success'))
+        <div role="status"
+             style="margin-bottom:16px; padding:12px 14px; border-radius:10px; border:1px solid #166534; background:#14532d; color:#dcfce7; font-size:14px;">
+            {{ session('success') }}
+        </div>
+    @endif
+
     <div style="margin-bottom:20px;">
         <h1 style="margin:0; font-size:26px; font-weight:700;">Remarketing</h1>
         <p style="margin:8px 0 0 0; font-size:13px; color:#9ca3af; max-width:52ch;">
@@ -121,7 +148,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Alex Morgan</h3>
-                    <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="call">
+                            <input type="hidden" name="lead_name" value="Alex Morgan">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07123 456789</span>
@@ -134,7 +169,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Jordan Lee</h3>
-                    <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="call">
+                            <input type="hidden" name="lead_name" value="Jordan Lee">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07999 112233</span>
@@ -153,7 +196,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Sam Taylor</h3>
-                    <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="whatsapp">
+                            <input type="hidden" name="lead_name" value="Sam Taylor">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07888 445566</span>
@@ -166,7 +217,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Riley Chen</h3>
-                    <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="whatsapp">
+                            <input type="hidden" name="lead_name" value="Riley Chen">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07555 998877</span>
@@ -179,7 +238,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Casey Brooks</h3>
-                    <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="whatsapp">
+                            <input type="hidden" name="lead_name" value="Casey Brooks">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07333 221100</span>
@@ -198,7 +265,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Jamie Patel</h3>
-                    <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="call">
+                            <input type="hidden" name="lead_name" value="Jamie Patel">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07444 667788</span>
@@ -211,7 +286,15 @@
             <article class="rm-card">
                 <div class="rm-card__row1">
                     <h3 class="rm-card__name">Taylor Quinn</h3>
-                    <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                    <div class="rm-card__actions">
+                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                            @csrf
+                            <input type="hidden" name="task_type" value="whatsapp">
+                            <input type="hidden" name="lead_name" value="Taylor Quinn">
+                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                        </form>
+                    </div>
                 </div>
                 <div class="rm-card__meta">
                     <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07666 554433</span>
