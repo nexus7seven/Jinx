@@ -3,11 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
+use App\Services\VicidialLeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class WebsiteLeadController extends Controller
 {
+    public function __construct(
+        private VicidialLeadService $vicidialLeadService,
+    ) {
+    }
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -22,15 +29,46 @@ class WebsiteLeadController extends Controller
         $fullName = trim((string) preg_replace('/\s+/', ' ', $validated['full_name']));
         [$firstName, $lastName] = $this->splitName($fullName);
 
-        $lead = Lead::create([
-            'first_name' => $firstName,
-            'last_name' => $lastName,
-            'phone_number' => trim($validated['phone']),
-            'email' => $validated['email'] ?? null,
-            'case_notes' => $validated['details'] ?? null,
-            'source' => 'WEBSITE-CLEARMYCREDIT',
-            'wip_status' => 'WIP',
-        ]);
+        $phone = trim($validated['phone']);
+        $email = $validated['email'] ?? '';
+        $details = $validated['details'] ?? '';
+
+        DB::beginTransaction();
+
+        try {
+            $lead = Lead::create([
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'phone_number' => $phone,
+                'email' => $validated['email'] ?? null,
+                'case_notes' => $validated['details'] ?? null,
+                'source' => 'WEBSITE-CLEARMYCREDIT',
+                'wip_status' => 'WIP',
+                'vicidial_lead_id' => null,
+            ]);
+
+            $vicidialLeadId = $this->vicidialLeadService->createWebsiteLead([
+                'first_name' => $firstName ?? '',
+                'last_name' => $lastName ?? '',
+                'phone_number' => $phone,
+                'email' => $email,
+                'comments' => $details,
+            ]);
+
+            $lead->update([
+                'vicidial_lead_id' => $vicidialLeadId,
+            ]);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Lead could not be submitted. Please try again later.',
+            ], 500);
+        }
 
         return response()->json([
             'success' => true,

@@ -44,6 +44,8 @@ return [
 'vicidial' => [
     'partner_list_id' => env('VICIDIAL_PARTNER_LIST_ID'),
     'partner_status' => env('VICIDIAL_PARTNER_STATUS', 'WIP'),
+    'website_status' => env('VICIDIAL_WEBSITE_STATUS', 'NEW'),
+    'website_source_id' => env('VICIDIAL_WEBSITE_SOURCE_ID', 'WEBSITE-CLEARMYCREDIT'),
 ],
 
 ];

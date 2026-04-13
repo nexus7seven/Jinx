@@ -8,6 +8,9 @@ use InvalidArgumentException;
 
 class VicidialLeadService
 {
+    /** VICIdial vicidial_list.list_id for public website submissions (fixed). */
+    private const WEBSITE_LIST_ID = 385173;
+
     public function createPartnerLead(Partner $partner, array $payload): int
     {
         $listId = (int) config('services.vicidial.partner_list_id');
@@ -37,6 +40,36 @@ class VicidialLeadService
                 'email' => $payload['email'] ?? '',
                 'comments' => $payload['comments'] ?? '',
                 'source_id' => $payload['source_id'] ?? $partner->name,
+                'called_since_last_reset' => 'N',
+            ], 'lead_id');
+    }
+
+    /**
+     * Public website lead (e.g. Clear My Credit) — same vicidial_list columns as partner flow.
+     */
+    public function createWebsiteLead(array $payload): int
+    {
+        [$phoneCode, $phoneNumber] = $this->normaliseUkPhone($payload['phone_number'] ?? '');
+
+        $now = now();
+
+        return (int) DB::connection('asterisk')
+            ->table('vicidial_list')
+            ->insertGetId([
+                'entry_date' => $now,
+                'modify_date' => $now,
+                'status' => config('services.vicidial.website_status', 'NEW'),
+                'user' => 'WEBSITE',
+                'list_id' => self::WEBSITE_LIST_ID,
+                'phone_code' => $phoneCode,
+                'phone_number' => $phoneNumber,
+                'first_name' => $payload['first_name'] ?? '',
+                'last_name' => $payload['last_name'] ?? '',
+                'address1' => '',
+                'postal_code' => '',
+                'email' => $payload['email'] ?? '',
+                'comments' => $payload['comments'] ?? '',
+                'source_id' => config('services.vicidial.website_source_id', 'WEBSITE-CLEARMYCREDIT'),
                 'called_since_last_reset' => 'N',
             ], 'lead_id');
     }
