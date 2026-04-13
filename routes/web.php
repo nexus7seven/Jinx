@@ -58,6 +58,10 @@ Route::get('/partner/{token}/thank-you', [PartnerLeadController::class, 'thankyo
 Route::patch('/partner/{token}/lead/{lead}/financial-statement', [PartnerLeadController::class, 'updateFinancialStatement'])
     ->name('partner.lead.financial-statement.update');
 
+Route::options('/partner-lead-submit', function () {
+    return response()->noContent();
+})->name('partner.lead.submit.options');
+
 Route::post('/partner-lead-submit', [WebsiteLeadController::class, 'store'])
     ->middleware('throttle:20,1')
     ->name('partner.lead.submit');
