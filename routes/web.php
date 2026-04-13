@@ -17,6 +17,7 @@ use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
+use App\Http\Controllers\WebsiteLeadController;
 use App\Services\FinancialStatementService;
 
 Route::middleware('guest')->group(function () {
@@ -56,6 +57,10 @@ Route::get('/partner/{token}/thank-you', [PartnerLeadController::class, 'thankyo
 
 Route::patch('/partner/{token}/lead/{lead}/financial-statement', [PartnerLeadController::class, 'updateFinancialStatement'])
     ->name('partner.lead.financial-statement.update');
+
+Route::post('/partner-lead-submit', [WebsiteLeadController::class, 'store'])
+    ->middleware('throttle:20,1')
+    ->name('partner.lead.submit');
 
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');

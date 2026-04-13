@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'leads/*/temp-mail/generate',
             'leads/*/temp-mail/reset',
+            'partner-lead-submit',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
