@@ -129,17 +129,34 @@ class RemarketingTaskService
     ): RemarketingTask {
         $type = trim(strtolower($taskType));
         $payloadOverrides = $overrides;
+        $basePayload = $this->payloadFromLead($lead);
+
+        $leadId = isset($payloadOverrides['lead_id']) && $payloadOverrides['lead_id'] !== ''
+            ? (int) $payloadOverrides['lead_id']
+            : ($basePayload['lead_id'] !== null ? (int) $basePayload['lead_id'] : null);
 
         if (! isset($payloadOverrides['reason']) || trim((string) $payloadOverrides['reason']) === '') {
             $payloadOverrides['reason'] = $this->resolveReason($reasonKey);
         }
 
+        if ($leadId !== null && in_array($type, ['call', 'whatsapp'], true)) {
+            $existingPending = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', $type)
+                ->where('status', 'pending')
+                ->first();
+
+            if ($existingPending) {
+                return $existingPending;
+            }
+        }
+
         if ($type === 'call') {
-            return $this->createCallTaskForLead($lead, $payloadOverrides);
+            return $this->createCallTaskForLead($lead, array_merge($basePayload, $payloadOverrides));
         }
 
         if ($type === 'whatsapp') {
-            return $this->createWhatsAppTaskForLead($lead, $payloadOverrides);
+            return $this->createWhatsAppTaskForLead($lead, array_merge($basePayload, $payloadOverrides));
         }
 
         throw new InvalidArgumentException('Unsupported remarketing task type: ' . $taskType);
