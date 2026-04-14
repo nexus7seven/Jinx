@@ -145,165 +145,76 @@
     <section class="rm-section" aria-labelledby="rm-call-heading">
         <h2 id="rm-call-heading" class="rm-section__title">Call Tasks</h2>
         <div class="rm-card-grid">
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Alex Morgan</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="call">
-                            <input type="hidden" name="lead_name" value="Alex Morgan">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+            @foreach($callTasks as $task)
+                <article class="rm-card">
+                    <div class="rm-card__row1">
+                        <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
+                        <div class="rm-card__actions">
+                            <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                            <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                                @csrf
+                                <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
+                                <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                            </form>
+                        </div>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07123 456789</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">SMS reply</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">2h</span>
-                </div>
-            </article>
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Jordan Lee</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="call">
-                            <input type="hidden" name="lead_name" value="Jordan Lee">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+                    <div class="rm-card__meta">
+                        <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
+                        <span class="rm-meta-dot" aria-hidden="true">·</span>
+                        <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
+                        <span class="rm-meta-dot" aria-hidden="true">·</span>
+                        <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07999 112233</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">No contact</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">1d</span>
-                </div>
-            </article>
+                </article>
+            @endforeach
         </div>
     </section>
 
     <section class="rm-section" aria-labelledby="rm-wa-heading">
         <h2 id="rm-wa-heading" class="rm-section__title">WhatsApp Tasks</h2>
         <div class="rm-card-grid">
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Sam Taylor</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="whatsapp">
-                            <input type="hidden" name="lead_name" value="Sam Taylor">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+            @foreach($whatsappTasks as $task)
+                <article class="rm-card">
+                    <div class="rm-card__row1">
+                        <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
+                        <div class="rm-card__actions">
+                            <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                            <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                                @csrf
+                                <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
+                                <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                            </form>
+                        </div>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07888 445566</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">Requested callback</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">45m</span>
-                </div>
-            </article>
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Riley Chen</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="whatsapp">
-                            <input type="hidden" name="lead_name" value="Riley Chen">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+                    <div class="rm-card__meta">
+                        <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
+                        <span class="rm-meta-dot" aria-hidden="true">·</span>
+                        <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
+                        <span class="rm-meta-dot" aria-hidden="true">·</span>
+                        <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07555 998877</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">Dropped call</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">3h</span>
-                </div>
-            </article>
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Casey Brooks</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="whatsapp">
-                            <input type="hidden" name="lead_name" value="Casey Brooks">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
-                    </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07333 221100</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">Follow-up doc</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">30m</span>
-                </div>
-            </article>
+                </article>
+            @endforeach
         </div>
     </section>
 
     <section class="rm-section" aria-labelledby="rm-activity-heading">
         <h2 id="rm-activity-heading" class="rm-section__title">Recent Activity</h2>
         <div class="rm-card-grid">
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Jamie Patel</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--call">Call</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="call">
-                            <input type="hidden" name="lead_name" value="Jamie Patel">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+            @foreach($recentActivity as $activity)
+                <article class="rm-card">
+                    <div class="rm-card__row1">
+                        <h3 class="rm-card__name">{{ $activity['lead_name'] }}</h3>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07444 667788</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">Voicemail left</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">Just now</span>
-                </div>
-            </article>
-            <article class="rm-card">
-                <div class="rm-card__row1">
-                    <h3 class="rm-card__name">Taylor Quinn</h3>
-                    <div class="rm-card__actions">
-                        <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                        <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                            @csrf
-                            <input type="hidden" name="task_type" value="whatsapp">
-                            <input type="hidden" name="lead_name" value="Taylor Quinn">
-                            <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                        </form>
+                    <div class="rm-card__meta">
+                        <span class="rm-meta-k">Activity</span> <span class="rm-meta-v">{{ $activity['activity'] }}</span>
+                        <span class="rm-meta-dot" aria-hidden="true">·</span>
+                        <span class="rm-meta-k">Time</span> <span class="rm-meta-v">{{ $activity['time'] }}</span>
                     </div>
-                </div>
-                <div class="rm-card__meta">
-                    <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">07666 554433</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">Opened email</span>
-                    <span class="rm-meta-dot" aria-hidden="true">·</span>
-                    <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">Yesterday</span>
-                </div>
-            </article>
+                </article>
+            @endforeach
         </div>
     </section>
 @endsection
