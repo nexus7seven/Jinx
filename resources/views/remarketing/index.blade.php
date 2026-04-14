@@ -14,6 +14,8 @@
     .rm-stage-pill {
         appearance: none;
         cursor: default;
+        display: inline-flex;
+        align-items: center;
         padding: 8px 14px;
         border-radius: 999px;
         border: 1px solid #374151;
@@ -22,6 +24,7 @@
         font-size: 13px;
         font-weight: 600;
         font-family: inherit;
+        text-decoration: none;
     }
     .rm-stage-pill--active {
         border-color: #2563eb;
@@ -134,11 +137,13 @@
         @foreach($stages as $stage)
             @php
                 $label = $stage === 'all' ? 'All' : ucfirst($stage);
-                $isActive = $stage === 'all';
+                $isActive = $selectedStage === $stage;
             @endphp
-            <button type="button" class="rm-stage-pill {{ $isActive ? 'rm-stage-pill--active' : '' }}" @if($isActive) aria-current="true" @endif>
+            <a href="{{ route('remarketing.index', ['stage' => $stage]) }}"
+               class="rm-stage-pill {{ $isActive ? 'rm-stage-pill--active' : '' }}"
+               @if($isActive) aria-current="page" @endif>
                 {{ $label }}
-            </button>
+            </a>
         @endforeach
     </div>
 

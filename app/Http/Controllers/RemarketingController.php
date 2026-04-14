@@ -7,9 +7,14 @@ use Illuminate\Support\Facades\Log;
 
 class RemarketingController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $stages = ['all', 'fresh', 'cooling', 'cold', 'dormant'];
+        $selectedStage = $request->query('stage', 'all');
+        if (!in_array($selectedStage, $stages, true)) {
+            $selectedStage = 'all';
+        }
+
         $callTasks = [
             [
                 'lead_name' => 'Alex Morgan',
@@ -17,6 +22,7 @@ class RemarketingController extends Controller
                 'reason' => 'SMS reply',
                 'time_waiting' => '2h',
                 'task_type' => 'call',
+                'stage' => 'fresh',
             ],
             [
                 'lead_name' => 'Jordan Lee',
@@ -24,6 +30,7 @@ class RemarketingController extends Controller
                 'reason' => 'No contact',
                 'time_waiting' => '1d',
                 'task_type' => 'call',
+                'stage' => 'cold',
             ],
         ];
         $whatsappTasks = [
@@ -33,6 +40,7 @@ class RemarketingController extends Controller
                 'reason' => 'Requested callback',
                 'time_waiting' => '45m',
                 'task_type' => 'whatsapp',
+                'stage' => 'fresh',
             ],
             [
                 'lead_name' => 'Riley Chen',
@@ -40,6 +48,7 @@ class RemarketingController extends Controller
                 'reason' => 'Dropped call',
                 'time_waiting' => '3h',
                 'task_type' => 'whatsapp',
+                'stage' => 'cooling',
             ],
             [
                 'lead_name' => 'Casey Brooks',
@@ -47,8 +56,19 @@ class RemarketingController extends Controller
                 'reason' => 'Follow-up doc',
                 'time_waiting' => '30m',
                 'task_type' => 'whatsapp',
+                'stage' => 'dormant',
             ],
         ];
+
+        if ($selectedStage !== 'all') {
+            $callTasks = array_values(array_filter($callTasks, function (array $task) use ($selectedStage) {
+                return $task['stage'] === $selectedStage;
+            }));
+            $whatsappTasks = array_values(array_filter($whatsappTasks, function (array $task) use ($selectedStage) {
+                return $task['stage'] === $selectedStage;
+            }));
+        }
+
         $recentActivity = [
             [
                 'lead_name' => 'Jamie Patel',
@@ -64,6 +84,7 @@ class RemarketingController extends Controller
 
         return view('remarketing.index', [
             'stages' => $stages,
+            'selectedStage' => $selectedStage,
             'callTasks' => $callTasks,
             'whatsappTasks' => $whatsappTasks,
             'recentActivity' => $recentActivity,
