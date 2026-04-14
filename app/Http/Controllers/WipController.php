@@ -120,7 +120,7 @@ class WipController extends Controller
 
         if ($validated['wip_status'] === 'Lost Contact' && $previousStatus !== 'Lost Contact') {
             try {
-                $this->remarketingTaskService->createTaskForLeadTrigger(
+                $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
                     $lead->fresh(),
                     'whatsapp',
                     'no_answer',
@@ -129,6 +129,13 @@ class WipController extends Controller
                         'time_waiting_text' => '0h',
                     ]
                 );
+                Log::info('Remarketing trigger executed', [
+                    'trigger_status' => 'Lost Contact',
+                    'task_type' => 'whatsapp',
+                    'task_id' => $triggerResult['task']->id ?? null,
+                    'lead_id' => $triggerResult['task']->lead_id ?? null,
+                    'was_created' => (bool) ($triggerResult['was_created'] ?? false),
+                ]);
             } catch (Throwable $e) {
                 report($e);
             }
@@ -141,7 +148,7 @@ class WipController extends Controller
                     throw new RuntimeException('missing_vicidial_campaign_id');
                 }
 
-                $this->remarketingTaskService->createTaskForLeadTrigger(
+                $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
                     $lead->fresh(),
                     'call',
                     'requested_callback',
@@ -151,6 +158,13 @@ class WipController extends Controller
                         'time_waiting_text' => '0h',
                     ]
                 );
+                Log::info('Remarketing trigger executed', [
+                    'trigger_status' => 'Awaiting Call',
+                    'task_type' => 'call',
+                    'task_id' => $triggerResult['task']->id ?? null,
+                    'lead_id' => $triggerResult['task']->lead_id ?? null,
+                    'was_created' => (bool) ($triggerResult['was_created'] ?? false),
+                ]);
             } catch (Throwable $e) {
                 report($e);
             }
