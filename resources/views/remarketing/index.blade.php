@@ -150,58 +150,72 @@
     <section class="rm-section" aria-labelledby="rm-call-heading">
         <h2 id="rm-call-heading" class="rm-section__title">Call Tasks</h2>
         <div class="rm-card-grid">
-            @foreach($callTasks as $task)
-                <article class="rm-card">
-                    <div class="rm-card__row1">
-                        <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
-                        <div class="rm-card__actions">
-                            <button type="button" class="rm-card__action rm-card__action--call">Call</button>
-                            <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                                @csrf
-                                <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
-                                <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
-                                <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                            </form>
+            @if (!empty($callTasks))
+                @foreach($callTasks as $task)
+                    <article class="rm-card">
+                        <div class="rm-card__row1">
+                            <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
+                            <div class="rm-card__actions">
+                                <button type="button" class="rm-card__action rm-card__action--call">Call</button>
+                                <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                                    @csrf
+                                    <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
+                                    <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                    <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                                </form>
+                            </div>
                         </div>
-                    </div>
-                    <div class="rm-card__meta">
-                        <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
-                        <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
-                        <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
-                    </div>
+                        <div class="rm-card__meta">
+                            <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
+                        </div>
+                    </article>
+                @endforeach
+            @else
+                <article class="rm-card">
+                    <h3 class="rm-card__name">No call tasks</h3>
+                    <div class="rm-card__meta">There are no call tasks for this stage right now.</div>
                 </article>
-            @endforeach
+            @endif
         </div>
     </section>
 
     <section class="rm-section" aria-labelledby="rm-wa-heading">
         <h2 id="rm-wa-heading" class="rm-section__title">WhatsApp Tasks</h2>
         <div class="rm-card-grid">
-            @foreach($whatsappTasks as $task)
-                <article class="rm-card">
-                    <div class="rm-card__row1">
-                        <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
-                        <div class="rm-card__actions">
-                            <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                            <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
-                                @csrf
-                                <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
-                                <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
-                                <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
-                            </form>
+            @if (!empty($whatsappTasks))
+                @foreach($whatsappTasks as $task)
+                    <article class="rm-card">
+                        <div class="rm-card__row1">
+                            <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
+                            <div class="rm-card__actions">
+                                <button type="button" class="rm-card__action rm-card__action--wa">WhatsApp</button>
+                                <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
+                                    @csrf
+                                    <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
+                                    <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                    <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
+                                </form>
+                            </div>
                         </div>
-                    </div>
-                    <div class="rm-card__meta">
-                        <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
-                        <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
-                        <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
-                    </div>
+                        <div class="rm-card__meta">
+                            <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-meta-k">Time waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
+                        </div>
+                    </article>
+                @endforeach
+            @else
+                <article class="rm-card">
+                    <h3 class="rm-card__name">No WhatsApp tasks</h3>
+                    <div class="rm-card__meta">There are no WhatsApp tasks for this stage right now.</div>
                 </article>
-            @endforeach
+            @endif
         </div>
     </section>
 
