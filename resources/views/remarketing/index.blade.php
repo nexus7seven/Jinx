@@ -200,15 +200,7 @@
                         <div class="rm-card__row1">
                             <h3 class="rm-card__name">{{ $task['lead_name'] }}</h3>
                             <div class="rm-card__actions">
-                                <form class="rm-complete-form" method="POST" action="{{ route('remarketing.whatsapp') }}">
-                                    @csrf
-                                    <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
-                                    <input type="hidden" name="phone" value="{{ $task['phone'] }}">
-                                    <input type="hidden" name="reason" value="{{ $task['reason'] }}">
-                                    <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
-                                    <input type="hidden" name="current_stage" value="{{ $selectedStage }}">
-                                    <button type="submit" class="rm-card__action rm-card__action--wa">WhatsApp</button>
-                                </form>
+                                <a href="{{ $task['whatsapp_url'] }}" target="_blank" rel="noopener" class="rm-card__action rm-card__action--wa">WhatsApp</a>
                                 <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
                                     @csrf
                                     <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">

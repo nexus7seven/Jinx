@@ -59,6 +59,16 @@ class RemarketingController extends Controller
                 'stage' => 'dormant',
             ],
         ];
+        $whatsappTasks = array_map(function (array $task) {
+            $phone = str_replace(' ', '', $task['phone']);
+            if (str_starts_with($phone, '0')) {
+                $phone = '44' . substr($phone, 1);
+            }
+            $message = 'Hi ' . $task['lead_name'] . ', just following up in case WhatsApp is easier for you.';
+            $task['whatsapp_url'] = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
+
+            return $task;
+        }, $whatsappTasks);
 
         if ($selectedStage !== 'all') {
             $callTasks = array_values(array_filter($callTasks, function (array $task) use ($selectedStage) {
@@ -125,20 +135,4 @@ class RemarketingController extends Controller
             ->with('success', 'Call task opened.');
     }
 
-    public function whatsapp(Request $request)
-    {
-        $validated = $request->validate([
-            'lead_name' => ['required', 'string', 'max:255'],
-            'phone' => ['required', 'string', 'max:255'],
-            'reason' => ['required', 'string', 'max:255'],
-            'task_type' => ['required', 'in:whatsapp'],
-            'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
-        ]);
-
-        Log::info('Remarketing WhatsApp task opened', $validated);
-
-        return redirect()
-            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
-            ->with('success', 'WhatsApp task opened.');
-    }
 }

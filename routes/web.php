@@ -77,7 +77,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
     Route::get('/remarketing', [RemarketingController::class, 'index'])->name('remarketing.index');
     Route::post('/remarketing/call', [RemarketingController::class, 'call'])->name('remarketing.call');
-    Route::post('/remarketing/whatsapp', [RemarketingController::class, 'whatsapp'])->name('remarketing.whatsapp');
     Route::post('/remarketing/complete', [RemarketingController::class, 'complete'])->name('remarketing.complete');
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
