@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\RemarketingTask;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 class RemarketingTaskService
 {
@@ -117,6 +118,34 @@ class RemarketingTaskService
     }
 
     /**
+     * @param  array<string, mixed>  $overrides
+     * @throws ValidationException
+     */
+    public function createTaskForLeadTrigger(
+        Lead $lead,
+        string $taskType,
+        string $reasonKey,
+        array $overrides = []
+    ): RemarketingTask {
+        $type = trim(strtolower($taskType));
+        $payloadOverrides = $overrides;
+
+        if (! isset($payloadOverrides['reason']) || trim((string) $payloadOverrides['reason']) === '') {
+            $payloadOverrides['reason'] = $this->resolveReason($reasonKey);
+        }
+
+        if ($type === 'call') {
+            return $this->createCallTaskForLead($lead, $payloadOverrides);
+        }
+
+        if ($type === 'whatsapp') {
+            return $this->createWhatsAppTaskForLead($lead, $payloadOverrides);
+        }
+
+        throw new InvalidArgumentException('Unsupported remarketing task type: ' . $taskType);
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      * @throws ValidationException
@@ -151,6 +180,8 @@ class RemarketingTaskService
         $fullName = trim($first . ' ' . $last);
 
         return [
+            // IMPORTANT: remarketing_tasks.lead_id stores VICIdial lead_id (lead.vicidial_lead_id),
+            // not the local Jinx leads.id primary key.
             'lead_id' => is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null,
             'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
             'phone' => (string) ($lead->phone_number ?? ''),
