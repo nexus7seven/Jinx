@@ -9,6 +9,17 @@ use Illuminate\Validation\ValidationException;
 
 class RemarketingTaskService
 {
+    /**
+     * @var array<string, string>
+     */
+    private const REASON_TEMPLATES = [
+        'missed_call' => 'Missed call follow-up',
+        'no_answer' => 'No answer follow-up',
+        'requested_callback' => 'Requested callback',
+        'requested_whatsapp' => 'Requested WhatsApp follow-up',
+        'stale_lead_follow_up' => 'Stale lead follow-up',
+    ];
+
     public function resolveStageFromHours(float|int $hoursSinceLastActivity): string
     {
         $hours = (float) $hoursSinceLastActivity;
@@ -26,6 +37,13 @@ class RemarketingTaskService
         }
 
         return 'dormant';
+    }
+
+    public function resolveReason(string $reasonKey): string
+    {
+        $key = trim($reasonKey);
+
+        return self::REASON_TEMPLATES[$key] ?? 'Remarketing follow-up';
     }
 
     /**
