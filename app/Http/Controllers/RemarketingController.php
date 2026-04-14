@@ -2,17 +2,31 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Lead;
 use App\Models\RemarketingTask;
 use App\Services\RemarketingCallbackService;
 use App\Services\RemarketingTaskService;
+use App\Services\VicidialDispositionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class RemarketingController extends Controller
 {
+    /** VICIdial dispositions that end remarketing (no further timeline steps). */
+    private const REMARKETING_TERMINAL_DISPOSITIONS = [
+        'AIS',
+        'NI',
+        'DNC',
+        'REM',
+        'ADC',
+        'DC',
+        'NODEBT',
+    ];
+
     public function __construct(
         private RemarketingCallbackService $remarketingCallbackService,
         private RemarketingTaskService $remarketingTaskService,
+        private VicidialDispositionService $vicidialDispositionService,
     ) {
     }
 
@@ -161,6 +175,10 @@ class RemarketingController extends Controller
         if ($task) {
             $task->status = 'completed';
             $task->save();
+
+            if ($task->task_type === 'call') {
+                $this->remarketingStepTwoAfterCallCompleted($task);
+            }
         }
 
         return redirect()
@@ -235,6 +253,10 @@ class RemarketingController extends Controller
                 'to_status' => $toStatus,
                 'popup_confirmed' => $popupConfirmed,
             ]);
+
+            if ($toStatus === 'completed' && $task->task_type === 'call') {
+                $this->remarketingStepTwoAfterCallCompleted($task);
+            }
         }
 
         if (! $isOk) {
@@ -253,4 +275,59 @@ class RemarketingController extends Controller
             ->with($flashType, $flashMessage);
     }
 
+    /**
+     * Step 2: after a remarketing CALL task is completed, branch on latest VICIdial disposition.
+     */
+    private function remarketingStepTwoAfterCallCompleted(RemarketingTask $task): void
+    {
+        if ($task->task_type !== 'call') {
+            return;
+        }
+
+        $vicidialLeadId = $task->lead_id;
+        if ($vicidialLeadId === null || (int) $vicidialLeadId <= 0) {
+            return;
+        }
+
+        $lead = Lead::query()
+            ->where('vicidial_lead_id', (int) $vicidialLeadId)
+            ->first();
+
+        if ($lead === null) {
+            return;
+        }
+
+        if ($lead->wip_status === 'DEAD') {
+            return;
+        }
+
+        $latest = $this->vicidialDispositionService->getLatestStatusForLead($lead->fresh());
+        if ($latest === null) {
+            return;
+        }
+
+        $code = strtoupper(trim($latest));
+
+        if (in_array($code, self::REMARKETING_TERMINAL_DISPOSITIONS, true)) {
+            $lead->update(['wip_status' => 'DEAD']);
+
+            return;
+        }
+
+        if ($code !== 'NA') {
+            return;
+        }
+
+        $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
+            $lead->fresh(),
+            'whatsapp',
+            'whatsapp_follow_up',
+            [
+                'stage' => 'fresh',
+                'time_waiting_text' => '0h',
+            ]
+        );
+    }
+
 }
+

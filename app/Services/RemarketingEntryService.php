@@ -23,6 +23,10 @@ class RemarketingEntryService
      */
     public function enterRemarketingFlow(Lead $lead, string $triggerSource): void
     {
+        if ($lead->wip_status === 'DEAD') {
+            return;
+        }
+
         $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
 
         if ($vicidialLeadId === null) {
