@@ -107,4 +107,38 @@ class RemarketingController extends Controller
             ->route('remarketing.index')
             ->with('success', 'Task marked complete.');
     }
+
+    public function call(Request $request)
+    {
+        $validated = $request->validate([
+            'lead_name' => ['required', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'max:255'],
+            'task_type' => ['required', 'in:call'],
+            'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
+        ]);
+
+        Log::info('Remarketing call task opened', $validated);
+
+        return redirect()
+            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+            ->with('success', 'Call task opened.');
+    }
+
+    public function whatsapp(Request $request)
+    {
+        $validated = $request->validate([
+            'lead_name' => ['required', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'max:255'],
+            'task_type' => ['required', 'in:whatsapp'],
+            'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
+        ]);
+
+        Log::info('Remarketing WhatsApp task opened', $validated);
+
+        return redirect()
+            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+            ->with('success', 'WhatsApp task opened.');
+    }
 }
