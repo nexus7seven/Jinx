@@ -127,6 +127,20 @@ class RemarketingTaskService
         string $reasonKey,
         array $overrides = []
     ): RemarketingTask {
+        return $this->createTaskForLeadTriggerWithResult($lead, $taskType, $reasonKey, $overrides)['task'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array{task: RemarketingTask, was_created: bool}
+     * @throws ValidationException
+     */
+    public function createTaskForLeadTriggerWithResult(
+        Lead $lead,
+        string $taskType,
+        string $reasonKey,
+        array $overrides = []
+    ): array {
         $type = trim(strtolower($taskType));
         $payloadOverrides = $overrides;
         $basePayload = $this->payloadFromLead($lead);
@@ -147,16 +161,25 @@ class RemarketingTaskService
                 ->first();
 
             if ($existingPending) {
-                return $existingPending;
+                return [
+                    'task' => $existingPending,
+                    'was_created' => false,
+                ];
             }
         }
 
         if ($type === 'call') {
-            return $this->createCallTaskForLead($lead, array_merge($basePayload, $payloadOverrides));
+            return [
+                'task' => $this->createCallTaskForLead($lead, array_merge($basePayload, $payloadOverrides)),
+                'was_created' => true,
+            ];
         }
 
         if ($type === 'whatsapp') {
-            return $this->createWhatsAppTaskForLead($lead, array_merge($basePayload, $payloadOverrides));
+            return [
+                'task' => $this->createWhatsAppTaskForLead($lead, array_merge($basePayload, $payloadOverrides)),
+                'was_created' => true,
+            ];
         }
 
         throw new InvalidArgumentException('Unsupported remarketing task type: ' . $taskType);
