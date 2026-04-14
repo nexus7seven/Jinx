@@ -7,8 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class RemarketingTask extends Model
 {
     protected $fillable = [
+        'lead_id',
         'lead_name',
         'phone',
+        'campaign_id',
         'task_type',
         'reason',
         'stage',

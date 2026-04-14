@@ -125,6 +125,12 @@
             {{ session('success') }}
         </div>
     @endif
+    @if (session('error'))
+        <div role="alert"
+             style="margin-bottom:16px; padding:12px 14px; border-radius:10px; border:1px solid #b91c1c; background:#7f1d1d; color:#fee2e2; font-size:14px;">
+            {{ session('error') }}
+        </div>
+    @endif
 
     <div style="margin-bottom:20px;">
         <h1 style="margin:0; font-size:26px; font-weight:700;">Remarketing</h1>
@@ -152,6 +158,14 @@
         <form method="POST" action="{{ route('remarketing.tasks.store') }}" class="rm-card">
             @csrf
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+                <input
+                    type="number"
+                    name="lead_id"
+                    value="{{ old('lead_id') }}"
+                    placeholder="Lead ID"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
                 <input
                     type="text"
                     name="lead_name"
@@ -181,6 +195,14 @@
                     name="reason"
                     value="{{ old('reason') }}"
                     placeholder="Reason"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                <input
+                    type="text"
+                    name="campaign_id"
+                    value="{{ old('campaign_id') }}"
+                    placeholder="Campaign ID"
                     required
                     style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
                 >

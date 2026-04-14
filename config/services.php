@@ -46,6 +46,12 @@ return [
     'partner_status' => env('VICIDIAL_PARTNER_STATUS', 'WIP'),
     'website_status' => env('VICIDIAL_WEBSITE_STATUS', 'NEW'),
     'website_source_id' => env('VICIDIAL_WEBSITE_SOURCE_ID', 'WEBSITE-CLEARMYCREDIT'),
+    'api_url' => env('VICIDIAL_API_URL'),
+    'api_user' => env('VICIDIAL_API_USER'),
+    'api_pass' => env('VICIDIAL_API_PASS'),
+    'agent_user' => env('VICIDIAL_AGENT_USER'),
+    'db_connection' => env('VICIDIAL_DB_CONNECTION'),
+    'remarketing_source' => env('REMARKETING_SOURCE', 'remarketing'),
 ],
 
     /*
