@@ -7,11 +7,13 @@ use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
+use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Throwable;
 
 class WipController extends Controller
 {
@@ -21,6 +23,7 @@ class WipController extends Controller
         private LeadChecklistService $checklistService,
         private VicidialDialActivityService $dialActivityService,
         private LeadOpsAlertEligibility $opsAlertEligibility,
+        private RemarketingTaskService $remarketingTaskService,
     ) {
     }
 
@@ -102,6 +105,8 @@ class WipController extends Controller
 
     public function updateStatus(Request $request, Lead $lead): JsonResponse
     {
+        $previousStatus = (string) $lead->wip_status;
+
         $validated = $request->validate([
             'wip_status' => ['required', Rule::in(Lead::WIP_STATUSES)],
         ]);
@@ -109,6 +114,22 @@ class WipController extends Controller
         $lead->update([
             'wip_status' => $validated['wip_status'],
         ]);
+
+        if ($validated['wip_status'] === 'Lost Contact' && $previousStatus !== 'Lost Contact') {
+            try {
+                $this->remarketingTaskService->createTaskForLeadTrigger(
+                    $lead->fresh(),
+                    'whatsapp',
+                    'no_answer',
+                    [
+                        'stage' => 'cold',
+                        'time_waiting_text' => '0h',
+                    ]
+                );
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
 
         return response()->json([
             'success' => true,
