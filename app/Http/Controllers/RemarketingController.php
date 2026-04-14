@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\RemarketingTask;
 use App\Services\RemarketingCallbackService;
+use App\Services\RemarketingTaskService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -11,6 +12,7 @@ class RemarketingController extends Controller
 {
     public function __construct(
         private RemarketingCallbackService $remarketingCallbackService,
+        private RemarketingTaskService $remarketingTaskService,
     ) {
     }
 
@@ -115,27 +117,21 @@ class RemarketingController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'lead_id' => ['required', 'integer'],
             'lead_name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:255'],
-            'campaign_id' => ['required', 'string', 'max:255'],
             'task_type' => ['required', 'in:call,whatsapp'],
             'reason' => ['required', 'string', 'max:255'],
             'stage' => ['required', 'in:fresh,cooling,cold,dormant'],
             'time_waiting_text' => ['nullable', 'string', 'max:255'],
+            'lead_id' => ['nullable', 'integer', 'required_if:task_type,call'],
+            'campaign_id' => ['nullable', 'string', 'max:255', 'required_if:task_type,call'],
         ]);
 
-        RemarketingTask::create([
-            'lead_id' => $validated['lead_id'],
-            'lead_name' => $validated['lead_name'],
-            'phone' => $validated['phone'],
-            'campaign_id' => $validated['campaign_id'],
-            'task_type' => $validated['task_type'],
-            'reason' => $validated['reason'],
-            'stage' => $validated['stage'],
-            'status' => 'pending',
-            'time_waiting_text' => $validated['time_waiting_text'] ?? null,
-        ]);
+        if ($validated['task_type'] === 'call') {
+            $this->remarketingTaskService->createCallTask($validated);
+        } else {
+            $this->remarketingTaskService->createWhatsAppTask($validated);
+        }
 
         return redirect()
             ->route('remarketing.index')
