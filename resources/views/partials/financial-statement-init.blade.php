@@ -79,10 +79,38 @@
         return Math.round(sum * 100) / 100;
     }
 
+    function expenditureTotal() {
+        let sum = 0;
+        card.querySelectorAll('[data-fs-expenditure]').forEach(function (el) {
+            sum += parseAmount(el);
+        });
+        return Math.round(sum * 100) / 100;
+    }
+
     function refreshTotalsAndGuidelines() {
+        const incomeTotalValue = incomeTotal();
+        const expenditureTotalValue = expenditureTotal();
+        const disposableTotalValue = Math.round((incomeTotalValue - expenditureTotalValue) * 100) / 100;
+
         const incomeSumEl = document.getElementById('fs-sum-income');
         if (incomeSumEl) {
-            incomeSumEl.textContent = fsFormatMoney(incomeTotal());
+            incomeSumEl.textContent = fsFormatMoney(incomeTotalValue);
+        }
+
+        const summaryIncomeEl = document.getElementById('fs-summary-income-total');
+        if (summaryIncomeEl) {
+            summaryIncomeEl.textContent = fsFormatMoney(incomeTotalValue);
+        }
+
+        const summaryExpenditureEl = document.getElementById('fs-summary-expenditure-total');
+        if (summaryExpenditureEl) {
+            summaryExpenditureEl.textContent = fsFormatMoney(expenditureTotalValue);
+        }
+
+        const summaryDisposableEl = document.getElementById('fs-summary-disposable-total');
+        if (summaryDisposableEl) {
+            summaryDisposableEl.textContent = fsFormatMoney(disposableTotalValue);
+            summaryDisposableEl.style.color = disposableTotalValue < 0 ? '#fda4af' : '#e2e8f0';
         }
 
         const hh = getHousehold();

@@ -21,6 +21,23 @@
         </div>
     </div>
 
+    <div
+        style="position:sticky; top:16px; z-index:30; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin-bottom:16px; padding:8px 10px; border:1px solid #334155; border-radius:10px; background:#0b1220; box-shadow:0 4px 12px rgba(2, 6, 23, 0.3);"
+    >
+        <div>
+            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Total income</div>
+            <div id="fs-summary-income-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25;">£0.00</div>
+        </div>
+        <div>
+            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Total expenditure</div>
+            <div id="fs-summary-expenditure-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25;">£0.00</div>
+        </div>
+        <div>
+            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Disposable income</div>
+            <div id="fs-summary-disposable-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25; transition:color 120ms ease;">£0.00</div>
+        </div>
+    </div>
+
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:20px;">
         <div>
             <label for="fsAdults" style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Adults</label>
