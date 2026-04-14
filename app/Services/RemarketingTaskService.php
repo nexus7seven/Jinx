@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Lead;
 use App\Models\RemarketingTask;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -61,6 +62,24 @@ class RemarketingTaskService
     }
 
     /**
+     * @param  array<string, mixed>  $overrides
+     * @throws ValidationException
+     */
+    public function createCallTaskForLead(Lead $lead, array $overrides = []): RemarketingTask
+    {
+        return $this->createCallTask(array_merge($this->payloadFromLead($lead), $overrides));
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @throws ValidationException
+     */
+    public function createWhatsAppTaskForLead(Lead $lead, array $overrides = []): RemarketingTask
+    {
+        return $this->createWhatsAppTask(array_merge($this->payloadFromLead($lead), $overrides));
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      * @throws ValidationException
@@ -82,6 +101,26 @@ class RemarketingTaskService
                 ? trim((string) $data['time_waiting_text'])
                 : null,
             'status' => 'pending',
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function payloadFromLead(Lead $lead): array
+    {
+        $first = trim((string) ($lead->first_name ?? ''));
+        $last = trim((string) ($lead->last_name ?? ''));
+        $fullName = trim($first . ' ' . $last);
+
+        return [
+            'lead_id' => is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null,
+            'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
+            'phone' => (string) ($lead->phone_number ?? ''),
+            'campaign_id' => null,
+            'reason' => '',
+            'stage' => 'fresh',
+            'time_waiting_text' => null,
         ];
     }
 }
