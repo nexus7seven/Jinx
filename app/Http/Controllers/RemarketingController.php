@@ -3,11 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Models\RemarketingTask;
+use App\Services\DeckardCallbackClient;
+use App\Support\VicidialDialPhone;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
+use Throwable;
 
 class RemarketingController extends Controller
 {
+    public function __construct(
+        private DeckardCallbackClient $deckard,
+    ) {
+    }
+
     public function index(Request $request)
     {
         $stages = ['all', 'fresh', 'cooling', 'cold', 'dormant'];
@@ -156,6 +166,68 @@ class RemarketingController extends Controller
             'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
         ]);
 
+        $national = VicidialDialPhone::nationalDigits($validated['phone']);
+        if ($national === null || $national === '') {
+            return redirect()
+                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->with('error', 'Lead has no usable phone number.');
+        }
+
+        try {
+            $response = $this->deckard->postDirectDial(0, $national);
+        } catch (InvalidArgumentException $e) {
+            if ($e->getMessage() === 'deckard_callback_not_configured') {
+                return redirect()
+                    ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                    ->with('error', 'Call endpoint is not configured.');
+            }
+
+            throw $e;
+        } catch (Throwable $e) {
+            Log::error('Remarketing call: request exception', [
+                'task_id' => $validated['task_id'],
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+            report($e);
+
+            return redirect()
+                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->with('error', 'Could not reach Deckard callback endpoint.');
+        }
+
+        $json = $response->json();
+        if (! is_array($json)) {
+            Log::error('Remarketing call: response is not JSON', [
+                'task_id' => $validated['task_id'],
+                'http_status' => $response->status(),
+                'body_preview' => substr($response->body(), 0, 2000),
+            ]);
+
+            return redirect()
+                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->with('error', 'Deckard returned an invalid response.');
+        }
+
+        if ($response->failed() || ! (bool) ($json['ok'] ?? false)) {
+            Log::warning('Remarketing call: Deckard reported failure', [
+                'task_id' => $validated['task_id'],
+                'http_status' => $response->status(),
+                'deckard' => $json,
+            ]);
+
+            $message = Arr::first([
+                $json['message'] ?? null,
+                $json['error'] ?? null,
+                $json['details'] ?? null,
+                'Call failed.',
+            ], fn ($value) => is_string($value) && $value !== '');
+
+            return redirect()
+                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->with('error', $message);
+        }
+
         Log::info('Remarketing call task opened', [
             'task_id' => $validated['task_id'],
             'lead_name' => $validated['lead_name'],
@@ -163,6 +235,8 @@ class RemarketingController extends Controller
             'reason' => $validated['reason'],
             'task_type' => $validated['task_type'],
             'current_stage' => $validated['current_stage'] ?? null,
+            'deckard_lead_id' => $json['lead_id'] ?? null,
+            'popup_confirmed' => $json['popup_confirmed'] ?? null,
         ]);
 
         return redirect()
