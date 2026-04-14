@@ -77,18 +77,31 @@ class RemarketingController extends Controller
             })
             ->all();
 
-        $recentActivity = [
-            [
-                'lead_name' => 'Jamie Patel',
-                'activity' => 'Voicemail left after no answer',
-                'time' => 'Just now',
-            ],
-            [
-                'lead_name' => 'Taylor Quinn',
-                'activity' => 'Read message, no reply yet',
-                'time' => 'Yesterday',
-            ],
-        ];
+        $recentActivity = RemarketingTask::query()
+            ->whereIn('status', ['started', 'completed'])
+            ->orderByDesc('updated_at')
+            ->limit(10)
+            ->get()
+            ->map(function (RemarketingTask $task) {
+                if ($task->task_type === 'call' && $task->status === 'started') {
+                    $activity = 'Call started';
+                } elseif ($task->task_type === 'call' && $task->status === 'completed') {
+                    $activity = 'Call completed';
+                } elseif ($task->task_type === 'whatsapp' && $task->status === 'started') {
+                    $activity = 'WhatsApp started';
+                } elseif ($task->task_type === 'whatsapp' && $task->status === 'completed') {
+                    $activity = 'WhatsApp completed';
+                } else {
+                    $activity = ucfirst((string) $task->task_type) . ' ' . ucfirst((string) $task->status);
+                }
+
+                return [
+                    'lead_name' => $task->lead_name,
+                    'activity' => $activity,
+                    'time' => optional($task->updated_at)->diffForHumans() ?? 'Just now',
+                ];
+            })
+            ->all();
 
         return view('remarketing.index', [
             'stages' => $stages,

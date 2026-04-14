@@ -273,18 +273,25 @@
     <section class="rm-section" aria-labelledby="rm-activity-heading">
         <h2 id="rm-activity-heading" class="rm-section__title">Recent Activity</h2>
         <div class="rm-card-grid">
-            @foreach($recentActivity as $activity)
+            @if (!empty($recentActivity))
+                @foreach($recentActivity as $activity)
+                    <article class="rm-card">
+                        <div class="rm-card__row1">
+                            <h3 class="rm-card__name">{{ $activity['lead_name'] }}</h3>
+                        </div>
+                        <div class="rm-card__meta">
+                            <span class="rm-meta-k">Activity</span> <span class="rm-meta-v">{{ $activity['activity'] }}</span>
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-meta-k">Time</span> <span class="rm-meta-v">{{ $activity['time'] }}</span>
+                        </div>
+                    </article>
+                @endforeach
+            @else
                 <article class="rm-card">
-                    <div class="rm-card__row1">
-                        <h3 class="rm-card__name">{{ $activity['lead_name'] }}</h3>
-                    </div>
-                    <div class="rm-card__meta">
-                        <span class="rm-meta-k">Activity</span> <span class="rm-meta-v">{{ $activity['activity'] }}</span>
-                        <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        <span class="rm-meta-k">Time</span> <span class="rm-meta-v">{{ $activity['time'] }}</span>
-                    </div>
+                    <h3 class="rm-card__name">No recent activity</h3>
+                    <div class="rm-card__meta">Recent started and completed tasks will appear here.</div>
                 </article>
-            @endforeach
+            @endif
         </div>
     </section>
 @endsection
