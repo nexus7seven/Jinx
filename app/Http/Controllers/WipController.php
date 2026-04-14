@@ -9,10 +9,12 @@ use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use RuntimeException;
 use Throwable;
 
 class WipController extends Controller
@@ -123,6 +125,37 @@ class WipController extends Controller
                     'no_answer',
                     [
                         'stage' => 'cold',
+                        'time_waiting_text' => '0h',
+                    ]
+                );
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        if ($validated['wip_status'] === 'Awaiting Call' && $previousStatus !== 'Awaiting Call') {
+            try {
+                $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : 0;
+                if ($vicidialLeadId <= 0) {
+                    throw new RuntimeException('missing_vicidial_lead_id');
+                }
+
+                $campaignId = DB::connection(config('services.vicidial.db_connection'))
+                    ->table('vicidial_list')
+                    ->where('lead_id', $vicidialLeadId)
+                    ->value('campaign_id');
+
+                if (! is_string($campaignId) || trim($campaignId) === '') {
+                    throw new RuntimeException('missing_vicidial_campaign_id');
+                }
+
+                $this->remarketingTaskService->createTaskForLeadTrigger(
+                    $lead->fresh(),
+                    'call',
+                    'requested_callback',
+                    [
+                        'campaign_id' => trim($campaignId),
+                        'stage' => 'fresh',
                         'time_waiting_text' => '0h',
                     ]
                 );
