@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\RemarketingTask;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -15,69 +16,56 @@ class RemarketingController extends Controller
             $selectedStage = 'all';
         }
 
-        $callTasks = [
-            [
-                'lead_name' => 'Alex Morgan',
-                'phone' => '07123 456789',
-                'reason' => 'SMS reply',
-                'time_waiting' => '2h',
-                'task_type' => 'call',
-                'stage' => 'fresh',
-            ],
-            [
-                'lead_name' => 'Jordan Lee',
-                'phone' => '07999 112233',
-                'reason' => 'No contact',
-                'time_waiting' => '1d',
-                'task_type' => 'call',
-                'stage' => 'cold',
-            ],
-        ];
-        $whatsappTasks = [
-            [
-                'lead_name' => 'Sam Taylor',
-                'phone' => '07888 445566',
-                'reason' => 'Requested callback',
-                'time_waiting' => '45m',
-                'task_type' => 'whatsapp',
-                'stage' => 'fresh',
-            ],
-            [
-                'lead_name' => 'Riley Chen',
-                'phone' => '07555 998877',
-                'reason' => 'Dropped call',
-                'time_waiting' => '3h',
-                'task_type' => 'whatsapp',
-                'stage' => 'cooling',
-            ],
-            [
-                'lead_name' => 'Casey Brooks',
-                'phone' => '07333 221100',
-                'reason' => 'Follow-up doc',
-                'time_waiting' => '30m',
-                'task_type' => 'whatsapp',
-                'stage' => 'dormant',
-            ],
-        ];
-        $whatsappTasks = array_map(function (array $task) {
-            $phone = str_replace(' ', '', $task['phone']);
-            if (str_starts_with($phone, '0')) {
-                $phone = '44' . substr($phone, 1);
-            }
-            $message = 'Hi ' . $task['lead_name'] . ', just following up in case WhatsApp is easier for you.';
-            $task['whatsapp_url'] = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
-
-            return $task;
-        }, $whatsappTasks);
+        $tasksQuery = RemarketingTask::query()
+            ->where('status', 'pending');
 
         if ($selectedStage !== 'all') {
-            $callTasks = array_values(array_filter($callTasks, function (array $task) use ($selectedStage) {
-                return $task['stage'] === $selectedStage;
-            }));
-            $whatsappTasks = array_values(array_filter($whatsappTasks, function (array $task) use ($selectedStage) {
-                return $task['stage'] === $selectedStage;
-            }));
+            $tasksQuery->where('stage', $selectedStage);
         }
+
+        $pendingTasks = $tasksQuery
+            ->orderBy('id')
+            ->get();
+
+        $callTasks = $pendingTasks
+            ->where('task_type', 'call')
+            ->values()
+            ->map(function (RemarketingTask $task) {
+                return [
+                    'id' => $task->id,
+                    'lead_name' => $task->lead_name,
+                    'phone' => $task->phone,
+                    'reason' => $task->reason,
+                    'time_waiting' => $task->time_waiting_text ?? 'Waiting',
+                    'task_type' => $task->task_type,
+                    'stage' => $task->stage,
+                ];
+            })
+            ->all();
+
+        $whatsappTasks = $pendingTasks
+            ->where('task_type', 'whatsapp')
+            ->values()
+            ->map(function (RemarketingTask $task) {
+                $phone = str_replace(' ', '', $task->phone);
+                if (str_starts_with($phone, '0')) {
+                    $phone = '44' . substr($phone, 1);
+                }
+                $message = 'Hi ' . $task->lead_name . ', just following up in case WhatsApp is easier for you.';
+                $whatsappUrl = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
+
+                return [
+                    'id' => $task->id,
+                    'lead_name' => $task->lead_name,
+                    'phone' => $task->phone,
+                    'reason' => $task->reason,
+                    'time_waiting' => $task->time_waiting_text ?? 'Waiting',
+                    'task_type' => $task->task_type,
+                    'stage' => $task->stage,
+                    'whatsapp_url' => $whatsappUrl,
+                ];
+            })
+            ->all();
 
         $recentActivity = [
             [
@@ -104,15 +92,27 @@ class RemarketingController extends Controller
     public function complete(Request $request)
     {
         $validated = $request->validate([
+            'task_id' => ['required', 'integer'],
             'task_type' => ['required', 'in:call,whatsapp'],
             'lead_name' => ['required', 'string', 'max:255'],
             'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
         ]);
 
         Log::info('Remarketing task completed', [
+            'task_id' => $validated['task_id'],
             'task_type' => $validated['task_type'],
             'lead_name' => $validated['lead_name'],
         ]);
+
+        $task = RemarketingTask::query()
+            ->where('id', $validated['task_id'])
+            ->where('status', 'pending')
+            ->first();
+
+        if ($task) {
+            $task->status = 'completed';
+            $task->save();
+        }
 
         return redirect()
             ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
@@ -122,6 +122,7 @@ class RemarketingController extends Controller
     public function call(Request $request)
     {
         $validated = $request->validate([
+            'task_id' => ['required', 'integer'],
             'lead_name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:255'],
             'reason' => ['required', 'string', 'max:255'],
@@ -129,7 +130,14 @@ class RemarketingController extends Controller
             'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
         ]);
 
-        Log::info('Remarketing call task opened', $validated);
+        Log::info('Remarketing call task opened', [
+            'task_id' => $validated['task_id'],
+            'lead_name' => $validated['lead_name'],
+            'phone' => $validated['phone'],
+            'reason' => $validated['reason'],
+            'task_type' => $validated['task_type'],
+            'current_stage' => $validated['current_stage'] ?? null,
+        ]);
 
         return redirect()
             ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])

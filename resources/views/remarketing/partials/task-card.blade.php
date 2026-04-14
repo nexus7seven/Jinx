@@ -5,6 +5,7 @@
             @if($actionType === 'call')
                 <form class="rm-complete-form" method="POST" action="{{ route('remarketing.call') }}">
                     @csrf
+                    <input type="hidden" name="task_id" value="{{ $task['id'] }}">
                     <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
                     <input type="hidden" name="phone" value="{{ $task['phone'] }}">
                     <input type="hidden" name="reason" value="{{ $task['reason'] }}">
@@ -18,6 +19,7 @@
 
             <form class="rm-complete-form" method="POST" action="{{ route('remarketing.complete') }}">
                 @csrf
+                <input type="hidden" name="task_id" value="{{ $task['id'] }}">
                 <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
                 <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
                 <input type="hidden" name="current_stage" value="{{ $selectedStage }}">
