@@ -16,8 +16,8 @@ class RemarketingTaskService
     private const REASON_TEMPLATES = [
         'missed_call' => 'Missed call follow-up',
         'no_answer' => 'No answer follow-up',
-        'requested_callback' => 'Requested callback',
-        'requested_whatsapp' => 'Requested WhatsApp follow-up',
+        'callback_follow_up' => 'Callback follow-up',
+        'whatsapp_follow_up' => 'WhatsApp follow-up',
         'stale_lead_follow_up' => 'Stale lead follow-up',
     ];
 
@@ -152,12 +152,14 @@ class RemarketingTaskService
         if (! isset($payloadOverrides['reason']) || trim((string) $payloadOverrides['reason']) === '') {
             $payloadOverrides['reason'] = $this->resolveReason($reasonKey);
         }
+        $dedupeReason = trim((string) ($payloadOverrides['reason'] ?? ''));
 
         if ($leadId !== null && in_array($type, ['call', 'whatsapp'], true)) {
             $existingPending = RemarketingTask::query()
                 ->where('lead_id', $leadId)
                 ->where('task_type', $type)
                 ->where('status', 'pending')
+                ->where('reason', $dedupeReason)
                 ->first();
 
             if ($existingPending) {

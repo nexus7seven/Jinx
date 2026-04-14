@@ -151,7 +151,7 @@ class WipController extends Controller
                 $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
                     $lead->fresh(),
                     'call',
-                    'requested_callback',
+                    'callback_follow_up',
                     [
                         'campaign_id' => $campaignId,
                         'stage' => 'fresh',
@@ -161,6 +161,29 @@ class WipController extends Controller
                 Log::info('Remarketing trigger executed', [
                     'trigger_status' => 'Awaiting Call',
                     'task_type' => 'call',
+                    'task_id' => $triggerResult['task']->id ?? null,
+                    'lead_id' => $triggerResult['task']->lead_id ?? null,
+                    'was_created' => (bool) ($triggerResult['was_created'] ?? false),
+                ]);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        if ($validated['wip_status'] === 'Awaiting Docs' && $previousStatus !== 'Awaiting Docs') {
+            try {
+                $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
+                    $lead->fresh(),
+                    'whatsapp',
+                    'whatsapp_follow_up',
+                    [
+                        'stage' => 'cooling',
+                        'time_waiting_text' => '0h',
+                    ]
+                );
+                Log::info('Remarketing trigger executed', [
+                    'trigger_status' => 'Awaiting Docs',
+                    'task_type' => 'whatsapp',
                     'task_id' => $triggerResult['task']->id ?? null,
                     'lead_id' => $triggerResult['task']->lead_id ?? null,
                     'was_created' => (bool) ($triggerResult['was_created'] ?? false),
