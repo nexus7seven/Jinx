@@ -211,8 +211,33 @@ class RemarketingController extends Controller
             'result' => $result,
         ]);
 
-        $flashType = ($result['ok'] ?? false) ? 'success' : 'error';
-        $flashMessage = (string) ($result['message'] ?? (($result['ok'] ?? false) ? 'Call task opened.' : 'Call failed.'));
+        $isOk = (bool) ($result['ok'] ?? false);
+        $popupConfirmed = (bool) ($result['popup_confirmed'] ?? false);
+
+        if ($isOk) {
+            $fromStatus = (string) $task->status;
+            $toStatus = $popupConfirmed ? 'completed' : 'started';
+            $task->status = $toStatus;
+            $task->save();
+
+            Log::info('Remarketing task status transition', [
+                'task_id' => $task->id,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+                'popup_confirmed' => $popupConfirmed,
+            ]);
+        }
+
+        if (! $isOk) {
+            $flashType = 'error';
+            $flashMessage = (string) ($result['message'] ?? 'Call failed.');
+        } elseif ($popupConfirmed) {
+            $flashType = 'success';
+            $flashMessage = 'Call started and popup confirmed.';
+        } else {
+            $flashType = 'success';
+            $flashMessage = 'Call started, but popup not confirmed yet.';
+        }
 
         return redirect()
             ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
