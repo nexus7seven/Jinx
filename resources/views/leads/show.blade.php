@@ -24,15 +24,17 @@
         id="caseNotesStickyWrap"
         style="position:fixed; top:72px; left:50%; transform:translateX(-50%); width:min(980px, calc(100vw - 40px)); z-index:200; pointer-events:none;"
     >
-        <div style="max-width:360px; pointer-events:auto;">
-            <div style="background:#111827; border:1px solid #374151; border-radius:12px; padding:12px; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
+        <div style="width:fit-content; pointer-events:auto;">
+            <div style="display:inline-block; background:#111827; border:1px solid #374151; border-radius:12px; padding:8px; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
                 <div style="margin:0;">
                     <button
                         type="button"
                         id="caseNotesToggle"
-                        style="display:inline-flex; align-items:center; gap:8px; min-height:42px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                        aria-label="Toggle scribble notes"
+                        title="Scribble notes"
+                        style="display:inline-flex; align-items:center; justify-content:center; width:56px; height:56px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:12px; padding:0; font-size:30px; line-height:1; cursor:pointer;"
                     >
-                        📝 Scribble Notes
+                        🗒️
                     </button>
                 </div>
 
@@ -668,7 +670,7 @@
 
         caseNotesOpen = nextOpen;
         caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
-        caseNotesToggle.innerHTML = caseNotesOpen ? '📝 Hide Scribble Notes' : '📝 Scribble Notes';
+        caseNotesToggle.innerHTML = '🗒️';
 
         requestAnimationFrame(updateCaseNotesSpacer);
     }
