@@ -106,6 +106,7 @@ class RemarketingController extends Controller
         $validated = $request->validate([
             'task_type' => ['required', 'in:call,whatsapp'],
             'lead_name' => ['required', 'string', 'max:255'],
+            'current_stage' => ['nullable', 'in:all,fresh,cooling,cold,dormant'],
         ]);
 
         Log::info('Remarketing task completed', [
@@ -114,7 +115,7 @@ class RemarketingController extends Controller
         ]);
 
         return redirect()
-            ->route('remarketing.index')
+            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
             ->with('success', 'Task marked complete.');
     }
 

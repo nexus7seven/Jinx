@@ -169,6 +169,7 @@
                                     @csrf
                                     <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
                                     <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                    <input type="hidden" name="current_stage" value="{{ $selectedStage }}">
                                     <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
                                 </form>
                             </div>
@@ -205,6 +206,7 @@
                                     @csrf
                                     <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
                                     <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                                    <input type="hidden" name="current_stage" value="{{ $selectedStage }}">
                                     <button type="submit" class="rm-card__action rm-card__action--secondary">Mark Complete</button>
                                 </form>
                             </div>
