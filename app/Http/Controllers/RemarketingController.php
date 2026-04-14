@@ -89,6 +89,32 @@ class RemarketingController extends Controller
         ]);
     }
 
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'lead_name' => ['required', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'max:255'],
+            'task_type' => ['required', 'in:call,whatsapp'],
+            'reason' => ['required', 'string', 'max:255'],
+            'stage' => ['required', 'in:fresh,cooling,cold,dormant'],
+            'time_waiting_text' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        RemarketingTask::create([
+            'lead_name' => $validated['lead_name'],
+            'phone' => $validated['phone'],
+            'task_type' => $validated['task_type'],
+            'reason' => $validated['reason'],
+            'stage' => $validated['stage'],
+            'status' => 'pending',
+            'time_waiting_text' => $validated['time_waiting_text'] ?? null,
+        ]);
+
+        return redirect()
+            ->route('remarketing.index')
+            ->with('success', 'Test task added.');
+    }
+
     public function complete(Request $request)
     {
         $validated = $request->validate([

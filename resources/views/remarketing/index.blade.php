@@ -147,6 +147,67 @@
         @endforeach
     </div>
 
+    <section class="rm-section" aria-labelledby="rm-add-task-heading">
+        <h2 id="rm-add-task-heading" class="rm-section__title">Add Test Task</h2>
+        <form method="POST" action="{{ route('remarketing.tasks.store') }}" class="rm-card">
+            @csrf
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+                <input
+                    type="text"
+                    name="lead_name"
+                    value="{{ old('lead_name') }}"
+                    placeholder="Lead name"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                <input
+                    type="text"
+                    name="phone"
+                    value="{{ old('phone') }}"
+                    placeholder="Phone"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                <select
+                    name="task_type"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                    <option value="call" {{ old('task_type') === 'call' ? 'selected' : '' }}>call</option>
+                    <option value="whatsapp" {{ old('task_type') === 'whatsapp' ? 'selected' : '' }}>whatsapp</option>
+                </select>
+                <input
+                    type="text"
+                    name="reason"
+                    value="{{ old('reason') }}"
+                    placeholder="Reason"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                <select
+                    name="stage"
+                    required
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+                    <option value="fresh" {{ old('stage') === 'fresh' ? 'selected' : '' }}>fresh</option>
+                    <option value="cooling" {{ old('stage') === 'cooling' ? 'selected' : '' }}>cooling</option>
+                    <option value="cold" {{ old('stage') === 'cold' ? 'selected' : '' }}>cold</option>
+                    <option value="dormant" {{ old('stage') === 'dormant' ? 'selected' : '' }}>dormant</option>
+                </select>
+                <input
+                    type="text"
+                    name="time_waiting_text"
+                    value="{{ old('time_waiting_text') }}"
+                    placeholder="Time waiting text (optional)"
+                    style="box-sizing:border-box; width:100%; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
+                >
+            </div>
+            <div>
+                <button type="submit" class="rm-card__action rm-card__action--call">Add Test Task</button>
+            </div>
+        </form>
+    </section>
+
     <section class="rm-section" aria-labelledby="rm-call-heading">
         <h2 id="rm-call-heading" class="rm-section__title">Call Tasks</h2>
         <div class="rm-card-grid">
