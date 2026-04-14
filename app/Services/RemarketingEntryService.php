@@ -7,8 +7,12 @@ use App\Models\RemarketingTask;
 
 class RemarketingEntryService
 {
+    /** VICIdial list for remarketing leads (no autodial). */
+    private const REMARKETING_VICIDIAL_LIST_ID = '5555555555';
+
     public function __construct(
         private RemarketingTaskService $remarketingTaskService,
+        private VicidialListService $vicidialListService,
     ) {
     }
 
@@ -24,6 +28,8 @@ class RemarketingEntryService
         if ($vicidialLeadId === null) {
             return;
         }
+
+        $this->vicidialListService->moveLeadToList($vicidialLeadId, self::REMARKETING_VICIDIAL_LIST_ID);
 
         $pendingCallExists = RemarketingTask::query()
             ->where('lead_id', $vicidialLeadId)
