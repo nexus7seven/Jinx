@@ -9,7 +9,7 @@ use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
-use Illuminate\Support\Facades\DB;
+use App\Services\VicidialLeadLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -26,6 +26,7 @@ class WipController extends Controller
         private VicidialDialActivityService $dialActivityService,
         private LeadOpsAlertEligibility $opsAlertEligibility,
         private RemarketingTaskService $remarketingTaskService,
+        private VicidialLeadLookupService $vicidialLeadLookupService,
     ) {
     }
 
@@ -135,17 +136,8 @@ class WipController extends Controller
 
         if ($validated['wip_status'] === 'Awaiting Call' && $previousStatus !== 'Awaiting Call') {
             try {
-                $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : 0;
-                if ($vicidialLeadId <= 0) {
-                    throw new RuntimeException('missing_vicidial_lead_id');
-                }
-
-                $campaignId = DB::connection(config('services.vicidial.db_connection'))
-                    ->table('vicidial_list')
-                    ->where('lead_id', $vicidialLeadId)
-                    ->value('campaign_id');
-
-                if (! is_string($campaignId) || trim($campaignId) === '') {
+                $campaignId = $this->vicidialLeadLookupService->resolveCampaignIdForLead($lead->fresh());
+                if ($campaignId === null) {
                     throw new RuntimeException('missing_vicidial_campaign_id');
                 }
 
@@ -154,7 +146,7 @@ class WipController extends Controller
                     'call',
                     'requested_callback',
                     [
-                        'campaign_id' => trim($campaignId),
+                        'campaign_id' => $campaignId,
                         'stage' => 'fresh',
                         'time_waiting_text' => '0h',
                     ]
