@@ -7,11 +7,13 @@ use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
+use App\Services\RemarketingEntryService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
 use App\Services\VicidialLeadLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -25,6 +27,7 @@ class WipController extends Controller
         private LeadChecklistService $checklistService,
         private VicidialDialActivityService $dialActivityService,
         private LeadOpsAlertEligibility $opsAlertEligibility,
+        private RemarketingEntryService $remarketingEntryService,
         private RemarketingTaskService $remarketingTaskService,
         private VicidialLeadLookupService $vicidialLeadLookupService,
     ) {
@@ -120,21 +123,10 @@ class WipController extends Controller
 
         if ($validated['wip_status'] === 'Lost Contact' && $previousStatus !== 'Lost Contact') {
             try {
-                $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
-                    $lead->fresh(),
-                    'whatsapp',
-                    'no_answer',
-                    [
-                        'stage' => 'cold',
-                        'time_waiting_text' => '0h',
-                    ]
-                );
+                $this->remarketingEntryService->enterRemarketingFlow($lead->fresh(), 'lost_contact');
                 Log::info('Remarketing trigger executed', [
                     'trigger_status' => 'Lost Contact',
-                    'task_type' => 'whatsapp',
-                    'task_id' => $triggerResult['task']->id ?? null,
-                    'lead_id' => $triggerResult['task']->lead_id ?? null,
-                    'was_created' => (bool) ($triggerResult['was_created'] ?? false),
+                    'trigger_source' => 'lost_contact',
                 ]);
             } catch (Throwable $e) {
                 report($e);
