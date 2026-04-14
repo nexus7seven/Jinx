@@ -9,6 +9,25 @@ use Illuminate\Validation\ValidationException;
 
 class RemarketingTaskService
 {
+    public function resolveStageFromHours(float|int $hoursSinceLastActivity): string
+    {
+        $hours = (float) $hoursSinceLastActivity;
+
+        if ($hours < 24) {
+            return 'fresh';
+        }
+
+        if ($hours < 72) {
+            return 'cooling';
+        }
+
+        if ($hours < 336) {
+            return 'cold';
+        }
+
+        return 'dormant';
+    }
+
     /**
      * @param  array<string, mixed>  $data
      * @throws ValidationException
