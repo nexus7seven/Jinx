@@ -68,6 +68,10 @@ class RunRemarketingBrain extends Command
 
     private const DORMANT_EMAIL_PORTAL_PUSH_HTML = '<h1>Clear My Credit</h1><p>If now is not the right time to speak, you can still move things forward in your own time.</p><p>Our self-serve portal lets you add your debts, complete your income and expenditure, and upload documents whenever it suits you.</p><p><a href="https://hextech.lol/portal/start">Use the self-serve portal</a></p>';
 
+    private const DORMANT_SMS_FINAL_NUDGE_REASON = 'dormant_sms_final_nudge';
+
+    private const DORMANT_SMS_FINAL_NUDGE_MESSAGE = 'Hi, just a final quick nudge in case you still wanted to look at your debt options: https://hextech.lol/portal/start';
+
     /**
      * @var array<int, string>
      */
@@ -934,6 +938,67 @@ class RunRemarketingBrain extends Command
                 'campaign_id' => $task->campaign_id,
                 'task_type' => 'email_sent',
                 'reason' => self::DORMANT_EMAIL_PORTAL_PUSH_REASON,
+                'stage' => 'dormant',
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
+        $pendingDormantDay49SmsTasks = RemarketingTask::query()
+            ->where('stage', 'dormant')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedDormantDay49SmsLeadIds = [];
+        foreach ($pendingDormantDay49SmsTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedDormantDay49SmsLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedDormantDay49SmsLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(1176))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $smsAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'sms_sent')
+                ->where('reason', self::DORMANT_SMS_FINAL_NUDGE_REASON)
+                ->exists();
+
+            if ($smsAlreadySent) {
+                continue;
+            }
+
+            $sent = $this->smsService->sendSms(
+                (string) $task->phone,
+                self::DORMANT_SMS_FINAL_NUDGE_MESSAGE
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'task_type' => 'sms_sent',
+                'reason' => self::DORMANT_SMS_FINAL_NUDGE_REASON,
                 'stage' => 'dormant',
                 'status' => 'completed',
                 'time_waiting_text' => null,
