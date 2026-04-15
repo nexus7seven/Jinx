@@ -107,11 +107,37 @@ class PdfCreditReportParser implements CreditReportParserInterface
     }
 
     /**
+     * Label rows in an account block (no £) are not creditor name fragments; they must not start
+     * a 2-line summary merge — otherwise e.g. "Repayment frequency Periodically" + the next line
+     * (merged ScottishPower summary) parses as one header and corrupts the creditor name.
+     */
+    private function isTransunionAccountDetailLabelLine(string $line): bool
+    {
+        $lower = mb_strtolower(trim($line));
+        foreach ([
+            'repayment frequency',
+            'opening balance',
+            'regular payment',
+            'payment start date',
+        ] as $prefix) {
+            if (str_starts_with($lower, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * First line of a split TransUnion account summary: looks like a creditor fragment, no £ yet.
      */
     private function isCreditorContinuationLine(string $line): bool
     {
         if (str_contains($line, '£')) {
+            return false;
+        }
+
+        if ($this->isTransunionAccountDetailLabelLine($line)) {
             return false;
         }
 
@@ -447,6 +473,12 @@ class PdfCreditReportParser implements CreditReportParserInterface
 
         $split = $this->parseAccountSummaryLine($line.' '.$next);
         if ($split !== null) {
+            // Same rule as stitch: only a real creditor continuation may form a 2-line header with
+            // the £ line — not section headings, labels, or "Repayment frequency …" rows.
+            if (! $this->isCreditorContinuationLine($line)) {
+                return null;
+            }
+
             return ['header' => $split, 'consumed' => 2];
         }
 
