@@ -25,6 +25,7 @@ class RemarketingTaskService
         'cold_sms_follow_up' => 'Cold stage SMS follow-up',
         'cold_email_portal_push' => 'Cold stage portal push email',
         'dormant_email_iva_reengagement' => 'Dormant stage IVA re-engagement email',
+        'dormant_email_portal_push' => 'Dormant stage portal push email',
         'dormant_sms_portal_nudge' => 'Dormant stage SMS portal nudge',
         'dormant_whatsapp_light_touch' => 'Dormant stage WhatsApp light touch',
         'stale_lead_follow_up' => 'Stale lead follow-up',

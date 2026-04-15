@@ -68,7 +68,7 @@ class CreditReportUploadTest extends TestCase
      */
     public function test_upload_pdf_route_imports_debts_and_ccjs_from_sanitized_fixture(): void
     {
-        Log::fake();
+        $log = Log::spy();
 
         $fixtureText = $this->sanitizedFixtureText();
         $parsed = (new PdfCreditReportParser(new Parser()))->parseText($fixtureText);
@@ -98,10 +98,11 @@ class CreditReportUploadTest extends TestCase
         $this->assertNotNull($creditReport);
         $this->assertSame('processed', $creditReport->status);
 
-        Log::assertLogged('info', function (string $message, array $context): bool {
-            return $message === 'Credit report parser selected'
-                && ($context['type'] ?? null) === CreditReportFileTypeDetector::TYPE_PDF;
-        });
+        $log->shouldHaveReceived('info')
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Credit report parser selected'
+                    && ($context['type'] ?? null) === CreditReportFileTypeDetector::TYPE_PDF;
+            });
 
         $importedNames = Debt::query()
             ->where('lead_id', $lead->id)
@@ -173,6 +174,8 @@ class CreditReportUploadTest extends TestCase
 
     public function test_upload_blocked_when_ccjs_parsed_but_county_court_judgment_creditor_missing(): void
     {
+        $log = Log::spy();
+
         $fixtureText = $this->sanitizedFixtureText();
         $parsed = (new PdfCreditReportParser(new Parser()))->parseText($fixtureText);
         $this->app->instance(
@@ -218,11 +221,17 @@ class CreditReportUploadTest extends TestCase
         ]);
 
         $this->assertSame(0, Debt::where('lead_id', $lead->id)->count());
+
+        $log->shouldHaveReceived('error')
+            ->withArgs(function (string $message, array $context) use ($lead): bool {
+                return $message === 'Credit report import blocked: CCJs parsed but County Court Judgment creditor is missing'
+                    && ($context['lead_id'] ?? null) === $lead->id;
+            });
     }
 
     public function test_logs_notice_when_debt_assigned_to_could_not_match(): void
     {
-        Log::fake();
+        $log = Log::spy();
 
         $payload = [
             'text' => "Financial Account Information\nTotally Unknown Creditor XYZ Ltd £100 1 Jan 2026 Default\n",
@@ -260,10 +269,11 @@ class CreditReportUploadTest extends TestCase
             'report_files' => [$file],
         ]);
 
-        Log::assertLogged('notice', function (string $message, array $context): bool {
-            return $message === 'Credit report debt assigned to Could Not Match'
-                && ($context['raw_creditor_name'] ?? null) === 'Totally Unknown Creditor XYZ Ltd';
-        });
+        $log->shouldHaveReceived('notice')
+            ->withArgs(function (string $message, array $context): bool {
+                return $message === 'Credit report debt assigned to Could Not Match'
+                    && ($context['raw_creditor_name'] ?? null) === 'Totally Unknown Creditor XYZ Ltd';
+            });
     }
 
     public function test_upload_binary_garbage_pdf_fails_cleanly_without_debts(): void
