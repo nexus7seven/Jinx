@@ -24,6 +24,10 @@ class RunRemarketingBrain extends Command
 
     private const COOLING_SMS_MESSAGE = "Hi, just checking in regarding your debt enquiry. If you'd prefer, you can still find out whether you qualify for help here: https://clearmycredit.co.uk/iva";
 
+    private const COLD_SMS_REASON_PREFIX = 'cold_sms_follow_up';
+
+    private const COLD_SMS_MESSAGE = 'Hi, just following up in case you still wanted to look into your debt options. You can check whether you may qualify for help here: https://clearmycredit.co.uk/iva';
+
     private const EMAIL_REASON_PREFIX = 'email_1';
 
     private const EMAIL_SUBJECT = 'Struggling with debt? You may qualify for help';
@@ -461,6 +465,105 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
+        $coldWhatsAppReason = $this->remarketingTaskService->resolveReason('cold_whatsapp_follow_up');
+        $pendingColdTasks = RemarketingTask::query()
+            ->where('stage', 'cold')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedColdLeadIds = [];
+        foreach ($pendingColdTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedColdLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedColdLeadIds[$leadId] = true;
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $existingColdWhatsApp = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'whatsapp')
+                ->where('stage', 'cold')
+                ->where('status', 'pending')
+                ->where('reason', $coldWhatsAppReason)
+                ->exists();
+
+            if ($existingColdWhatsApp) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'task_type' => 'whatsapp',
+                'reason' => $coldWhatsAppReason,
+                'stage' => 'cold',
+                'status' => 'pending',
+                'time_waiting_text' => '0h',
+            ]);
+        }
+
+        $overdueColdWhatsAppTasks = RemarketingTask::query()
+            ->where('task_type', 'whatsapp')
+            ->where('status', 'pending')
+            ->where('stage', 'cold')
+            ->get();
+
+        foreach ($overdueColdWhatsAppTasks as $whatsAppTask) {
+            if ((string) $whatsAppTask->reason !== $coldWhatsAppReason) {
+                continue;
+            }
+
+            if ($whatsAppTask->created_at === null || $whatsAppTask->created_at->greaterThan(now()->subHours(48))) {
+                continue;
+            }
+
+            $smsReason = $this->coldSmsReasonForWhatsAppTask($whatsAppTask);
+
+            $smsAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $whatsAppTask->lead_id)
+                ->where('task_type', 'sms_sent')
+                ->where('reason', $smsReason)
+                ->exists();
+
+            if ($smsAlreadySent) {
+                continue;
+            }
+
+            $sent = $this->smsService->sendSms(
+                (string) $whatsAppTask->phone,
+                self::COLD_SMS_MESSAGE
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $whatsAppTask->lead_id,
+                'lead_name' => $whatsAppTask->lead_name,
+                'phone' => $whatsAppTask->phone,
+                'campaign_id' => $whatsAppTask->campaign_id,
+                'task_type' => 'sms_sent',
+                'reason' => $smsReason,
+                'stage' => $whatsAppTask->stage,
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
         return self::SUCCESS;
     }
 
@@ -482,6 +585,11 @@ class RunRemarketingBrain extends Command
     private function coolingSmsReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
     {
         return self::COOLING_SMS_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
+    }
+
+    private function coldSmsReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
+    {
+        return self::COLD_SMS_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
     }
 
     private function coolingEmail3ReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
