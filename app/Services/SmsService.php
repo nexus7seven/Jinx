@@ -2,13 +2,18 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use Twilio\Rest\Client;
 use Throwable;
 
 class SmsService
 {
+    private ?string $lastError = null;
+
     public function sendSms(string $to, string $message): bool
     {
+        $this->lastError = null;
+
         $sid = (string) env('TWILIO_ACCOUNT_SID', '');
         $token = (string) env('TWILIO_AUTH_TOKEN', '');
         $from = $this->formatUkPhone((string) env('TWILIO_FROM_NUMBER', ''));
@@ -16,6 +21,7 @@ class SmsService
         $body = trim($message);
 
         if ($sid === '' || $token === '' || $from === null || $toNumber === null || $body === '') {
+            $this->lastError = 'Invalid Twilio config or phone number.';
             return false;
         }
 
@@ -27,9 +33,18 @@ class SmsService
             ]);
 
             return true;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            $this->lastError = $e->getMessage();
+            Log::warning('Twilio SMS send failed', [
+                'error' => $this->lastError,
+            ]);
             return false;
         }
+    }
+
+    public function lastError(): ?string
+    {
+        return $this->lastError;
     }
 
     private function formatUkPhone(string $phone): ?string
