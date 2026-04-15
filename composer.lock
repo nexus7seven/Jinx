@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c6f069f0abcc59550bb603d8dd69b374",
+    "content-hash": "2f77c3b95234c3648a94220dede0315f",
     "packages": [
         {
             "name": "brick/math",
@@ -3310,9 +3310,9 @@
                 "shasum": ""
             },
             "require": {
-                "php": ">=7.1",
                 "ext-iconv": "*",
                 "ext-zlib": "*",
+                "php": ">=7.1",
                 "symfony/polyfill-mbstring": "^1.18"
             },
             "type": "library",
@@ -3334,10 +3334,10 @@
             "description": "Pdf parser library. Can read and extract information from pdf file.",
             "homepage": "https://www.pdfparser.org",
             "keywords": [
-                "PDF",
                 "extract",
                 "parse",
                 "parser",
+                "pdf",
                 "text"
             ],
             "support": {
