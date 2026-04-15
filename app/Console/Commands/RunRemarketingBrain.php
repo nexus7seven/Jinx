@@ -46,6 +46,12 @@ class RunRemarketingBrain extends Command
 
     private const COOLING_EMAIL_3_HTML = '<h1>Clear My Credit</h1><p>Just a quick reminder that help may still be available if you\'re struggling with debt.</p><p>You may be able to reduce your monthly payments and write off a large portion of what you owe.</p><p>If you\'d rather do things in your own time, you can also use our self-serve portal.</p><p><a href="https://clearmycredit.co.uk/iva">See if you qualify</a></p><p><a href="https://hextech.lol/portal/start">Use the self-serve portal</a></p>';
 
+    private const COLD_EMAIL_PORTAL_PUSH_REASON = 'cold_email_portal_push';
+
+    private const COLD_EMAIL_PORTAL_PUSH_SUBJECT = 'Complete this in your own time';
+
+    private const COLD_EMAIL_PORTAL_PUSH_HTML = '<h1>Clear My Credit</h1><p>If now is not the right time to speak, you can still move things forward in your own time.</p><p>Our self-serve portal lets you add your debts, complete your income and expenditure, and upload documents when it suits you.</p><p><a href="https://hextech.lol/portal/start">Use the self-serve portal</a></p>';
+
     /**
      * @var array<int, string>
      */
@@ -559,6 +565,73 @@ class RunRemarketingBrain extends Command
                 'task_type' => 'sms_sent',
                 'reason' => $smsReason,
                 'stage' => $whatsAppTask->stage,
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
+        $pendingColdEmailTasks = RemarketingTask::query()
+            ->where('stage', 'cold')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedColdEmailLeadIds = [];
+        foreach ($pendingColdEmailTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedColdEmailLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedColdEmailLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(168))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $toEmail = trim((string) ($lead?->email ?? ''));
+            if ($toEmail === '') {
+                continue;
+            }
+
+            $emailAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'email_sent')
+                ->where('reason', self::COLD_EMAIL_PORTAL_PUSH_REASON)
+                ->exists();
+
+            if ($emailAlreadySent) {
+                continue;
+            }
+
+            $sent = $this->emailService->sendEmail(
+                $toEmail,
+                self::COLD_EMAIL_PORTAL_PUSH_SUBJECT,
+                self::COLD_EMAIL_PORTAL_PUSH_HTML
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'task_type' => 'email_sent',
+                'reason' => self::COLD_EMAIL_PORTAL_PUSH_REASON,
+                'stage' => 'cold',
                 'status' => 'completed',
                 'time_waiting_text' => null,
             ]);

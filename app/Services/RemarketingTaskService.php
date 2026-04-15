@@ -23,6 +23,7 @@ class RemarketingTaskService
         'cooling_email_3_follow_up' => 'Cooling stage Email 3 follow-up',
         'cold_whatsapp_follow_up' => 'Cold stage WhatsApp follow-up',
         'cold_sms_follow_up' => 'Cold stage SMS follow-up',
+        'cold_email_portal_push' => 'Cold stage portal push email',
         'stale_lead_follow_up' => 'Stale lead follow-up',
         'cooling_call_follow_up' => 'Cooling stage call follow-up',
     ];
