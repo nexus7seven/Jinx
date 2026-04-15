@@ -104,6 +104,7 @@ class CreditReportUploadTest extends TestCase
                     && ($context['type'] ?? null) === CreditReportFileTypeDetector::TYPE_PDF;
             });
 
+        // Assert canonical Creditor::name values after strict matching (not raw parser strings).
         $importedNames = Debt::query()
             ->where('lead_id', $lead->id)
             ->where('source_expected', 'credit_check')

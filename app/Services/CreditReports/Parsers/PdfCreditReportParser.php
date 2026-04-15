@@ -119,17 +119,8 @@ class PdfCreditReportParser implements CreditReportParserInterface
             return false;
         }
 
-        $lower = mb_strtolower(trim($line));
-
-        foreach ([
-            'credit cards',
-            'personal loans and mortgages',
-            'other accounts',
-            'financial account information',
-        ] as $heading) {
-            if ($lower === $heading) {
-                return false;
-            }
+        if ($this->isTransunionSectionHeadingLine($line)) {
+            return false;
         }
 
         return true;
@@ -366,12 +357,40 @@ class PdfCreditReportParser implements CreditReportParserInterface
         return null;
     }
 
+    /**
+     * Section titles and column headers must never be treated as creditor text or as the first
+     * line of a split summary (otherwise "Financial Account Information" + summary merges, or
+     * "Other accounts" + the first real account line merges and hides the real creditor name).
+     */
+    private function isTransunionSectionHeadingLine(string $line): bool
+    {
+        $lower = mb_strtolower(trim($line));
+
+        foreach ([
+            'financial account information',
+            'credit cards',
+            'personal loans and mortgages',
+            'other accounts',
+            'search history',
+        ] as $heading) {
+            if ($lower === $heading) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isLikelyAccountName(string $line): bool
     {
         $line = trim($line);
         $lower = mb_strtolower($line);
 
         if ($line === '' || mb_strlen($line) < 3 || mb_strlen($line) > 90) {
+            return false;
+        }
+
+        if ($this->isTransunionSectionHeadingLine($line)) {
             return false;
         }
 
