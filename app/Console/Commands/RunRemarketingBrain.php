@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Lead;
 use App\Models\RemarketingTask;
 use App\Services\EmailService;
+use App\Services\RemarketingTaskService;
 use App\Services\SmsService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -31,9 +32,15 @@ class RunRemarketingBrain extends Command
 
     private const EMAIL_2_HTML = '<h1>Clear My Credit</h1><p>If now is not a good time to speak, you can complete everything in your own time through our self-serve portal.</p><p>You can add your debts, complete your income and expenditure, and upload your documents when it suits you.</p><p><a href="https://hextech.lol/portal/start">Start here</a></p>';
 
+    /**
+     * @var array<int, string>
+     */
+    private const ACTIVE_REMARKETING_TASK_TYPES = ['call', 'whatsapp'];
+
     public function __construct(
         private SmsService $smsService,
         private EmailService $emailService,
+        private RemarketingTaskService $remarketingTaskService,
     ) {
         parent::__construct();
     }
@@ -230,6 +237,66 @@ class RunRemarketingBrain extends Command
                 ->update([
                     'stage' => 'cooling',
                 ]);
+        }
+
+        $coolingReason = $this->remarketingTaskService->resolveReason('cooling_call_follow_up');
+        $pendingCoolingTasks = RemarketingTask::query()
+            ->where('stage', 'cooling')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedCoolingLeadIds = [];
+        foreach ($pendingCoolingTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedCoolingLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedCoolingLeadIds[$leadId] = true;
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $existingPendingCall = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'call')
+                ->where('status', 'pending')
+                ->exists();
+
+            if ($existingPendingCall) {
+                continue;
+            }
+
+            $existingCoolingCall = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'call')
+                ->where('stage', 'cooling')
+                ->where('status', 'pending')
+                ->where('reason', $coolingReason)
+                ->exists();
+
+            if ($existingCoolingCall) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => 'MAIN',
+                'task_type' => 'call',
+                'reason' => $coolingReason,
+                'stage' => 'cooling',
+                'status' => 'pending',
+                'time_waiting_text' => '0h',
+            ]);
         }
 
         return self::SUCCESS;
