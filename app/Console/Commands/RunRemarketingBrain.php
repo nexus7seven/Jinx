@@ -24,6 +24,12 @@ class RunRemarketingBrain extends Command
 
     private const EMAIL_HTML = '<h1>Clear My Credit</h1><p>You could write off a large portion of your debt and stop creditor pressure.</p><p>Many people reduce their monthly payments to something affordable.</p><p><a href="https://clearmycredit.co.uk/iva">Check if you qualify here</a></p>';
 
+    private const EMAIL_2_REASON_PREFIX = 'email_2';
+
+    private const EMAIL_2_SUBJECT = 'Complete this in your own time';
+
+    private const EMAIL_2_HTML = '<h1>Clear My Credit</h1><p>If now is not a good time to speak, you can complete everything in your own time through our self-serve portal.</p><p>You can add your debts, complete your income and expenditure, and upload your documents when it suits you.</p><p><a href="https://hextech.lol/portal/start">Start here</a></p>';
+
     public function __construct(
         private SmsService $smsService,
         private EmailService $emailService,
@@ -125,6 +131,57 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
+        $overdueWhatsAppEmail2Tasks = RemarketingTask::query()
+            ->where('task_type', 'whatsapp')
+            ->where('status', 'pending')
+            ->where('created_at', '<=', now()->subHours(24))
+            ->get();
+
+        foreach ($overdueWhatsAppEmail2Tasks as $whatsAppTask) {
+            $emailReason = $this->email2ReasonForWhatsAppTask($whatsAppTask);
+
+            $emailAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $whatsAppTask->lead_id)
+                ->where('task_type', 'email_sent')
+                ->where('reason', $emailReason)
+                ->exists();
+
+            if ($emailAlreadySent) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', (int) $whatsAppTask->lead_id)
+                ->first();
+
+            $toEmail = trim((string) ($lead?->email ?? ''));
+            if ($toEmail === '') {
+                continue;
+            }
+
+            $sent = $this->emailService->sendEmail(
+                $toEmail,
+                self::EMAIL_2_SUBJECT,
+                self::EMAIL_2_HTML
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $whatsAppTask->lead_id,
+                'lead_name' => $whatsAppTask->lead_name,
+                'phone' => $whatsAppTask->phone,
+                'campaign_id' => $whatsAppTask->campaign_id,
+                'task_type' => 'email_sent',
+                'reason' => $emailReason,
+                'stage' => $whatsAppTask->stage,
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
         return self::SUCCESS;
     }
 
@@ -136,5 +193,10 @@ class RunRemarketingBrain extends Command
     private function emailReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
     {
         return self::EMAIL_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
+    }
+
+    private function email2ReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
+    {
+        return self::EMAIL_2_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
     }
 }
