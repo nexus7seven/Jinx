@@ -195,6 +195,43 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
+        $pendingFreshTasks = RemarketingTask::query()
+            ->where('status', 'pending')
+            ->where('stage', 'fresh')
+            ->whereIn('task_type', ['call', 'whatsapp'])
+            ->get();
+
+        $processedLeadIds = [];
+        foreach ($pendingFreshTasks as $task) {
+            $leadId = $task->lead_id !== null ? (int) $task->lead_id : 0;
+            if ($leadId <= 0 || isset($processedLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId) ?? $task->created_at;
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(24))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('status', 'pending')
+                ->where('stage', 'fresh')
+                ->update([
+                    'stage' => 'cooling',
+                ]);
+        }
+
         return self::SUCCESS;
     }
 
@@ -227,5 +264,21 @@ class RunRemarketingBrain extends Command
             ->first();
 
         return $flowStartTask?->created_at ?? $whatsAppTask->created_at;
+    }
+
+    private function flowStartedAtForLeadId(int $leadId): ?Carbon
+    {
+        if ($leadId <= 0) {
+            return null;
+        }
+
+        $flowStartTask = RemarketingTask::query()
+            ->where('lead_id', $leadId)
+            ->where('task_type', 'flow_started')
+            ->where('reason', 'flow_start')
+            ->orderBy('id')
+            ->first();
+
+        return $flowStartTask?->created_at;
     }
 }
