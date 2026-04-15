@@ -471,6 +471,43 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
+        $pendingColdStageTasks = RemarketingTask::query()
+            ->where('status', 'pending')
+            ->where('stage', 'cold')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->get();
+
+        $processedColdToDormantLeadIds = [];
+        foreach ($pendingColdStageTasks as $task) {
+            $leadId = $task->lead_id !== null ? (int) $task->lead_id : 0;
+            if ($leadId <= 0 || isset($processedColdToDormantLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedColdToDormantLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(336))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('status', 'pending')
+                ->where('stage', 'cold')
+                ->update([
+                    'stage' => 'dormant',
+                ]);
+        }
+
         $coldWhatsAppReason = $this->remarketingTaskService->resolveReason('cold_whatsapp_follow_up');
         $pendingColdTasks = RemarketingTask::query()
             ->where('stage', 'cold')
