@@ -364,6 +364,43 @@ class RunRemarketingBrain extends Command
                 ]);
         }
 
+        $pendingCoolingStageTasks = RemarketingTask::query()
+            ->where('status', 'pending')
+            ->where('stage', 'cooling')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->get();
+
+        $processedCoolingToColdLeadIds = [];
+        foreach ($pendingCoolingStageTasks as $task) {
+            $leadId = $task->lead_id !== null ? (int) $task->lead_id : 0;
+            if ($leadId <= 0 || isset($processedCoolingToColdLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedCoolingToColdLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(72))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('status', 'pending')
+                ->where('stage', 'cooling')
+                ->update([
+                    'stage' => 'cold',
+                ]);
+        }
+
         $coolingReason = $this->remarketingTaskService->resolveReason('cooling_call_follow_up');
         $pendingCoolingTasks = RemarketingTask::query()
             ->where('stage', 'cooling')
