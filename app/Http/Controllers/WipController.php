@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
+use App\Models\RemarketingTask;
 use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
 use App\Services\RemarketingEntryService;
@@ -120,6 +121,41 @@ class WipController extends Controller
         $lead->update([
             'wip_status' => $validated['wip_status'],
         ]);
+
+        if ($previousStatus === 'Lost Contact' && $validated['wip_status'] !== 'Lost Contact') {
+            try {
+                $freshLead = $lead->fresh();
+                if ($freshLead !== null && $freshLead->wip_status !== 'DEAD') {
+                    $vicidialLeadId = is_numeric($freshLead->vicidial_lead_id) ? (int) $freshLead->vicidial_lead_id : null;
+
+                    if ($vicidialLeadId !== null) {
+                        $first = trim((string) ($freshLead->first_name ?? ''));
+                        $last = trim((string) ($freshLead->last_name ?? ''));
+                        $fullName = trim($first . ' ' . $last);
+
+                        RemarketingTask::create([
+                            'lead_id' => $vicidialLeadId,
+                            'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $freshLead->id),
+                            'phone' => (string) ($freshLead->phone_number ?? ''),
+                            'campaign_id' => 'MAIN',
+                            'task_type' => 'flow_started',
+                            'reason' => 'flow_start',
+                            'stage' => 'fresh',
+                            'status' => 'completed',
+                            'time_waiting_text' => null,
+                        ]);
+
+                        Log::info('Remarketing flow_started marker created after WIP reset from Lost Contact', [
+                            'lead_local_id' => $freshLead->id,
+                            'vicidial_lead_id' => $vicidialLeadId,
+                            'new_wip_status' => $validated['wip_status'],
+                        ]);
+                    }
+                }
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
 
         if ($validated['wip_status'] === 'Lost Contact' && $previousStatus !== 'Lost Contact') {
             try {

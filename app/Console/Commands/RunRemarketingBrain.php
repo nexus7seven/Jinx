@@ -1148,11 +1148,23 @@ class RunRemarketingBrain extends Command
             return false;
         }
 
+        $latestFlowStarted = RemarketingTask::query()
+            ->where('lead_id', $leadId)
+            ->where('task_type', 'flow_started')
+            ->where('reason', 'flow_start')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestFlowStarted === null) {
+            return false;
+        }
+
         return RemarketingTask::query()
             ->where('lead_id', $leadId)
             ->where('task_type', 'whatsapp')
             ->where('reason', $dormantWhatsAppFinalTouchReason)
             ->whereIn('status', ['pending', 'completed'])
+            ->where('id', '>', $latestFlowStarted->id)
             ->exists();
     }
 
@@ -1196,7 +1208,7 @@ class RunRemarketingBrain extends Command
             ->where('lead_id', $whatsAppTask->lead_id)
             ->where('task_type', 'flow_started')
             ->where('reason', 'flow_start')
-            ->orderBy('id')
+            ->orderByDesc('id')
             ->first();
 
         return $flowStartTask?->created_at ?? $whatsAppTask->created_at;
@@ -1212,7 +1224,7 @@ class RunRemarketingBrain extends Command
             ->where('lead_id', $leadId)
             ->where('task_type', 'flow_started')
             ->where('reason', 'flow_start')
-            ->orderBy('id')
+            ->orderByDesc('id')
             ->first();
 
         return $flowStartTask?->created_at;

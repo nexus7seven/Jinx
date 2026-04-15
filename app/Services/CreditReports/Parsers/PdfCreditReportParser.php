@@ -146,10 +146,13 @@ class PdfCreditReportParser implements CreditReportParserInterface
         $lineCount = count($lines);
 
         for ($i = 0; $i < $lineCount; $i++) {
-            $header = $this->extractAccountHeader($lines, $i);
-            if ($header === null) {
+            $meta = $this->extractAccountHeaderMeta($lines, $i);
+            if ($meta === null) {
                 continue;
             }
+
+            $header = $meta['header'];
+            $consumed = $meta['consumed'];
 
             $name = $header['creditor'];
             $balance = $header['balance'];
@@ -158,7 +161,9 @@ class PdfCreditReportParser implements CreditReportParserInterface
             }
 
             $status = $header['status'];
-            $nextHeader = $this->findNextAccountHeader($lines, $i + 1);
+            // Search after every line this header consumed; otherwise the £ line of a split summary
+            // is mistaken for the next account (duplicate fragment creditors).
+            $nextHeader = $this->findNextAccountHeader($lines, $i + $consumed);
             $blockEnd = $nextHeader === null ? min($lineCount - 1, $i + 80) : min($nextHeader - 1, $i + 80);
 
             $debts[] = [
@@ -177,6 +182,8 @@ class PdfCreditReportParser implements CreditReportParserInterface
 
             if ($nextHeader !== null) {
                 $i = max($i, $nextHeader - 1);
+            } else {
+                $i += $consumed - 1;
             }
         }
 
@@ -402,29 +409,40 @@ class PdfCreditReportParser implements CreditReportParserInterface
     }
 
     /**
-     * @param array<int, string> $lines
-     * @return array{creditor:string,balance:float,status:?string,updated_date:?string}|null
+     * @return array{header: array{creditor: string, balance: float, status: ?string, updated_date: ?string}, consumed: int}|null
+     *         consumed is 1 (single-line summary) or 2 (continuation line + £ line merged).
      */
-    private function extractAccountHeader(array $lines, int $i): ?array
+    private function extractAccountHeaderMeta(array $lines, int $i): ?array
     {
         $line = trim($lines[$i] ?? '');
         $next = trim($lines[$i + 1] ?? '');
 
         $inline = $this->parseAccountSummaryLine($line);
         if ($inline !== null) {
-            return $inline;
+            return ['header' => $inline, 'consumed' => 1];
         }
 
         if (! $this->isLikelyAccountName($line)) {
             return null;
         }
 
-        $split = $this->parseAccountSummaryLine($line . ' ' . $next);
+        $split = $this->parseAccountSummaryLine($line.' '.$next);
         if ($split !== null) {
-            return $split;
+            return ['header' => $split, 'consumed' => 2];
         }
 
         return null;
+    }
+
+    /**
+     * @param array<int, string> $lines
+     * @return array{creditor:string,balance:float,status:?string,updated_date:?string}|null
+     */
+    private function extractAccountHeader(array $lines, int $i): ?array
+    {
+        $meta = $this->extractAccountHeaderMeta($lines, $i);
+
+        return $meta !== null ? $meta['header'] : null;
     }
 
     /**

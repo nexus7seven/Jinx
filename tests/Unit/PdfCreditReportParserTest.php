@@ -18,6 +18,7 @@ class PdfCreditReportParserTest extends TestCase
         $parsed = $parser->parseText((string) $sampleText);
 
         $this->assertNotEmpty($parsed['debts']);
+        $this->assertCount(10, $parsed['debts'], 'Split-summary duplicates (e.g. Card LTD / Retail Limited) must not add extra debt rows.');
         $this->assertCount(2, $parsed['county_court_judgments']);
 
         $creditors = array_values(array_filter(array_map(
@@ -77,5 +78,28 @@ class PdfCreditReportParserTest extends TestCase
         $this->assertSame('', $parsed['text']);
         $this->assertSame([], $parsed['debts']);
         $this->assertSame([], $parsed['county_court_judgments']);
+    }
+
+    /**
+     * Two-line summary without relying on stitch preprocessing: second line must not emit a fragment creditor.
+     */
+    public function test_parse_text_does_not_duplicate_creditor_when_summary_splits_across_two_lines(): void
+    {
+        $parser = new PdfCreditReportParser(new Parser());
+        $text = <<<'TXT'
+Financial Account Information
+Scottishpower Energy
+Retail Limited £1,438 27 Mar 2026 Default
+Name Test
+Account type Utility
+Search History
+TXT;
+
+        $parsed = $parser->parseText($text);
+        $names = array_map(static fn (array $d): string => (string) ($d['creditor'] ?? ''), $parsed['debts']);
+
+        $this->assertCount(1, $parsed['debts']);
+        $this->assertSame(['Scottishpower Energy Retail Limited'], $names);
+        $this->assertNotContains('Retail Limited', $names);
     }
 }
