@@ -20,6 +20,17 @@ function deckard_normalize_uk_national(string $raw): string
     if ($digits === '') {
         return '';
     }
+    if (str_starts_with($digits, '0044')) {
+        $rest = substr($digits, 4);
+        if ($rest === '') {
+            return '';
+        }
+        if (str_starts_with($rest, '0')) {
+            return substr($rest, 1);
+        }
+
+        return $rest;
+    }
     if (str_starts_with($digits, '44') && strlen($digits) > 10) {
         return substr($digits, 2);
     }

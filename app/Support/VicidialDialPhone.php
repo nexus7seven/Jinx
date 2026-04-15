@@ -23,6 +23,19 @@ final class VicidialDialPhone
             return null;
         }
 
+        // International prefix without +: 0044… must run before the generic leading-0 rule.
+        if (str_starts_with($digits, '0044')) {
+            $rest = substr($digits, 4);
+            if ($rest === '') {
+                return null;
+            }
+            if (str_starts_with($rest, '0')) {
+                return substr($rest, 1);
+            }
+
+            return $rest;
+        }
+
         if (str_starts_with($digits, '44') && strlen($digits) > 10) {
             return substr($digits, 2);
         }

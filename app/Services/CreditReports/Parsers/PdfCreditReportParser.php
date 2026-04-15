@@ -70,11 +70,78 @@ class PdfCreditReportParser implements CreditReportParserInterface
     }
 
     /**
+     * TransUnion PDFs often wrap long organisation names: the first line has no £, the next line
+     * holds "…Retail Limited £amount date status". Both extractAccountHeader (inline match on the
+     * second line) and the two-line join (at the first index) would otherwise emit two headers,
+     * the second with a fragment creditor (e.g. "Retail Limited", "Card LTD").
+     *
+     * @param array<int, string> $lines
+     * @return array<int, string>
+     */
+    private function stitchSplitAccountSummaryLines(array $lines): array
+    {
+        $n = count($lines);
+        if ($n < 2) {
+            return $lines;
+        }
+
+        $out = [];
+        for ($i = 0; $i < $n; $i++) {
+            if ($i + 1 < $n && $this->isCreditorContinuationLine($lines[$i])) {
+                $combined = trim($lines[$i].' '.$lines[$i + 1]);
+                $merged = $this->parseAccountSummaryLine($combined);
+                $nextAlone = $this->parseAccountSummaryLine(trim($lines[$i + 1]));
+                if ($merged !== null && $nextAlone !== null
+                    && ($merged['creditor'] ?? '') !== ($nextAlone['creditor'] ?? '')) {
+                    $out[] = $combined;
+                    $i++;
+
+                    continue;
+                }
+            }
+
+            $out[] = $lines[$i];
+        }
+
+        return $out;
+    }
+
+    /**
+     * First line of a split TransUnion account summary: looks like a creditor fragment, no £ yet.
+     */
+    private function isCreditorContinuationLine(string $line): bool
+    {
+        if (str_contains($line, '£')) {
+            return false;
+        }
+
+        if (! $this->isLikelyAccountName($line)) {
+            return false;
+        }
+
+        $lower = mb_strtolower(trim($line));
+
+        foreach ([
+            'credit cards',
+            'personal loans and mortgages',
+            'other accounts',
+            'financial account information',
+        ] as $heading) {
+            if ($lower === $heading) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @param array<int, string> $lines
      * @return array<int, array<string, mixed>>
      */
     private function extractDebts(array $lines): array
     {
+        $lines = $this->stitchSplitAccountSummaryLines($lines);
         $debts = [];
         $lineCount = count($lines);
 

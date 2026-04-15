@@ -25,10 +25,15 @@ class PdfCreditReportParserTest extends TestCase
             $parsed['debts']
         )));
 
+        $this->assertNotContains('Retail Limited', $creditors, 'Split ScottishPower rows must merge; this fragment must not be a standalone creditor.');
+        $this->assertNotContains('Card LTD', $creditors, 'Split Bits/Fea rows must merge; this fragment must not be a standalone creditor.');
+
         $this->assertContains('Bits Credit Card', $creditors);
         $this->assertContains('Fair Finance', $creditors);
         $this->assertContains('Tesco Mobile Handset', $creditors);
         $this->assertContains('Scottishpower Energy Retail Limited', $creditors);
+        $this->assertContains('Bits Credit Builder - Fea Card LTD', $creditors);
+        $this->assertContains('Tesco Mobile Telecoms', $creditors);
         $this->assertContains('Ee Limited', $creditors);
 
         $caseNumbers = array_map(
@@ -44,6 +49,16 @@ class PdfCreditReportParserTest extends TestCase
         $this->assertContains('SAMP658M', $caseNumbers);
         $this->assertContains(1009.0, $amounts);
         $this->assertContains(195.0, $amounts);
+
+        $byCreditor = [];
+        foreach ($parsed['debts'] as $debt) {
+            $byCreditor[(string) ($debt['creditor'] ?? '')] = $debt;
+        }
+
+        $this->assertSame(1438.0, (float) ($byCreditor['Scottishpower Energy Retail Limited']['balance'] ?? 0));
+        $this->assertSame(98.0, (float) ($byCreditor['Bits Credit Builder - Fea Card LTD']['balance'] ?? 0));
+        $this->assertSame('2026-03-27', (string) ($byCreditor['Scottishpower Energy Retail Limited']['updated_date'] ?? ''));
+        $this->assertSame('Default', (string) ($byCreditor['Scottishpower Energy Retail Limited']['status'] ?? ''));
 
         $this->assertArrayHasKey('creditor', $parsed['debts'][0]);
         $this->assertArrayHasKey('balance', $parsed['debts'][0]);

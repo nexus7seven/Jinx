@@ -113,9 +113,11 @@ class CreditReportUploadTest extends TestCase
             ->all();
 
         $this->assertContains('Bits Credit Card', $importedNames);
+        $this->assertContains('Bits Credit Builder - Fea Card LTD', $importedNames);
         $this->assertContains('Fair Finance', $importedNames);
         $this->assertContains('Tesco Mobile Handset', $importedNames);
         $this->assertContains('Scottishpower Energy Retail Limited', $importedNames);
+        $this->assertContains('Tesco Mobile Telecoms', $importedNames);
         $this->assertContains('Ee Limited', $importedNames);
 
         $ccjCreditor = Creditor::where('name', 'County Court Judgment')->first();

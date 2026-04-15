@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Partner;
+use App\Support\VicidialDialPhone;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -74,22 +75,18 @@ class VicidialLeadService
             ], 'lead_id');
     }
 
+    /**
+     * UK numbers for vicidial_list: phone_code 44 + national digits (no leading 0).
+     * Logic matches App\Support\VicidialDialPhone (and deckard_normalize_uk_national).
+     */
     private function normaliseUkPhone(string $raw): array
     {
-        $digits = preg_replace('/\D+/', '', $raw);
+        $national = VicidialDialPhone::nationalDigits($raw);
 
-        if ($digits === '') {
+        if ($national === null || $national === '') {
             throw new InvalidArgumentException('Phone number is empty.');
         }
 
-        if (str_starts_with($digits, '44') && strlen($digits) > 10) {
-            return ['44', substr($digits, 2)];
-        }
-
-        if (str_starts_with($digits, '0')) {
-            return ['44', substr($digits, 1)];
-        }
-
-        return ['44', $digits];
+        return ['44', $national];
     }
 }
