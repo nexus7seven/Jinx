@@ -318,15 +318,31 @@ class RemarketingController extends Controller
             return;
         }
 
-        $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
-            $lead->fresh(),
-            'whatsapp',
-            'whatsapp_follow_up',
-            [
-                'stage' => 'fresh',
-                'time_waiting_text' => '0h',
-            ]
-        );
+        if ($task->stage === 'cooling') {
+            $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
+                $lead->fresh(),
+                'whatsapp',
+                'cooling_whatsapp_follow_up',
+                [
+                    'stage' => 'cooling',
+                    'time_waiting_text' => '0h',
+                ]
+            );
+
+            return;
+        }
+
+        if ($task->stage === 'fresh') {
+            $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
+                $lead->fresh(),
+                'whatsapp',
+                'whatsapp_follow_up',
+                [
+                    'stage' => 'fresh',
+                    'time_waiting_text' => '0h',
+                ]
+            );
+        }
     }
 
 }
