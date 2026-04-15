@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\RemarketingTask;
 use App\Services\EmailService;
 use App\Services\SmsService;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 
 class RunRemarketingBrain extends Command
@@ -42,10 +43,14 @@ class RunRemarketingBrain extends Command
         $overdueWhatsAppTasks = RemarketingTask::query()
             ->where('task_type', 'whatsapp')
             ->where('status', 'pending')
-            ->where('created_at', '<=', now()->subHours(2))
             ->get();
 
         foreach ($overdueWhatsAppTasks as $whatsAppTask) {
+            $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(2))) {
+                continue;
+            }
+
             $smsReason = $this->smsReasonForWhatsAppTask($whatsAppTask);
 
             $smsAlreadySent = RemarketingTask::query()
@@ -83,10 +88,14 @@ class RunRemarketingBrain extends Command
         $overdueWhatsAppEmailTasks = RemarketingTask::query()
             ->where('task_type', 'whatsapp')
             ->where('status', 'pending')
-            ->where('created_at', '<=', now()->subHours(12))
             ->get();
 
         foreach ($overdueWhatsAppEmailTasks as $whatsAppTask) {
+            $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(12))) {
+                continue;
+            }
+
             $emailReason = $this->emailReasonForWhatsAppTask($whatsAppTask);
 
             $emailAlreadySent = RemarketingTask::query()
@@ -134,10 +143,14 @@ class RunRemarketingBrain extends Command
         $overdueWhatsAppEmail2Tasks = RemarketingTask::query()
             ->where('task_type', 'whatsapp')
             ->where('status', 'pending')
-            ->where('created_at', '<=', now()->subHours(24))
             ->get();
 
         foreach ($overdueWhatsAppEmail2Tasks as $whatsAppTask) {
+            $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(24))) {
+                continue;
+            }
+
             $emailReason = $this->email2ReasonForWhatsAppTask($whatsAppTask);
 
             $emailAlreadySent = RemarketingTask::query()
@@ -198,5 +211,21 @@ class RunRemarketingBrain extends Command
     private function email2ReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
     {
         return self::EMAIL_2_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
+    }
+
+    private function flowStartedAtForWhatsAppTask(RemarketingTask $whatsAppTask): ?Carbon
+    {
+        if ($whatsAppTask->lead_id === null) {
+            return $whatsAppTask->created_at;
+        }
+
+        $flowStartTask = RemarketingTask::query()
+            ->where('lead_id', $whatsAppTask->lead_id)
+            ->where('task_type', 'flow_started')
+            ->where('reason', 'flow_start')
+            ->orderBy('id')
+            ->first();
+
+        return $flowStartTask?->created_at ?? $whatsAppTask->created_at;
     }
 }

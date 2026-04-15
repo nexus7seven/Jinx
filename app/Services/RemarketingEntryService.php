@@ -9,6 +9,7 @@ class RemarketingEntryService
 {
     /** VICIdial list for remarketing leads (no autodial). */
     private const REMARKETING_VICIDIAL_LIST_ID = '5555555555';
+    private const FLOW_START_REASON = 'flow_start';
 
     public function __construct(
         private RemarketingTaskService $remarketingTaskService,
@@ -34,6 +35,30 @@ class RemarketingEntryService
         }
 
         $this->vicidialListService->moveLeadToList($vicidialLeadId, self::REMARKETING_VICIDIAL_LIST_ID);
+
+        $flowStartedExists = RemarketingTask::query()
+            ->where('lead_id', $vicidialLeadId)
+            ->where('task_type', 'flow_started')
+            ->where('reason', self::FLOW_START_REASON)
+            ->exists();
+
+        if (! $flowStartedExists) {
+            $first = trim((string) ($lead->first_name ?? ''));
+            $last = trim((string) ($lead->last_name ?? ''));
+            $fullName = trim($first . ' ' . $last);
+
+            RemarketingTask::create([
+                'lead_id' => $vicidialLeadId,
+                'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
+                'phone' => (string) ($lead->phone_number ?? ''),
+                'campaign_id' => 'MAIN',
+                'task_type' => 'flow_started',
+                'reason' => self::FLOW_START_REASON,
+                'stage' => 'fresh',
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
 
         $pendingCallExists = RemarketingTask::query()
             ->where('lead_id', $vicidialLeadId)
