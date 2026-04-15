@@ -1,0 +1,137 @@
+Synthetic credit report text for automated tests (no real individuals; fictional names and addresses).
+My Credit Report
+Financial Account Information
+Credit cards
+ORGANISATION BALANCE UPDATED STATUS
+Bits Credit Card £33 28 Feb 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Credit Card
+Account number **************17P1 0
+Account start date 01/10/2024
+Opening balance £33
+Repayment frequency Weekly
+Date of default 29/04/2025
+Default balance £33
+Bits Credit Builder - Fea
+Card LTD £98 27 Feb 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Store Card
+Account number **************17P1 0
+Account start date 07/08/2024
+Repayment frequency Monthly
+Date of default 29/04/2025
+Default balance £98
+Personal loans and mortgages
+ORGANISATION BALANCE UPDATED STATUS
+Fair Finance £306 1 Apr 2026 Default
+Name Ms A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Unsecured Loan
+Account number **************3173 0
+Account start date 05/10/2021
+Opening balance £459
+Regular payment £76
+Repayment frequency Monthly
+Date of default 03/03/2022
+Default balance £306
+Other accounts
+Tesco Mobile Handset £192 1 Mar 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Unsecured Loan
+Account number **************1036 0
+Account start date 18/04/2024
+Opening balance £198
+Regular payment £6
+Repayment frequency Monthly
+Date of default 30/11/2024
+Default balance £192
+Utilita Energy LTD £117 31 Mar 2026 Late payment
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Utility
+Account number **************7602 0
+Account start date 13/07/2020
+Opening balance £117
+Payment start date 13/07/2020
+Repayment frequency Periodically
+Scottishpower Energy
+Retail Limited £1,438 27 Mar 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Utility
+Account number **************2251 0
+Account start date 28/03/2025
+Repayment frequency Monthly
+Date of default 27/09/2025
+Default balance £657
+Tesco Mobile Telecoms £53 1 Mar 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Telecommunications Supplier
+Account number **************1036 0
+Account start date 18/04/2024
+Regular payment £18
+Repayment frequency Monthly
+Date of default 30/11/2024
+Default balance £53
+Ee Limited £1,191 1 Mar 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Telecommunications Supplier
+Account number **************1138 0
+Account start date 11/10/2024
+Repayment frequency Monthly
+Date of default 05/05/2025
+Default balance £1,191
+Lowell £218 6 Apr 2026 Default
+Name Mrs A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Telecommunications Supplier
+Account number **************8409 0
+Account start date 06/09/2019
+Opening balance £69
+Repayment frequency Monthly
+Date of default 16/06/2020
+Default balance £69
+Lowell £905 6 Apr 2026 Default
+Name Mr A. Sampleperson
+Address 88 Example Street Exampletown XX1 1XX
+Date of birth 01/01/1980
+Account type Telecommunications Supplier
+Account number ***************557 0
+Account start date 11/05/2023
+Opening balance £905
+Repayment frequency Monthly
+Date of default 22/02/2024
+Default balance £905
+Search History
+Public Information
+Bankruptcies and Insolvencies
+You do not have any Bankruptcies or Insolvencies on your credit report.
+Judgments
+CASE NUMBER TYPE STATUS
+SAMP788Q County Court Judgment Active
+Name A. Sampleperson
+Address 88 Example Street, Exampletown, XX1 1XX
+Judgment date 17/03/2026
+Amount £1,009
+Court name Example Civil Centre
+SAMP658M County Court Judgment Active
+Name Ms A. Sampleperson
+Address 88 Example Street, Exampletown, XX1 1XX
+Judgment date 19/05/2021
+Amount £195
+Court name Example County Court Online
+Notices of Correction

@@ -8,43 +8,97 @@ use App\Models\Creditor;
 use App\Models\DebtDocument;
 use App\Models\CreditReport;
 use App\Models\CreditReportFile;
+use App\Services\CreditReports\CreditReportFileTypeDetector;
+use App\Services\CreditReports\CreditReportParserFactory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use LogicException;
 
 class CreditReportController extends Controller
 {
+    public function __construct(
+        private readonly CreditReportFileTypeDetector $fileTypeDetector,
+        private readonly CreditReportParserFactory $parserFactory,
+    ) {}
+
     public function store(Request $request, $id)
     {
         $lead = Lead::findOrFail($id);
 
         $request->validate([
             'report_files' => ['required', 'array', 'min:1'],
-            'report_files.*' => ['required', 'file', 'max:15360'],
+            'report_files.*' => ['required', 'file', 'max:15360', 'extensions:mht,mhtml,pdf'],
         ]);
 
         $creditReport = CreditReport::create([
             'lead_id'  => $lead->id,
-            'provider' => 'transunion_mht',
+            'provider' => 'transunion_upload',
             'status'   => 'processing',
         ]);
 
         $combined = [];
+        $normalizedDebts = [];
+        $normalizedJudgments = [];
+        $parsedFileCount = 0;
+        $errors = [];
 
         foreach ($request->file('report_files') as $index => $file) {
-            $ext = strtolower($file->getClientOriginalExtension());
-
-            if (!in_array($ext, ['mht', 'mhtml'])) {
+            $fileType = $this->fileTypeDetector->detect($file);
+            if ($fileType === null) {
+                $errors[] = "Unsupported file type for {$file->getClientOriginalName()}.";
+                Log::warning('Credit report file skipped: unsupported type', [
+                    'lead_id' => $lead->id,
+                    'name' => $file->getClientOriginalName(),
+                    'mime' => $file->getMimeType(),
+                ]);
                 continue;
             }
 
             $storedPath = $file->store('credit-reports');
-            $raw = Storage::get($storedPath);
-            $extractedText = $this->extractTextFromMht($raw);
+            $absolutePath = Storage::path($storedPath);
 
-// DEBUG (TEMP)
-if (str_contains($file->getClientOriginalName(), 'ccj') || str_contains($file->getClientOriginalName(), 'public')) {
-    file_put_contents(storage_path('app/ccj_debug.txt'), $extractedText);
-}
+            try {
+                $parser = $this->parserFactory->make($fileType);
+                $parsed = $parser->parse($absolutePath);
+            } catch (\Throwable $e) {
+                $errors[] = "Could not parse {$file->getClientOriginalName()}.";
+                Log::error('Credit report parse failed', [
+                    'lead_id' => $lead->id,
+                    'name' => $file->getClientOriginalName(),
+                    'type' => $fileType,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
+            $extractedText = $parsed['text'] ?? '';
+            $debts = is_array($parsed['debts'] ?? null) ? $parsed['debts'] : [];
+            $judgments = is_array($parsed['county_court_judgments'] ?? null) ? $parsed['county_court_judgments'] : [];
+
+            if ($fileType === CreditReportFileTypeDetector::TYPE_PDF && ! $this->pdfParseIsUsable($extractedText, $debts, $judgments)) {
+                Storage::delete($storedPath);
+                $errors[] = "PDF {$file->getClientOriginalName()} had no extractable credit data (empty text or no accounts/judgments).";
+                Log::warning('Credit report PDF rejected: unusable parse result', [
+                    'lead_id' => $lead->id,
+                    'name' => $file->getClientOriginalName(),
+                    'text_length' => strlen(trim($extractedText)),
+                    'debts_extracted' => count($debts),
+                    'ccjs_extracted' => count($judgments),
+                ]);
+                continue;
+            }
+
+            $parsedFileCount++;
+
+            Log::info('Credit report parser selected', [
+                'lead_id' => $lead->id,
+                'name' => $file->getClientOriginalName(),
+                'type' => $fileType,
+                'debts_extracted' => count($debts),
+                'ccjs_extracted' => count($judgments),
+            ]);
+
             CreditReportFile::create([
                 'credit_report_id' => $creditReport->id,
                 'original_name'    => $file->getClientOriginalName(),
@@ -57,18 +111,58 @@ if (str_contains($file->getClientOriginalName(), 'ccj') || str_contains($file->g
             if ($extractedText) {
                 $combined[] = "===== FILE: {$file->getClientOriginalName()} =====\n" . $extractedText;
             }
+
+            $normalizedDebts = array_merge($normalizedDebts, $debts);
+            $normalizedJudgments = array_merge($normalizedJudgments, $judgments);
+        }
+
+        if ($parsedFileCount === 0) {
+            $creditReport->status = 'failed';
+            $creditReport->combined_raw_text = '';
+            $creditReport->save();
+
+            $errorMessage = $errors ? implode(' ', $errors) : 'No supported credit report files could be parsed.';
+
+            return redirect('/lead/' . $lead->id . '#credit-report-upload')
+                ->with('credit_report_error', $errorMessage);
         }
 
         $combinedText = implode("\n\n", $combined);
+
+        if ($normalizedJudgments !== [] && Creditor::where('name', 'County Court Judgment')->doesntExist()) {
+            Log::error('Credit report import blocked: CCJs parsed but County Court Judgment creditor is missing', [
+                'lead_id' => $lead->id,
+                'credit_report_id' => $creditReport->id,
+                'ccjs_parsed' => count($normalizedJudgments),
+            ]);
+
+            $creditReport->combined_raw_text = $combinedText;
+            $creditReport->status = 'failed';
+            $creditReport->save();
+
+            return redirect('/lead/' . $lead->id . '#credit-report-upload')
+                ->with(
+                    'credit_report_error',
+                    'This report includes County Court Judgments, but the system creditor "County Court Judgment" is not configured. Add it under creditors (or contact support) and upload again. No debts were imported.'
+                );
+        }
 
         $creditReport->combined_raw_text = $combinedText;
         $creditReport->status = 'processed';
         $creditReport->save();
 
-$importedAccounts = $this->importAccountsFromText($lead, $combinedText);
-$importedJudgments = $this->importJudgmentsFromFiles($lead, $creditReport);
+        $importedAccounts = $this->importDebtsFromNormalized($lead, $normalizedDebts);
+        $importedJudgments = $this->importCountyCourtJudgmentsFromNormalized($lead, $normalizedJudgments);
 
         $totalImported = $importedAccounts + $importedJudgments;
+
+        Log::info('Credit report import complete', [
+            'lead_id' => $lead->id,
+            'report_id' => $creditReport->id,
+            'debts_imported' => $importedAccounts,
+            'ccjs_imported' => $importedJudgments,
+            'total_imported' => $totalImported,
+        ]);
 
         return redirect('/lead/' . $lead->id . '#credit-report-upload')
             ->with('credit_report_success', "Credit report files uploaded. {$totalImported} debt(s) imported.");
@@ -91,48 +185,31 @@ $importedJudgments = $this->importJudgmentsFromFiles($lead, $creditReport);
             ->with('credit_report_success', 'Credit report batch deleted.');
     }
 
-    private function extractTextFromMht(string $raw): string
+    /**
+     * PDF-only: reject parses that produced nothing useful, without relying on the PDF library throwing.
+     *
+     * @param array<int, array<string, mixed>> $debts
+     * @param array<int, array<string, mixed>> $judgments
+     */
+    private function pdfParseIsUsable(string $text, array $debts, array $judgments): bool
     {
-        $decodedRaw = quoted_printable_decode($raw);
-        $htmlParts = [];
-
-        if (preg_match_all('/Content-Type:\s*text\/html.*?\R\R(.*?)(?=\R--|$)/is', $decodedRaw, $matches)) {
-            foreach ($matches[1] as $part) {
-                $htmlParts[] = trim($part);
-            }
+        if (trim($text) === '') {
+            return false;
         }
 
-        if (!$htmlParts && preg_match_all('/<html\b.*?<\/html>/is', $decodedRaw, $matches)) {
-            foreach ($matches[0] as $part) {
-                $htmlParts[] = trim($part);
-            }
+        if ($debts === [] && $judgments === []) {
+            return false;
         }
 
-        $textChunks = [];
-
-        foreach ($htmlParts as $html) {
-            $html = preg_replace('/=\r?\n/', '', $html);
-            $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', ' ', $html);
-            $html = preg_replace('/<style\b[^>]*>.*?<\/style>/is', ' ', $html);
-
-            $text = strip_tags($html);
-            $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $text = preg_replace("/\r\n|\r/", "\n", $text);
-            $text = preg_replace("/[ \t]+/", ' ', $text);
-            $text = preg_replace("/\n{3,}/", "\n\n", $text);
-            $text = trim($text);
-
-            if ($text !== '') {
-                $textChunks[] = $text;
-            }
-        }
-
-        return trim(implode("\n\n", $textChunks));
+        return true;
     }
 
-    private function importAccountsFromText(Lead $lead, string $text): int
+    /**
+     * @param array<int, array<string, mixed>> $debts
+     */
+    private function importDebtsFromNormalized(Lead $lead, array $debts): int
     {
-        if (!$text) {
+        if ($debts === []) {
             return 0;
         }
 
@@ -140,32 +217,13 @@ $importedJudgments = $this->importJudgmentsFromFiles($lead, $creditReport);
         $seen = [];
         $couldNotMatch = Creditor::where('name', 'Could Not Match')->first();
 
-        $lines = array_values(array_filter(array_map('trim', preg_split("/\n/", $text))));
+        foreach ($debts as $debtRow) {
+            $creditorName = trim((string) ($debtRow['creditor'] ?? ''));
+            $balance = $this->normalizeCurrencyValue($debtRow['balance'] ?? null);
 
-        for ($i = 0; $i < count($lines); $i++) {
-            $line  = $lines[$i];
-            $next1 = $lines[$i + 1] ?? '';
-            $next2 = $lines[$i + 2] ?? '';
-            $next3 = $lines[$i + 3] ?? '';
-
-            if (!$this->isLikelyAccountName($line)) {
+            if ($creditorName === '' || $balance === null) {
                 continue;
             }
-
-            if (!preg_match('/^£\s*([0-9][0-9,]*(?:\.\d{2})?)$/i', $next1, $balMatch)) {
-                continue;
-            }
-
-            if (!$this->isLikelyDateLine($next2)) {
-                continue;
-            }
-
-            if (!$this->isLikelyAccountStatus($next3)) {
-                continue;
-            }
-
-            $creditorName = trim($line);
-            $balance = (float) str_replace(',', '', $balMatch[1]);
 
             if ($balance <= 0) {
                 continue;
@@ -179,6 +237,14 @@ $importedJudgments = $this->importJudgmentsFromFiles($lead, $creditReport);
 
             $assignedCreditor = $creditor ?: $couldNotMatch;
             $reference = $creditor ? null : ('Raw creditor: ' . $creditorName);
+
+            if ($creditor === null && $couldNotMatch && $assignedCreditor->name === 'Could Not Match') {
+                Log::notice('Credit report debt assigned to Could Not Match', [
+                    'lead_id' => $lead->id,
+                    'raw_creditor_name' => $creditorName,
+                    'balance' => $balance,
+                ]);
+            }
 
             $dedupeKey = $assignedCreditor->id . '|' . number_format($balance, 2, '.', '') . '|' . ($reference ?? '');
             if (isset($seen[$dedupeKey])) {
@@ -222,159 +288,45 @@ $importedJudgments = $this->importJudgmentsFromFiles($lead, $creditReport);
 
         return $count;
     }
-	
-private function importJudgmentsFromFiles(Lead $lead, CreditReport $creditReport): int
-{
-    file_put_contents(storage_path('app/ccj_debug.txt'), "ENTERED importJudgmentsFromFiles()\n");
-
-    $ccjCreditor = Creditor::where('name', 'County Court Judgment')->first();
-
-    if (!$ccjCreditor) {
-        file_put_contents(storage_path('app/ccj_debug.txt'), "NO CCJ CREDITOR FOUND\n", FILE_APPEND);
-        return 0;
-    }
-
-    $count = 0;
-    $seen = [];
-
-    $creditReport->loadMissing('files');
-
-    file_put_contents(
-        storage_path('app/ccj_debug.txt'),
-        "FILES COUNT: " . $creditReport->files->count() . "\n",
-        FILE_APPEND
-    );
-
-    foreach ($creditReport->files as $file) {
-        $text = $file->extracted_text ?? '';
-
-        file_put_contents(
-            storage_path('app/ccj_debug.txt'),
-            "\n--- FILE ID {$file->id} / {$file->original_name} ---\n",
-            FILE_APPEND
-        );
-
-        if ($text === '') {
-            file_put_contents(storage_path('app/ccj_debug.txt'), "EMPTY extracted_text\n", FILE_APPEND);
-            continue;
+    
+    /**
+     * @param array<int, array<string, mixed>> $judgments
+     */
+    private function importCountyCourtJudgmentsFromNormalized(Lead $lead, array $judgments): int
+    {
+        if ($judgments === []) {
+            return 0;
         }
 
-        $rows = preg_split("/\r\n|\r|\n/", $text);
-        $rows = array_map(function ($row) {
-            $row = str_replace("\xC2\xA0", ' ', $row);
-            $row = preg_replace('/[ \t]+/u', ' ', $row);
-            return trim($row);
-        }, $rows);
-
-        $rowCount = count($rows);
-
-        file_put_contents(
-            storage_path('app/ccj_debug.txt'),
-            "ROW COUNT: {$rowCount}\n",
-            FILE_APPEND
-        );
-
-        for ($i = 0; $i < $rowCount; $i++) {
-            if (stripos($rows[$i], 'County Court Judgment') === false) {
-                continue;
-            }
-
-            file_put_contents(
-                storage_path('app/ccj_debug.txt'),
-                "FOUND CCJ ANCHOR AT ROW {$i}: {$rows[$i]}\n",
-                FILE_APPEND
+        $ccjCreditor = Creditor::where('name', 'County Court Judgment')->first();
+        if (! $ccjCreditor) {
+            Log::critical('CCJ import invoked without County Court Judgment creditor (configuration error)', [
+                'lead_id' => $lead->id,
+                'ccjs_parsed' => count($judgments),
+            ]);
+            throw new LogicException(
+                'County Court Judgment creditor is missing; import should have been blocked in the controller.'
             );
+        }
 
-            $caseIndex = $i - 5;
-            $amountLabelIndex = $i + 48;
+        $count = 0;
+        $seen = [];
 
-            file_put_contents(
-                storage_path('app/ccj_debug.txt'),
-                "TRY CASE INDEX {$caseIndex}, AMOUNT LABEL INDEX {$amountLabelIndex}\n",
-                FILE_APPEND
-            );
+        foreach ($judgments as $judgmentRow) {
+            $caseRef = trim((string) ($judgmentRow['case_number'] ?? ''));
+            $amount = $this->normalizeCurrencyValue($judgmentRow['amount'] ?? null);
 
-            if ($caseIndex < 0 || $amountLabelIndex >= $rowCount) {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: index out of range\n", FILE_APPEND);
+            if ($caseRef === '' || ! preg_match('/^[A-Z0-9]{6,14}$/', $caseRef)) {
                 continue;
-            }
-
-            $caseRef = trim($rows[$caseIndex] ?? '');
-
-            file_put_contents(
-                storage_path('app/ccj_debug.txt'),
-                "RAW CASE REF FROM -5: [{$caseRef}]\n",
-                FILE_APPEND
-            );
-
-            if ($caseRef === '') {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: blank case ref at -5\n", FILE_APPEND);
-                continue;
-            }
-
-            if (!preg_match('/^[A-Z0-9]{6,10}$/', $caseRef)) {
-                $caseRef = '';
-                for ($u = max(0, $i - 8); $u <= max(0, $i - 2) && $u < $rowCount; $u++) {
-                    $candidate = trim($rows[$u] ?? '');
-                    if (preg_match('/^[A-Z0-9]{6,10}$/', $candidate)) {
-                        $caseRef = $candidate;
-                        file_put_contents(
-                            storage_path('app/ccj_debug.txt'),
-                            "FALLBACK CASE REF FOUND AT ROW {$u}: {$caseRef}\n",
-                            FILE_APPEND
-                        );
-                        break;
-                    }
-                }
-            }
-
-            if ($caseRef === '') {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: no valid case ref found\n", FILE_APPEND);
-                continue;
-            }
-
-            $amount = null;
-
-            for ($a = max(0, $amountLabelIndex - 3); $a <= min($rowCount - 1, $amountLabelIndex + 3); $a++) {
-                $amountLabel = trim($rows[$a] ?? '');
-                if (strcasecmp($amountLabel, 'Amount') === 0) {
-                    file_put_contents(
-                        storage_path('app/ccj_debug.txt'),
-                        "FOUND AMOUNT LABEL AT ROW {$a}\n",
-                        FILE_APPEND
-                    );
-
-                    for ($v = $a + 1; $v <= min($rowCount - 1, $a + 4); $v++) {
-                        $amountCandidate = trim($rows[$v] ?? '');
-                        file_put_contents(
-                            storage_path('app/ccj_debug.txt'),
-                            "CHECK AMOUNT ROW {$v}: [{$amountCandidate}]\n",
-                            FILE_APPEND
-                        );
-
-                        if (preg_match('/£\s*([0-9][0-9,]*(?:\.\d{2})?)/i', $amountCandidate, $m)) {
-                            $amount = (float) str_replace(',', '', $m[1]);
-                            file_put_contents(
-                                storage_path('app/ccj_debug.txt'),
-                                "PARSED AMOUNT: {$amount}\n",
-                                FILE_APPEND
-                            );
-                            break 2;
-                        }
-                    }
-                }
             }
 
             if ($amount === null || $amount <= 0) {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: no amount found\n", FILE_APPEND);
                 continue;
             }
 
             $reference = $caseRef;
             $dedupeKey = $caseRef . '|' . number_format($amount, 2, '.', '');
-
             if (isset($seen[$dedupeKey])) {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: already seen in this run\n", FILE_APPEND);
                 continue;
             }
             $seen[$dedupeKey] = true;
@@ -385,158 +337,45 @@ private function importJudgmentsFromFiles(Lead $lead, CreditReport $creditReport
                 ->where('source_expected', 'credit_check')
                 ->where('reference', $reference)
                 ->exists();
-
             if ($exists) {
-                file_put_contents(storage_path('app/ccj_debug.txt'), "SKIP: already exists in DB\n", FILE_APPEND);
                 continue;
             }
 
-            Debt::create([
-                'lead_id'         => $lead->id,
-                'creditor_id'     => $ccjCreditor->id,
-                'balance'         => $amount,
+            $debt = Debt::create([
+                'lead_id' => $lead->id,
+                'creditor_id' => $ccjCreditor->id,
+                'balance' => $amount,
                 'source_expected' => 'credit_check',
-                'reference'       => $reference,
+                'reference' => $reference,
             ]);
 
-            file_put_contents(
-                storage_path('app/ccj_debug.txt'),
-                "CREATED CCJ: {$reference} / {$amount}\n",
-                FILE_APPEND
-            );
-
-            $debt = Debt::where('lead_id', $lead->id)
-                ->where('creditor_id', $ccjCreditor->id)
-                ->where('balance', $amount)
-                ->where('reference', $reference)
-                ->latest('id')
-                ->first();
-
-            if ($debt) {
-                DebtDocument::create([
-                    'debt_id'     => $debt->id,
-                    'proof_type'  => 'credit_check',
-                    'is_complete' => true,
-                ]);
-            }
+            DebtDocument::create([
+                'debt_id' => $debt->id,
+                'proof_type' => 'credit_check',
+                'is_complete' => true,
+            ]);
 
             $count++;
         }
+
+        return $count;
     }
 
-    file_put_contents(
-        storage_path('app/ccj_debug.txt'),
-        "\nTOTAL CREATED: {$count}\n",
-        FILE_APPEND
-    );
-
-    return $count;
-}
-
-private function normalizeJudgmentText(string $text): string
-{
-    $text = str_replace("\xC2\xA0", ' ', $text);
-    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $text = preg_replace('/[ \t]+/u', ' ', $text);
-    $text = preg_replace("/\r\n|\r/u", "\n", $text);
-    $text = preg_replace("/\n{2,}/u", "\n", $text);
-
-    return trim($text);
-}
-
-
-private function normalizeParsedLine(string $line): string
-{
-    $line = str_replace("\xC2\xA0", ' ', $line);
-    $line = preg_replace('/\h+/u', ' ', $line);
-    $line = trim($line);
-
-    return $line;
-}
-
-    private function isLikelyAccountName(string $line): bool
+    private function normalizeCurrencyValue(mixed $value): ?float
     {
-        $line = trim($line);
-        $lower = mb_strtolower($line);
-
-        if ($line === '' || mb_strlen($line) < 3 || mb_strlen($line) > 80) {
-            return false;
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
         }
 
-        $bad = [
-            'organisation',
-            'balance',
-            'updated',
-            'status',
-            'account number',
-            'payment history',
-            'credit limit',
-            'default balance',
-            'opened',
-            'started',
-            'name',
-            'address',
-            'court name',
-            'judgment date',
-            'amount',
-            'type',
-            'public information',
-            'other accounts',
-            'bankruptcies',
-            'insolvencies',
-            'judgments',
-            'case number',
-        ];
-
-        foreach ($bad as $badLine) {
-            if ($lower === $badLine || str_starts_with($lower, $badLine)) {
-                return false;
-            }
+        if (! is_string($value)) {
+            return null;
         }
 
-        if (preg_match('/^£/', $line)) {
-            return false;
+        if (! preg_match('/([0-9][0-9,]*(?:\.\d{1,2})?)/', $value, $m)) {
+            return null;
         }
 
-        if (preg_match('/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/', $line)) {
-            return false;
-        }
-
-        if (preg_match('/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/', $line)) {
-            return false;
-        }
-
-        if (preg_match('/^[A-Z0-9]{6,10}$/', $line)) {
-            return false;
-        }
-
-        return (bool) preg_match('/[A-Za-z]/', $line);
-    }
-
-    private function isLikelyDateLine(string $line): bool
-    {
-        $line = trim($line);
-
-        return (bool) preg_match('/^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$/', $line)
-            || (bool) preg_match('/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/', $line);
-    }
-
-    private function isLikelyAccountStatus(string $line): bool
-    {
-        $line = mb_strtolower(trim($line));
-
-        return in_array($line, [
-            'up to date',
-            'default',
-            'delinquent',
-            'settled',
-            'satisfied',
-            'partially settled',
-            'late payment',
-            'active',
-            'arrangement',
-            'payment holiday',
-        ], true);
+        return (float) str_replace(',', '', $m[1]);
     }
 
     private function matchCreditorStrict(string $rawName): ?Creditor

@@ -354,6 +354,9 @@
                     <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
                         <div style="flex:1; min-width:240px;">
                             <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">{{ $debt->creditor->name }}</div>
+                            @if($debt->creditor->name === 'Could Not Match' && $debt->reference)
+                                <div style="font-size:12px; color:#a1a1aa; margin-bottom:6px;">Unmatched import — Ref shows the name taken from the credit report.</div>
+                            @endif
 
                             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
                                 <span style="background:#1e293b; border:1px solid #334155; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;">
@@ -453,6 +456,12 @@
             </div>
         @endif
 
+        @if(session('credit_report_error'))
+            <div style="margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;">
+                {{ session('credit_report_error') }}
+            </div>
+        @endif
+
         @if($errors->any())
             <div style="margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;">
                 {{ $errors->first() }}
@@ -463,14 +472,14 @@
             @csrf
 
             <div style="margin-bottom:12px; font-size:13px; color:#9ca3af;">
-                Upload saved MHT / MHTML pages from the credit check. Files are stored as background evidence and Jinx will try to import debts automatically.
+                Upload saved MHT / MHTML / PDF credit reports. Files are stored as evidence and Jinx will try to import debts automatically. Rows that do not match a known creditor appear under <strong>Could Not Match</strong>; use the <strong>Ref</strong> column for the raw name from the report.
             </div>
 
             <input
                 type="file"
                 name="report_files[]"
                 multiple
-                accept=".mht,.mhtml"
+                accept=".mht,.mhtml,.pdf"
                 style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin-bottom:12px;"
             >
 
