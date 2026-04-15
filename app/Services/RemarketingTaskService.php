@@ -19,6 +19,7 @@ class RemarketingTaskService
         'callback_follow_up' => 'Callback follow-up',
         'whatsapp_follow_up' => 'WhatsApp follow-up',
         'cooling_whatsapp_follow_up' => 'Cooling stage WhatsApp follow-up',
+        'cooling_sms_follow_up' => 'Cooling stage SMS follow-up',
         'stale_lead_follow_up' => 'Stale lead follow-up',
         'cooling_call_follow_up' => 'Cooling stage call follow-up',
     ];

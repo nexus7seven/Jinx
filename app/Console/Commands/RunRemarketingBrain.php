@@ -20,6 +20,10 @@ class RunRemarketingBrain extends Command
 
     private const SMS_MESSAGE = 'Hi, just a quick message regarding your debt enquiry. You could be eligible to write off a large portion of your debt. Find out more here: https://clearmycredit.co.uk/iva';
 
+    private const COOLING_SMS_REASON_PREFIX = 'cooling_sms_follow_up';
+
+    private const COOLING_SMS_MESSAGE = "Hi, just checking in regarding your debt enquiry. If you'd prefer, you can still find out whether you qualify for help here: https://clearmycredit.co.uk/iva";
+
     private const EMAIL_REASON_PREFIX = 'email_1';
 
     private const EMAIL_SUBJECT = 'Struggling with debt? You may qualify for help';
@@ -47,12 +51,18 @@ class RunRemarketingBrain extends Command
 
     public function handle(): int
     {
+        $freshWhatsAppReason = $this->remarketingTaskService->resolveReason('whatsapp_follow_up');
         $overdueWhatsAppTasks = RemarketingTask::query()
             ->where('task_type', 'whatsapp')
             ->where('status', 'pending')
+            ->where('stage', 'fresh')
             ->get();
 
         foreach ($overdueWhatsAppTasks as $whatsAppTask) {
+            if ((string) $whatsAppTask->reason !== $freshWhatsAppReason) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(2))) {
                 continue;
@@ -73,6 +83,56 @@ class RunRemarketingBrain extends Command
             $sent = $this->smsService->sendSms(
                 (string) $whatsAppTask->phone,
                 self::SMS_MESSAGE
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $whatsAppTask->lead_id,
+                'lead_name' => $whatsAppTask->lead_name,
+                'phone' => $whatsAppTask->phone,
+                'campaign_id' => $whatsAppTask->campaign_id,
+                'task_type' => 'sms_sent',
+                'reason' => $smsReason,
+                'stage' => $whatsAppTask->stage,
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
+        $coolingWhatsAppReason = $this->remarketingTaskService->resolveReason('cooling_whatsapp_follow_up');
+        $overdueCoolingWhatsAppTasks = RemarketingTask::query()
+            ->where('task_type', 'whatsapp')
+            ->where('status', 'pending')
+            ->where('stage', 'cooling')
+            ->get();
+
+        foreach ($overdueCoolingWhatsAppTasks as $whatsAppTask) {
+            if ((string) $whatsAppTask->reason !== $coolingWhatsAppReason) {
+                continue;
+            }
+
+            if ($whatsAppTask->created_at === null || $whatsAppTask->created_at->greaterThan(now()->subHours(24))) {
+                continue;
+            }
+
+            $smsReason = $this->coolingSmsReasonForWhatsAppTask($whatsAppTask);
+
+            $smsAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $whatsAppTask->lead_id)
+                ->where('task_type', 'sms_sent')
+                ->where('reason', $smsReason)
+                ->exists();
+
+            if ($smsAlreadySent) {
+                continue;
+            }
+
+            $sent = $this->smsService->sendSms(
+                (string) $whatsAppTask->phone,
+                self::COOLING_SMS_MESSAGE
             );
 
             if (! $sent) {
@@ -315,6 +375,11 @@ class RunRemarketingBrain extends Command
     private function email2ReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
     {
         return self::EMAIL_2_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
+    }
+
+    private function coolingSmsReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
+    {
+        return self::COOLING_SMS_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
     }
 
     private function flowStartedAtForWhatsAppTask(RemarketingTask $whatsAppTask): ?Carbon
