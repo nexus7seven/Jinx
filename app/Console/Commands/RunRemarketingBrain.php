@@ -87,6 +87,8 @@ class RunRemarketingBrain extends Command
 
     public function handle(): int
     {
+        $dormantWhatsAppFinalTouchReason = $this->remarketingTaskService->resolveReason('dormant_whatsapp_final_touch');
+
         $freshWhatsAppReason = $this->remarketingTaskService->resolveReason('whatsapp_follow_up');
         $overdueWhatsAppTasks = RemarketingTask::query()
             ->where('task_type', 'whatsapp')
@@ -95,6 +97,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueWhatsAppTasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             if ((string) $whatsAppTask->reason !== $freshWhatsAppReason) {
                 continue;
             }
@@ -146,6 +153,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueCoolingWhatsAppTasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             if ((string) $whatsAppTask->reason !== $coolingWhatsAppReason) {
                 continue;
             }
@@ -194,6 +206,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueWhatsAppEmailTasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(12))) {
                 continue;
@@ -249,6 +266,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueWhatsAppEmail2Tasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForWhatsAppTask($whatsAppTask);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(24))) {
                 continue;
@@ -305,6 +327,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueCoolingWhatsAppEmail3Tasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             if ((string) $whatsAppTask->reason !== $coolingWhatsAppReason) {
                 continue;
             }
@@ -372,6 +399,10 @@ class RunRemarketingBrain extends Command
 
             $processedLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId) ?? $task->created_at;
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(24))) {
                 continue;
@@ -408,6 +439,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedCoolingToColdLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(72))) {
@@ -447,6 +482,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedCoolingLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $lead = Lead::query()
                 ->where('vicidial_lead_id', $leadId)
@@ -506,6 +545,10 @@ class RunRemarketingBrain extends Command
 
             $processedColdToDormantLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(336))) {
                 continue;
@@ -544,6 +587,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedColdLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $lead = Lead::query()
                 ->where('vicidial_lead_id', $leadId)
@@ -585,6 +632,11 @@ class RunRemarketingBrain extends Command
             ->get();
 
         foreach ($overdueColdWhatsAppTasks as $whatsAppTask) {
+            if ($whatsAppTask->lead_id !== null
+                && $this->leadRemarketingTimelineStopped((int) $whatsAppTask->lead_id, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             if ((string) $whatsAppTask->reason !== $coldWhatsAppReason) {
                 continue;
             }
@@ -642,6 +694,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedColdEmailLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(168))) {
@@ -710,6 +766,10 @@ class RunRemarketingBrain extends Command
 
             $processedDormantEmailLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(504))) {
                 continue;
@@ -777,6 +837,10 @@ class RunRemarketingBrain extends Command
 
             $processedDormantSmsLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(672))) {
                 continue;
@@ -839,6 +903,10 @@ class RunRemarketingBrain extends Command
 
             $processedDormantWhatsAppLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(840))) {
                 continue;
@@ -892,6 +960,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedDormantDay42PortalEmailLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(1008))) {
@@ -960,6 +1032,10 @@ class RunRemarketingBrain extends Command
 
             $processedDormantDay49SmsLeadIds[$leadId] = true;
 
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
+
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(1176))) {
                 continue;
@@ -1005,7 +1081,6 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
-        $dormantWhatsAppFinalTouchReason = $this->remarketingTaskService->resolveReason('dormant_whatsapp_final_touch');
         $pendingDormantDay56FinalWhatsAppTasks = RemarketingTask::query()
             ->where('stage', 'dormant')
             ->where('status', 'pending')
@@ -1021,6 +1096,10 @@ class RunRemarketingBrain extends Command
             }
 
             $processedDormantDay56FinalWhatsAppLeadIds[$leadId] = true;
+
+            if ($this->leadRemarketingTimelineStopped($leadId, $dormantWhatsAppFinalTouchReason)) {
+                continue;
+            }
 
             $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
             if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(1344))) {
@@ -1061,6 +1140,20 @@ class RunRemarketingBrain extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function leadRemarketingTimelineStopped(int $leadId, string $dormantWhatsAppFinalTouchReason): bool
+    {
+        if ($leadId <= 0) {
+            return false;
+        }
+
+        return RemarketingTask::query()
+            ->where('lead_id', $leadId)
+            ->where('task_type', 'whatsapp')
+            ->where('reason', $dormantWhatsAppFinalTouchReason)
+            ->whereIn('status', ['pending', 'completed'])
+            ->exists();
     }
 
     private function smsReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
