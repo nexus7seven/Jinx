@@ -52,6 +52,12 @@ class RunRemarketingBrain extends Command
 
     private const COLD_EMAIL_PORTAL_PUSH_HTML = '<h1>Clear My Credit</h1><p>If now is not the right time to speak, you can still move things forward in your own time.</p><p>Our self-serve portal lets you add your debts, complete your income and expenditure, and upload documents when it suits you.</p><p><a href="https://hextech.lol/portal/start">Use the self-serve portal</a></p>';
 
+    private const DORMANT_EMAIL_IVA_REENGAGEMENT_REASON = 'dormant_email_iva_reengagement';
+
+    private const DORMANT_EMAIL_IVA_REENGAGEMENT_SUBJECT = 'Still looking for help with your debt?';
+
+    private const DORMANT_EMAIL_IVA_REENGAGEMENT_HTML = '<h1>Clear My Credit</h1><p>If you\'re still struggling with debt, help may still be available.</p><p>You could still be eligible to reduce your monthly payments and write off a large portion of what you owe.</p><p><a href="https://clearmycredit.co.uk/iva">See if you may qualify</a></p>';
+
     /**
      * @var array<int, string>
      */
@@ -669,6 +675,73 @@ class RunRemarketingBrain extends Command
                 'task_type' => 'email_sent',
                 'reason' => self::COLD_EMAIL_PORTAL_PUSH_REASON,
                 'stage' => 'cold',
+                'status' => 'completed',
+                'time_waiting_text' => null,
+            ]);
+        }
+
+        $pendingDormantEmailTasks = RemarketingTask::query()
+            ->where('stage', 'dormant')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedDormantEmailLeadIds = [];
+        foreach ($pendingDormantEmailTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedDormantEmailLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedDormantEmailLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(504))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $toEmail = trim((string) ($lead?->email ?? ''));
+            if ($toEmail === '') {
+                continue;
+            }
+
+            $emailAlreadySent = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'email_sent')
+                ->where('reason', self::DORMANT_EMAIL_IVA_REENGAGEMENT_REASON)
+                ->exists();
+
+            if ($emailAlreadySent) {
+                continue;
+            }
+
+            $sent = $this->emailService->sendEmail(
+                $toEmail,
+                self::DORMANT_EMAIL_IVA_REENGAGEMENT_SUBJECT,
+                self::DORMANT_EMAIL_IVA_REENGAGEMENT_HTML
+            );
+
+            if (! $sent) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'task_type' => 'email_sent',
+                'reason' => self::DORMANT_EMAIL_IVA_REENGAGEMENT_REASON,
+                'stage' => 'dormant',
                 'status' => 'completed',
                 'time_waiting_text' => null,
             ]);
