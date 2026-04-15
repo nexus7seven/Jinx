@@ -29,6 +29,7 @@ class RemarketingTaskService
         'dormant_sms_portal_nudge' => 'Dormant stage SMS portal nudge',
         'dormant_sms_final_nudge' => 'Dormant stage final SMS nudge',
         'dormant_whatsapp_light_touch' => 'Dormant stage WhatsApp light touch',
+        'dormant_whatsapp_final_touch' => 'Dormant stage final WhatsApp touch',
         'stale_lead_follow_up' => 'Stale lead follow-up',
         'cooling_call_follow_up' => 'Cooling stage call follow-up',
     ];

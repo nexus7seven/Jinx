@@ -1005,6 +1005,61 @@ class RunRemarketingBrain extends Command
             ]);
         }
 
+        $dormantWhatsAppFinalTouchReason = $this->remarketingTaskService->resolveReason('dormant_whatsapp_final_touch');
+        $pendingDormantDay56FinalWhatsAppTasks = RemarketingTask::query()
+            ->where('stage', 'dormant')
+            ->where('status', 'pending')
+            ->whereIn('task_type', self::ACTIVE_REMARKETING_TASK_TYPES)
+            ->whereNotNull('lead_id')
+            ->get();
+
+        $processedDormantDay56FinalWhatsAppLeadIds = [];
+        foreach ($pendingDormantDay56FinalWhatsAppTasks as $task) {
+            $leadId = (int) $task->lead_id;
+            if ($leadId <= 0 || isset($processedDormantDay56FinalWhatsAppLeadIds[$leadId])) {
+                continue;
+            }
+
+            $processedDormantDay56FinalWhatsAppLeadIds[$leadId] = true;
+
+            $flowStartedAt = $this->flowStartedAtForLeadId($leadId);
+            if ($flowStartedAt === null || $flowStartedAt->greaterThan(now()->subHours(1344))) {
+                continue;
+            }
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $leadId)
+                ->first();
+
+            if ($lead !== null && $lead->wip_status === 'DEAD') {
+                continue;
+            }
+
+            $existingDormantFinalWhatsApp = RemarketingTask::query()
+                ->where('lead_id', $leadId)
+                ->where('task_type', 'whatsapp')
+                ->where('stage', 'dormant')
+                ->where('status', 'pending')
+                ->where('reason', $dormantWhatsAppFinalTouchReason)
+                ->exists();
+
+            if ($existingDormantFinalWhatsApp) {
+                continue;
+            }
+
+            RemarketingTask::create([
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'task_type' => 'whatsapp',
+                'reason' => $dormantWhatsAppFinalTouchReason,
+                'stage' => 'dormant',
+                'status' => 'pending',
+                'time_waiting_text' => '0h',
+            ]);
+        }
+
         return self::SUCCESS;
     }
 
