@@ -133,6 +133,13 @@ class WipController extends Controller
                         $last = trim((string) ($freshLead->last_name ?? ''));
                         $fullName = trim($first . ' ' . $last);
 
+                        RemarketingTask::query()
+                            ->where('lead_id', $vicidialLeadId)
+                            ->where('status', 'pending')
+                            ->update([
+                                'status' => 'completed',
+                            ]);
+
                         RemarketingTask::create([
                             'lead_id' => $vicidialLeadId,
                             'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $freshLead->id),
