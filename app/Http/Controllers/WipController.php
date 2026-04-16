@@ -135,9 +135,9 @@ class WipController extends Controller
 
                         RemarketingTask::query()
                             ->where('lead_id', $vicidialLeadId)
-                            ->where('status', 'pending')
+                            ->where('status', RemarketingTask::STATUS_PENDING)
                             ->update([
-                                'status' => 'completed',
+                                'status' => RemarketingTask::STATUS_CLOSED,
                             ]);
 
                         RemarketingTask::create([
@@ -148,7 +148,7 @@ class WipController extends Controller
                             'task_type' => 'flow_started',
                             'reason' => 'flow_start',
                             'stage' => 'fresh',
-                            'status' => 'completed',
+                            'status' => RemarketingTask::STATUS_COMPLETED,
                             'time_waiting_text' => null,
                         ]);
 
@@ -162,7 +162,7 @@ class WipController extends Controller
                         $existingPendingFreshCall = RemarketingTask::query()
                             ->where('lead_id', $vicidialLeadId)
                             ->where('task_type', 'call')
-                            ->where('status', 'pending')
+                            ->where('status', RemarketingTask::STATUS_PENDING)
                             ->where('stage', 'fresh')
                             ->where('reason', $initialReason)
                             ->exists();

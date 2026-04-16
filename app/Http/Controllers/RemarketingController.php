@@ -42,7 +42,7 @@ class RemarketingController extends Controller
         }
 
         $pendingTasks = RemarketingTask::query()
-            ->where('status', 'pending')
+            ->where('status', RemarketingTask::STATUS_PENDING)
             ->orderBy('id')
             ->get();
 
@@ -66,7 +66,11 @@ class RemarketingController extends Controller
             ->whereIn('lead_id', $leadIds)
             ->where('task_type', 'whatsapp')
             ->where('reason', self::DORMANT_FINAL_WHATSAPP_REASON)
-            ->whereIn('status', ['pending', 'completed'])
+            ->whereIn('status', [
+                RemarketingTask::STATUS_PENDING,
+                RemarketingTask::STATUS_COMPLETED,
+                RemarketingTask::STATUS_CLOSED,
+            ])
             ->orderByDesc('id')
             ->get()
             ->groupBy('lead_id')
@@ -137,19 +141,27 @@ class RemarketingController extends Controller
             ->all();
 
         $recentActivity = RemarketingTask::query()
-            ->whereIn('status', ['started', 'completed'])
+            ->whereIn('status', [
+                RemarketingTask::STATUS_STARTED,
+                RemarketingTask::STATUS_COMPLETED,
+                RemarketingTask::STATUS_CLOSED,
+            ])
             ->orderByDesc('updated_at')
             ->limit(10)
             ->get()
             ->map(function (RemarketingTask $task) {
-                if ($task->task_type === 'call' && $task->status === 'started') {
+                if ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_STARTED) {
                     $activity = 'Call started';
-                } elseif ($task->task_type === 'call' && $task->status === 'completed') {
+                } elseif ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_COMPLETED) {
                     $activity = 'Call completed';
-                } elseif ($task->task_type === 'whatsapp' && $task->status === 'started') {
+                } elseif ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_CLOSED) {
+                    $activity = 'Call closed';
+                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_STARTED) {
                     $activity = 'WhatsApp started';
-                } elseif ($task->task_type === 'whatsapp' && $task->status === 'completed') {
+                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_COMPLETED) {
                     $activity = 'WhatsApp completed';
+                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_CLOSED) {
+                    $activity = 'WhatsApp closed';
                 } else {
                     $activity = ucfirst((string) $task->task_type) . ' ' . ucfirst((string) $task->status);
                 }
@@ -212,11 +224,11 @@ class RemarketingController extends Controller
 
         $task = RemarketingTask::query()
             ->where('id', $validated['task_id'])
-            ->where('status', 'pending')
+            ->where('status', RemarketingTask::STATUS_PENDING)
             ->first();
 
         if ($task) {
-            $task->status = 'completed';
+            $task->status = RemarketingTask::STATUS_COMPLETED;
             $task->save();
 
             if ($task->task_type === 'call') {
@@ -241,7 +253,7 @@ class RemarketingController extends Controller
         ]);
 
         $task = RemarketingTask::query()->find($validated['task_id']);
-        if (! $task || $task->status !== 'pending' || $task->task_type !== 'call') {
+        if (! $task || $task->status !== RemarketingTask::STATUS_PENDING || $task->task_type !== 'call') {
             return redirect()
                 ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
                 ->with('error', 'Task is not available for calling.');
@@ -286,7 +298,7 @@ class RemarketingController extends Controller
 
         if ($isOk) {
             $fromStatus = (string) $task->status;
-            $toStatus = $popupConfirmed ? 'completed' : 'started';
+            $toStatus = $popupConfirmed ? RemarketingTask::STATUS_COMPLETED : RemarketingTask::STATUS_STARTED;
             $task->status = $toStatus;
             $task->save();
 
@@ -297,7 +309,7 @@ class RemarketingController extends Controller
                 'popup_confirmed' => $popupConfirmed,
             ]);
 
-            if ($toStatus === 'completed' && $task->task_type === 'call') {
+            if ($toStatus === RemarketingTask::STATUS_COMPLETED && $task->task_type === 'call') {
                 $this->remarketingStepTwoAfterCallCompleted($task);
             }
         }

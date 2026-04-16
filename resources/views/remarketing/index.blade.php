@@ -289,7 +289,7 @@
             @else
                 <article class="rm-card">
                     <h3 class="rm-card__name">No recent activity</h3>
-                    <div class="rm-card__meta">Recent started and completed tasks will appear here.</div>
+                    <div class="rm-card__meta">Recent started, completed, and closed tasks will appear here.</div>
                 </article>
             @endif
         </div>

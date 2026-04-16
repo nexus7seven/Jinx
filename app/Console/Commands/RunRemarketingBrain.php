@@ -1163,7 +1163,11 @@ class RunRemarketingBrain extends Command
             ->where('lead_id', $leadId)
             ->where('task_type', 'whatsapp')
             ->where('reason', $dormantWhatsAppFinalTouchReason)
-            ->whereIn('status', ['pending', 'completed'])
+            ->whereIn('status', [
+                RemarketingTask::STATUS_PENDING,
+                RemarketingTask::STATUS_COMPLETED,
+                RemarketingTask::STATUS_CLOSED,
+            ])
             ->where('id', '>', $latestFlowStarted->id)
             ->exists();
     }
