@@ -187,7 +187,11 @@ class WipController extends Controller
             }
         }
 
-        if ($validated['wip_status'] === 'Awaiting Call' && $previousStatus !== 'Awaiting Call') {
+        if (
+            $validated['wip_status'] === 'Awaiting Call'
+            && $previousStatus !== 'Awaiting Call'
+            && $previousStatus !== 'Lost Contact'
+        ) {
             try {
                 $campaignId = $this->vicidialLeadLookupService->resolveCampaignIdForLead($lead->fresh());
                 if ($campaignId === null) {
