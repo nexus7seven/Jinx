@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Log;
 
 class RemarketingController extends Controller
 {
+    private const FLOW_START_REASON = 'flow_start';
+    private const DORMANT_FINAL_WHATSAPP_REASON = 'Dormant stage final WhatsApp touch';
+
     /** VICIdial dispositions that end remarketing (no further timeline steps). */
     private const REMARKETING_TERMINAL_DISPOSITIONS = [
         'AIS',
@@ -34,20 +37,60 @@ class RemarketingController extends Controller
     {
         $stages = ['all', 'fresh', 'cooling', 'cold', 'dormant'];
         $selectedStage = $request->query('stage', 'all');
-        if (!in_array($selectedStage, $stages, true)) {
+        if (! in_array($selectedStage, $stages, true)) {
             $selectedStage = 'all';
         }
 
-        $tasksQuery = RemarketingTask::query()
-            ->where('status', 'pending');
-
-        if ($selectedStage !== 'all') {
-            $tasksQuery->where('stage', $selectedStage);
-        }
-
-        $pendingTasks = $tasksQuery
+        $pendingTasks = RemarketingTask::query()
+            ->where('status', 'pending')
             ->orderBy('id')
             ->get();
+
+        $leadIds = $pendingTasks
+            ->pluck('lead_id')
+            ->filter(fn ($leadId) => $leadId !== null)
+            ->map(fn ($leadId) => (int) $leadId)
+            ->unique()
+            ->values();
+
+        $latestFlowStartedIds = RemarketingTask::query()
+            ->whereIn('lead_id', $leadIds)
+            ->where('task_type', 'flow_started')
+            ->where('reason', self::FLOW_START_REASON)
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('lead_id')
+            ->map(fn ($tasks) => (int) $tasks->first()->id);
+
+        $latestStopMarkerIds = RemarketingTask::query()
+            ->whereIn('lead_id', $leadIds)
+            ->where('task_type', 'whatsapp')
+            ->where('reason', self::DORMANT_FINAL_WHATSAPP_REASON)
+            ->whereIn('status', ['pending', 'completed'])
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('lead_id')
+            ->map(fn ($tasks) => (int) $tasks->first()->id);
+
+        $pendingTasks = $pendingTasks->filter(function (RemarketingTask $task) use ($latestFlowStartedIds, $latestStopMarkerIds, $selectedStage) {
+            if ($selectedStage !== 'all' && $task->stage !== $selectedStage) {
+                return false;
+            }
+
+            if ($task->lead_id === null) {
+                return false;
+            }
+
+            $leadId = (int) $task->lead_id;
+            $latestFlowStartedId = $latestFlowStartedIds->get($leadId);
+            if ($latestFlowStartedId === null || (int) $task->id <= $latestFlowStartedId) {
+                return false;
+            }
+
+            $latestStopMarkerId = $latestStopMarkerIds->get($leadId);
+
+            return $latestStopMarkerId === null || $latestStopMarkerId <= $latestFlowStartedId;
+        })->values();
 
         $callTasks = $pendingTasks
             ->where('task_type', 'call')
