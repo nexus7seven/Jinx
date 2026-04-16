@@ -150,6 +150,24 @@ class WipController extends Controller
                             'vicidial_lead_id' => $vicidialLeadId,
                             'new_wip_status' => $validated['wip_status'],
                         ]);
+
+                        $initialReason = $this->remarketingTaskService->resolveReason('no_answer');
+                        $existingPendingFreshCall = RemarketingTask::query()
+                            ->where('lead_id', $vicidialLeadId)
+                            ->where('task_type', 'call')
+                            ->where('status', 'pending')
+                            ->where('stage', 'fresh')
+                            ->where('reason', $initialReason)
+                            ->exists();
+
+                        if (! $existingPendingFreshCall) {
+                            $this->remarketingTaskService->createCallTaskForLead($freshLead, [
+                                'campaign_id' => 'MAIN',
+                                'reason' => $initialReason,
+                                'stage' => 'fresh',
+                                'time_waiting_text' => '0h',
+                            ]);
+                        }
                     }
                 }
             } catch (Throwable $e) {
