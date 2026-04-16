@@ -113,11 +113,11 @@ class RunRemarketingBrain extends Command
 
             $smsReason = $this->smsReasonForWhatsAppTask($whatsAppTask);
 
-            $smsAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'sms_sent')
-                ->where('reason', $smsReason)
-                ->exists();
+            $smsAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'sms_sent',
+                $smsReason
+            );
 
             if ($smsAlreadySent) {
                 continue;
@@ -168,11 +168,11 @@ class RunRemarketingBrain extends Command
 
             $smsReason = $this->coolingSmsReasonForWhatsAppTask($whatsAppTask);
 
-            $smsAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'sms_sent')
-                ->where('reason', $smsReason)
-                ->exists();
+            $smsAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'sms_sent',
+                $smsReason
+            );
 
             if ($smsAlreadySent) {
                 continue;
@@ -218,11 +218,11 @@ class RunRemarketingBrain extends Command
 
             $emailReason = $this->emailReasonForWhatsAppTask($whatsAppTask);
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'email_sent')
-                ->where('reason', $emailReason)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'email_sent',
+                $emailReason
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -278,11 +278,11 @@ class RunRemarketingBrain extends Command
 
             $emailReason = $this->email2ReasonForWhatsAppTask($whatsAppTask);
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'email_sent')
-                ->where('reason', $emailReason)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'email_sent',
+                $emailReason
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -342,11 +342,11 @@ class RunRemarketingBrain extends Command
 
             $emailReason = $this->coolingEmail3ReasonForWhatsAppTask($whatsAppTask);
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'email_sent')
-                ->where('reason', $emailReason)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'email_sent',
+                $emailReason
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -647,11 +647,11 @@ class RunRemarketingBrain extends Command
 
             $smsReason = $this->coldSmsReasonForWhatsAppTask($whatsAppTask);
 
-            $smsAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $whatsAppTask->lead_id)
-                ->where('task_type', 'sms_sent')
-                ->where('reason', $smsReason)
-                ->exists();
+            $smsAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $whatsAppTask->lead_id !== null ? (int) $whatsAppTask->lead_id : null,
+                'sms_sent',
+                $smsReason
+            );
 
             if ($smsAlreadySent) {
                 continue;
@@ -717,11 +717,11 @@ class RunRemarketingBrain extends Command
                 continue;
             }
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $leadId)
-                ->where('task_type', 'email_sent')
-                ->where('reason', self::COLD_EMAIL_PORTAL_PUSH_REASON)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $leadId,
+                'email_sent',
+                self::COLD_EMAIL_PORTAL_PUSH_REASON
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -788,11 +788,11 @@ class RunRemarketingBrain extends Command
                 continue;
             }
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $leadId)
-                ->where('task_type', 'email_sent')
-                ->where('reason', self::DORMANT_EMAIL_IVA_REENGAGEMENT_REASON)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $leadId,
+                'email_sent',
+                self::DORMANT_EMAIL_IVA_REENGAGEMENT_REASON
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -854,11 +854,11 @@ class RunRemarketingBrain extends Command
                 continue;
             }
 
-            $smsAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $leadId)
-                ->where('task_type', 'sms_sent')
-                ->where('reason', self::DORMANT_SMS_PORTAL_NUDGE_REASON)
-                ->exists();
+            $smsAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $leadId,
+                'sms_sent',
+                self::DORMANT_SMS_PORTAL_NUDGE_REASON
+            );
 
             if ($smsAlreadySent) {
                 continue;
@@ -983,11 +983,11 @@ class RunRemarketingBrain extends Command
                 continue;
             }
 
-            $emailAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $leadId)
-                ->where('task_type', 'email_sent')
-                ->where('reason', self::DORMANT_EMAIL_PORTAL_PUSH_REASON)
-                ->exists();
+            $emailAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $leadId,
+                'email_sent',
+                self::DORMANT_EMAIL_PORTAL_PUSH_REASON
+            );
 
             if ($emailAlreadySent) {
                 continue;
@@ -1049,11 +1049,11 @@ class RunRemarketingBrain extends Command
                 continue;
             }
 
-            $smsAlreadySent = RemarketingTask::query()
-                ->where('lead_id', $leadId)
-                ->where('task_type', 'sms_sent')
-                ->where('reason', self::DORMANT_SMS_FINAL_NUDGE_REASON)
-                ->exists();
+            $smsAlreadySent = $this->sentTaskExistsInCurrentCycle(
+                $leadId,
+                'sms_sent',
+                self::DORMANT_SMS_FINAL_NUDGE_REASON
+            );
 
             if ($smsAlreadySent) {
                 continue;
@@ -1196,6 +1196,46 @@ class RunRemarketingBrain extends Command
     private function coolingEmail3ReasonForWhatsAppTask(RemarketingTask $whatsAppTask): string
     {
         return self::COOLING_EMAIL_3_REASON_PREFIX . ':' . (int) $whatsAppTask->id;
+    }
+
+    private function sentTaskExistsInCurrentCycle(?int $leadId, string $taskType, string $reason): bool
+    {
+        $query = RemarketingTask::query()
+            ->where('task_type', $taskType)
+            ->where('reason', $reason);
+
+        if ($leadId === null) {
+            $query->whereNull('lead_id');
+
+            return $query->exists();
+        }
+
+        $query->where('lead_id', $leadId);
+
+        $latestFlowStartedId = $this->latestFlowStartedTaskIdForLeadId($leadId);
+        if ($latestFlowStartedId === null) {
+            return $query->exists();
+        }
+
+        return $query
+            ->where('id', '>', $latestFlowStartedId)
+            ->exists();
+    }
+
+    private function latestFlowStartedTaskIdForLeadId(int $leadId): ?int
+    {
+        if ($leadId <= 0) {
+            return null;
+        }
+
+        $flowStartTask = RemarketingTask::query()
+            ->where('lead_id', $leadId)
+            ->where('task_type', 'flow_started')
+            ->where('reason', 'flow_start')
+            ->orderByDesc('id')
+            ->first();
+
+        return $flowStartTask?->id;
     }
 
     private function flowStartedAtForWhatsAppTask(RemarketingTask $whatsAppTask): ?Carbon
