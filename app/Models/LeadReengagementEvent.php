@@ -18,11 +18,13 @@ class LeadReengagementEvent extends Model
         'remarketing_reason',
         'flow_started_at',
         'engagement_at',
+        'seen_at',
     ];
 
     protected $casts = [
         'flow_started_at' => 'datetime',
         'engagement_at' => 'datetime',
+        'seen_at' => 'datetime',
     ];
 
     public function lead(): BelongsTo

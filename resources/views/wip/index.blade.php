@@ -162,6 +162,49 @@
             font-size: 10px;
             box-shadow: 0 0 14px rgba(251, 191, 36, 0.25);
         }
+        @keyframes wip-reengagement-pulse {
+            0%, 100% {
+                box-shadow:
+                    0 0 0 2px rgba(239, 68, 68, 0.55),
+                    0 0 28px rgba(239, 68, 68, 0.2);
+            }
+            50% {
+                box-shadow:
+                    0 0 0 2px rgba(251, 113, 133, 0.75),
+                    0 0 40px rgba(251, 113, 133, 0.28);
+            }
+        }
+        .wip-card-reengagement-unseen {
+            animation: wip-reengagement-pulse 2.2s ease-in-out infinite;
+            border-color: rgba(248, 113, 113, 0.85) !important;
+            background: linear-gradient(165deg, #1f1218 0%, #111827 45%, #0f172a 100%) !important;
+        }
+        .wip-card__badge--reengaged {
+            background: linear-gradient(135deg, #b91c1c 0%, #ea580c 100%);
+            border: 1px solid #fecaca;
+            color: #fff7ed;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            font-size: 11px;
+            box-shadow: 0 0 16px rgba(248, 113, 113, 0.35);
+        }
+        #wip-reengagement-toast {
+            display: none;
+            position: fixed;
+            top: 64px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10001;
+            max-width: min(520px, calc(100vw - 32px));
+            background: linear-gradient(180deg, #450a0a 0%, #1e293b 100%);
+            border: 1px solid #f87171;
+            color: #fef2f2;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+        }
         #wip-refresh-btn.is-spinning svg {
             animation: wip-spin 0.65s linear infinite;
         }
@@ -219,6 +262,7 @@
     </div>
 
     <div id="wip-ops-toast" role="status"></div>
+    <div id="wip-reengagement-toast" role="alert"></div>
 
     <div id="wip-filter-bar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px;">
         <input
@@ -260,6 +304,9 @@
     </div>
 
     <div id="wip-leads-grid" style="display:grid; gap:12px;">
+        @php
+            $unseenReengagementLeadSet = $unseen_reengagement_lead_set ?? [];
+        @endphp
         @forelse($leads as $lead)
             @php
                 $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
@@ -279,20 +326,35 @@
                     : '—';
                 $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
                 $needsImmediateAttention = $lead->needsImmediateAttention();
+                $isReengaged = $lead->wip_status === \App\Models\Lead::WIP_STATUS_REENGAGED;
+                $reengagementUnseen = $isReengaged && isset($unseenReengagementLeadSet[(int) $lead->id]);
+                if ($reengagementUnseen) {
+                    $cardAttentionClass = 'wip-card-reengagement-unseen';
+                } elseif ($needsImmediateAttention) {
+                    $cardAttentionClass = 'wip-card-undialled-attention';
+                } elseif ($lead->isPriorityWip()) {
+                    $cardAttentionClass = 'wip-card-priority';
+                } else {
+                    $cardAttentionClass = '';
+                }
             @endphp
 
             <div
-                class="wip-card wip-lead-row {{ $needsImmediateAttention ? 'wip-card-undialled-attention' : ($lead->isPriorityWip() ? 'wip-card-priority' : '') }}"
+                class="wip-card wip-lead-row {{ $cardAttentionClass }}"
                 data-lead-id="{{ $lead->id }}"
                 data-lead-name="{{ strtolower($caseName) }}"
                 data-wip-status="{{ $lead->wip_status }}"
                 data-lead-source="{{ e($sourceRaw) }}"
+                data-reengagement-unseen="{{ $reengagementUnseen ? '1' : '0' }}"
             >
                 <div class="wip-card__row1">
                     <div class="wip-card__title">
                         <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
                     </div>
                     <div class="wip-card-actions">
+                        @if ($isReengaged)
+                            <span class="wip-card__badge wip-card__badge--reengaged" title="WhatsApp re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? '🔥 Re-engaged · review' : '🔥 Re-engaged' }}</span>
+                        @endif
                         @if ($needsImmediateAttention)
                             <span class="wip-card__badge wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
                         @endif
@@ -377,6 +439,9 @@
 <script>
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const wipOpsAlertLeads = @json($ops_alert_leads ?? []);
+    const wipReengagementSnapshotIds = new Set(@json($unseen_reengagement_event_ids ?? []));
+    const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
+    const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
 
     const wipFilterNameInput = document.getElementById('wip-filter-name');
     const wipFilterStatus = document.getElementById('wip-filter-status');
@@ -466,6 +531,10 @@
         const card = document.querySelector(`.wip-lead-row[data-lead-id="${leadId}"]`);
         if (card) {
             card.dataset.wipStatus = status;
+            if (status !== 'Re-engaged') {
+                card.dataset.reengagementUnseen = '0';
+                card.classList.remove('wip-card-reengagement-unseen');
+            }
         }
         applyWipFilters();
     }
@@ -512,7 +581,33 @@
         `).join('');
     }
 
+    async function acknowledgeReengagementIfNeeded(leadId) {
+        const card = document.querySelector('.wip-lead-row[data-lead-id="' + leadId + '"]');
+        if (!card || card.dataset.reengagementUnseen !== '1') {
+            return;
+        }
+        try {
+            await fetch(wipReengagementAckUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ lead_id: parseInt(leadId, 10) }),
+            });
+            card.dataset.reengagementUnseen = '0';
+            card.classList.remove('wip-card-reengagement-unseen');
+            const badge = card.querySelector('.wip-card__badge--reengaged');
+            if (badge) {
+                badge.textContent = '🔥 Re-engaged';
+            }
+        } catch (e) {}
+    }
+
     async function loadChecklist(leadId, caseName) {
+        await acknowledgeReengagementIfNeeded(leadId);
+
         currentLeadId = leadId;
         currentCaseName = caseName;
         modalCaseName.textContent = caseName;
@@ -823,6 +918,68 @@
         }
 
         runOpsAlerts();
+    })();
+
+    (function () {
+        const POLL_MS = 12000;
+        const alertedReengagementIds = new Set();
+        const toast = document.getElementById('wip-reengagement-toast');
+
+        function playReengagementAlert() {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) {
+                    return;
+                }
+                const ctx = new Ctx();
+                [523.25, 659.25].forEach(function (freq, i) {
+                    const o = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    o.type = 'sine';
+                    o.frequency.value = freq;
+                    g.gain.value = 0.042;
+                    o.connect(g);
+                    g.connect(ctx.destination);
+                    const t0 = ctx.currentTime + i * 0.11;
+                    o.start(t0);
+                    o.stop(t0 + 0.16);
+                });
+                setTimeout(function () {
+                    ctx.close();
+                }, 600);
+            } catch (e) {}
+        }
+
+        async function pollReengagement() {
+            try {
+                const r = await fetch(wipReengagementPollUrl, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!r.ok) {
+                    return;
+                }
+                const data = await r.json();
+                const events = data.events || [];
+                events.forEach(function (ev) {
+                    const id = ev.id;
+                    if (wipReengagementSnapshotIds.has(id) || alertedReengagementIds.has(id)) {
+                        return;
+                    }
+                    alertedReengagementIds.add(id);
+                    if (toast) {
+                        toast.style.display = 'block';
+                        const name = ev.lead_name || ('Lead #' + ev.lead_id);
+                        toast.textContent = '🔥 Re-engagement: ' + name + ' — check WIP.';
+                        setTimeout(function () {
+                            toast.style.display = 'none';
+                        }, 10000);
+                    }
+                    playReengagementAlert();
+                });
+            } catch (e) {}
+        }
+
+        setInterval(pollReengagement, POLL_MS);
     })();
 </script>
 

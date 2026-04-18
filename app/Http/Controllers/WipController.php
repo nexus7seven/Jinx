@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
+use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingTask;
 use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
@@ -79,6 +80,37 @@ class WipController extends Controller
             return $lead;
         });
 
+        $unseenReengagementLeadIds = LeadReengagementEvent::query()
+            ->whereNull('seen_at')
+            ->whereIn('lead_id', $leadIds)
+            ->distinct()
+            ->pluck('lead_id')
+            ->all();
+
+        $unseenReengagementLeadSet = array_flip(array_map('intval', $unseenReengagementLeadIds));
+
+        $unseenReengagementEventIds = LeadReengagementEvent::query()
+            ->whereNull('seen_at')
+            ->whereIn('lead_id', $leadIds)
+            ->pluck('id')
+            ->values()
+            ->all();
+
+        $leads = $leads->sort(function (Lead $a, Lead $b) use ($unseenReengagementLeadSet) {
+            $aUnseen = ($a->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $a->id]);
+            $bUnseen = ($b->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $b->id]);
+            if ($aUnseen !== $bUnseen) {
+                return $aUnseen ? -1 : 1;
+            }
+            $aPri = in_array($a->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
+            $bPri = in_array($b->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
+            if ($aPri !== $bPri) {
+                return $aPri <=> $bPri;
+            }
+
+            return $b->created_at <=> $a->created_at;
+        })->values();
+
         $opsAlertLeads = $leads->map(function (Lead $lead) {
             return [
                 'id' => $lead->id,
@@ -107,7 +139,51 @@ class WipController extends Controller
             'show' => $show,
             'ops_alert_leads' => $opsAlertLeads,
             'wip_source_filter_options' => $wipSourceFilterOptions,
+            'unseen_reengagement_lead_set' => $unseenReengagementLeadSet,
+            'unseen_reengagement_event_ids' => $unseenReengagementEventIds,
         ]);
+    }
+
+    public function pollReengagement(): JsonResponse
+    {
+        $events = LeadReengagementEvent::query()
+            ->whereNull('seen_at')
+            ->whereNotNull('lead_id')
+            ->with(['lead:id,first_name,last_name'])
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->map(function (LeadReengagementEvent $e) {
+                $lead = $e->lead;
+                $name = '';
+                if ($lead !== null) {
+                    $name = trim((string) ($lead->first_name ?? '').' '.(string) ($lead->last_name ?? ''));
+                }
+
+                return [
+                    'id' => $e->id,
+                    'lead_id' => $e->lead_id,
+                    'lead_name' => $name !== '' ? $name : ('Lead #'.$e->lead_id),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json(['events' => $events]);
+    }
+
+    public function acknowledgeReengagement(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_id' => ['required', 'integer', 'exists:leads,id'],
+        ]);
+
+        LeadReengagementEvent::query()
+            ->where('lead_id', $validated['lead_id'])
+            ->whereNull('seen_at')
+            ->update(['seen_at' => now()]);
+
+        return response()->json(['success' => true]);
     }
 
     public function updateStatus(Request $request, Lead $lead): JsonResponse
