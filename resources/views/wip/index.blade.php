@@ -9,6 +9,116 @@
         .wip-page {
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
+        .wip-header-block {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .wip-header-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .wip-header-title {
+            font-size: 1.375rem;
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            color: #f8fafc;
+        }
+        .wip-header-sub {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 3px;
+        }
+        .wip-refresh-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.75);
+            background: rgba(30, 41, 59, 0.45);
+            color: #cbd5e1;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+        .wip-refresh-btn:hover {
+            background: rgba(51, 65, 85, 0.55);
+            border-color: #64748b;
+            color: #f1f5f9;
+        }
+        .wip-header-scope-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .wip-scope-segment {
+            display: inline-flex;
+            align-items: stretch;
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.65);
+            background: rgba(15, 23, 42, 0.55);
+            overflow: hidden;
+        }
+        .wip-scope-segment__link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            text-decoration: none;
+            color: #94a3b8;
+            border-right: 1px solid rgba(71, 85, 105, 0.45);
+            transition: background 0.15s ease, color 0.15s ease;
+            white-space: nowrap;
+        }
+        .wip-scope-segment__link:last-child {
+            border-right: none;
+        }
+        .wip-scope-segment__link:hover {
+            color: #e2e8f0;
+            background: rgba(51, 65, 85, 0.25);
+        }
+        .wip-scope-segment__link--active {
+            color: #f1f5f9;
+            background: rgba(59, 130, 246, 0.18);
+            font-weight: 600;
+        }
+        .wip-filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .wip-filter-bar input[type="search"],
+        .wip-filter-bar select {
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.75);
+            background: rgba(15, 23, 42, 0.65);
+            color: #f9fafb;
+            font-size: 13px;
+        }
+        .wip-filter-bar input[type="search"]::placeholder {
+            color: #64748b;
+        }
+        .wip-filter-bar input[type="search"] {
+            flex: 1;
+            min-width: 180px;
+            max-width: 320px;
+        }
+        .wip-filter-bar select {
+            min-width: 180px;
+        }
         .wip-card {
             background: linear-gradient(165deg, rgba(17, 24, 39, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%);
             border: 1px solid rgba(51, 65, 85, 0.55);
@@ -286,50 +396,49 @@
 
     @include('partials.app-nav')
 
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <div style="display:flex; align-items:center; gap:12px;">
+    <header class="wip-header-block">
+        <div class="wip-header-toolbar">
             <div>
-                <div style="font-size:1.375rem; font-weight:600; letter-spacing:-0.03em;">WIP</div>
-                <div style="font-size:12px; color:#64748b; margin-top:3px;">Case queue</div>
+                <div class="wip-header-title">WIP</div>
+                <div class="wip-header-sub">Case queue</div>
             </div>
-            <button type="button" id="wip-refresh-btn" title="Reload"
-                    style="display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; cursor:pointer;">
+            <button type="button" id="wip-refresh-btn" class="wip-refresh-btn" title="Reload">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
                     <path d="M21 3v7h-7"/>
                 </svg>
             </button>
         </div>
-
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <a href="{{ url('/wip?show=active') }}"
-               style="text-decoration:none; padding:10px 14px; border-radius:10px; border:1px solid {{ $show === 'active' ? '#2563eb' : '#374151' }}; background:{{ $show === 'active' ? '#1d4ed8' : '#111827' }}; color:#fff; font-size:14px;">
-                Active
-            </a>
-
-            <a href="{{ url('/wip?show=all') }}"
-               style="text-decoration:none; padding:10px 14px; border-radius:10px; border:1px solid {{ $show === 'all' ? '#2563eb' : '#374151' }}; background:{{ $show === 'all' ? '#1d4ed8' : '#111827' }}; color:#fff; font-size:14px;">
-                All
-            </a>
+        <div class="wip-header-scope-row">
+            <div class="wip-scope-segment" role="group" aria-label="Queue scope">
+                <a
+                    href="{{ url('/wip?show=active') }}"
+                    class="wip-scope-segment__link {{ $show === 'active' ? 'wip-scope-segment__link--active' : '' }}"
+                    @if ($show === 'active') aria-current="page" @endif
+                >Active</a>
+                <a
+                    href="{{ url('/wip?show=all') }}"
+                    class="wip-scope-segment__link {{ $show === 'all' ? 'wip-scope-segment__link--active' : '' }}"
+                    @if ($show === 'all') aria-current="page" @endif
+                >All</a>
+            </div>
         </div>
-    </div>
+    </header>
 
     <div id="wip-ops-toast" role="status"></div>
     <div id="wip-reengagement-toast" role="alert"></div>
 
-    <div id="wip-filter-bar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
+    <div id="wip-filter-bar" class="wip-filter-bar">
         <input
             type="search"
             id="wip-filter-name"
             autocomplete="off"
             placeholder="Filter by name…"
             aria-label="Filter leads by name"
-            style="flex:1; min-width:180px; max-width:320px; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
         >
         <select
             id="wip-filter-status"
             aria-label="Filter by status"
-            style="min-width:200px; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
         >
             <option value="">All statuses</option>
             @foreach($statuses as $status)
@@ -339,7 +448,6 @@
         <select
             id="wip-filter-source"
             aria-label="Filter by source"
-            style="min-width:200px; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#f9fafb; font-size:14px;"
         >
             <option value="">All sources</option>
             @foreach($wip_source_filter_options ?? [] as $rawSource)
