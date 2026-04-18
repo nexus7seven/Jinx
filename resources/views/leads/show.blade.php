@@ -305,6 +305,14 @@
 
                 <button
                     type="button"
+                    onclick="window.open('/leads/{{ $lead->id }}/credit-check-v2', '_blank')"
+                    style="background:#5b21b6; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
+                >
+                    Credit Check v2
+                </button>
+
+                <button
+                    type="button"
                     id="openDebtModal"
                     style="background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
                 >

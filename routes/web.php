@@ -9,6 +9,7 @@ use App\Models\DebtDocument;
 use App\Models\VotingPractice;
 use App\Models\CreditReport;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CreditCheckV2Controller;
 use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
 use App\Http\Controllers\DebtController;
@@ -118,6 +119,18 @@ Route::middleware('auth')->group(function () {
 
         return view('leads.credit-check-helper', compact('lead'));
     });
+
+    Route::get('/leads/{id}/credit-check-v2', function ($id) {
+        $lead = Lead::findOrFail($id);
+
+        return view('leads.credit-check-v2', compact('lead'));
+    });
+
+    Route::post('/leads/{lead}/credit-check-v2/run', [CreditCheckV2Controller::class, 'run'])
+        ->name('leads.credit-check-v2.run');
+
+    Route::post('/leads/{lead}/credit-check-v2/sessions/{sessionId}/answers', [CreditCheckV2Controller::class, 'submitAnswers'])
+        ->name('leads.credit-check-v2.answers');
 
     Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         $lead = Lead::findOrFail($id);

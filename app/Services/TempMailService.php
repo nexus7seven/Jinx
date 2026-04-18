@@ -56,6 +56,14 @@ class TempMailService
         return $this->request('get', '/v1/domains');
     }
 
+    /**
+     * Create a fresh disposable inbox (POST /v1/emails with no preset address).
+     */
+    public function createNewEmail(): array
+    {
+        return $this->request('post', '/v1/emails', []);
+    }
+
     public function createInbox(?string $email = null, ?string $domain = null): array
     {
         $payload = [];
@@ -71,7 +79,7 @@ class TempMailService
 
     public function createRandomInbox(): array
     {
-        return $this->createInbox();
+        return $this->createNewEmail();
     }
 
     public function createInboxUsingRandomDomain(): array
@@ -109,6 +117,17 @@ class TempMailService
         $encoded = rawurlencode($messageId);
 
         return $this->request('get', "/v1/messages/{$encoded}");
+    }
+
+    /**
+     * HTML body from GET /v1/messages/:id (empty body_text/HTML-safe fallback).
+     */
+    public function getMessageHtml(string $messageId): ?string
+    {
+        $full = $this->getMessage($messageId);
+        $html = $full['body_html'] ?? null;
+
+        return is_string($html) && $html !== '' ? $html : null;
     }
 
     public function deleteEmail(string $email): array
