@@ -21,6 +21,15 @@ class LeadChecklistService
         'DEAD',
     ];
 
+    /**
+     * WIP statuses explicitly chosen on the WIP screen that should not be
+     * overwritten by checklist-derived rules (Awaiting Docs / forced WIP).
+     */
+    private const MANUAL_WORKFLOW_STATUSES = [
+        'WIP',
+        'Ready to Draft',
+    ];
+
     private const REQUIRED_DEBT_SOURCES = [
         '3wc',
         'screenshot_pdf',
@@ -54,6 +63,10 @@ class LeadChecklistService
                 return;
             }
 
+            if (in_array($lead->wip_status, self::MANUAL_WORKFLOW_STATUSES, true)) {
+                return;
+            }
+
             if ($lead->wip_status !== 'WIP') {
                 $lead->update(['wip_status' => 'WIP']);
             }
@@ -62,6 +75,10 @@ class LeadChecklistService
 
         if ($outstanding > 0) {
             if (in_array($lead->wip_status, Lead::PRIORITY_WIP_STATUSES, true)) {
+                return;
+            }
+
+            if (in_array($lead->wip_status, self::MANUAL_WORKFLOW_STATUSES, true)) {
                 return;
             }
 
