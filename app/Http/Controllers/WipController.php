@@ -122,6 +122,23 @@ class WipController extends Controller
             'wip_status' => $validated['wip_status'],
         ]);
 
+        if ($validated['wip_status'] === 'DEAD') {
+            try {
+                $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
+
+                if ($vicidialLeadId !== null) {
+                    RemarketingTask::query()
+                        ->where('lead_id', $vicidialLeadId)
+                        ->where('status', RemarketingTask::STATUS_PENDING)
+                        ->update([
+                            'status' => RemarketingTask::STATUS_CLOSED,
+                        ]);
+                }
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
         if ($previousStatus === 'Lost Contact' && $validated['wip_status'] !== 'Lost Contact') {
             try {
                 $freshLead = $lead->fresh();

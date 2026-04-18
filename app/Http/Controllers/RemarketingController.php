@@ -366,6 +366,13 @@ class RemarketingController extends Controller
         if (in_array($code, self::REMARKETING_TERMINAL_DISPOSITIONS, true)) {
             $lead->update(['wip_status' => 'DEAD']);
 
+            RemarketingTask::query()
+                ->where('lead_id', (int) $vicidialLeadId)
+                ->where('status', RemarketingTask::STATUS_PENDING)
+                ->update([
+                    'status' => RemarketingTask::STATUS_CLOSED,
+                ]);
+
             return;
         }
 
