@@ -6,20 +6,23 @@
     <title>Jinx WIP</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
+        .wip-page {
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
         .wip-card {
-            background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
-            border: 1px solid #1e293b;
-            border-radius: 12px;
-            padding: 14px 16px;
+            background: linear-gradient(165deg, rgba(17, 24, 39, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%);
+            border: 1px solid rgba(51, 65, 85, 0.55);
+            border-radius: 10px;
+            padding: 12px 14px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
         }
         .wip-card__row1 {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            gap: 12px;
+            gap: 10px;
         }
         .wip-card__title {
             margin: 0;
@@ -29,173 +32,214 @@
         .wip-card__title a {
             color: #f8fafc;
             text-decoration: none;
-            font-size: 18px;
+            font-size: 1.0625rem;
             font-weight: 600;
-            line-height: 1.35;
-            letter-spacing: -0.01em;
+            line-height: 1.3;
+            letter-spacing: -0.02em;
             display: inline-block;
             word-break: break-word;
         }
         .wip-card__title a:hover {
-            color: #e2e8f0;
+            color: #cbd5e1;
         }
         .wip-card-actions {
             display: flex;
             flex-direction: row;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 10px;
+            justify-content: flex-end;
+            gap: 6px;
             flex-shrink: 0;
+            max-width: min(100%, 20rem);
         }
-        .wip-card__badge {
+        .wip-chip {
             display: inline-flex;
             align-items: center;
-            padding: 5px 10px;
+            padding: 3px 8px;
             border-radius: 999px;
-            font-size: 11px;
-            font-weight: 600;
-            line-height: 1.2;
+            font-size: 10px;
+            font-weight: 500;
+            line-height: 1.25;
+            letter-spacing: 0.02em;
             white-space: nowrap;
+            border: 1px solid transparent;
         }
         .wip-card-actions .jinx-ctc-btn {
-            min-width: 4.25rem;
-            padding: 8px 14px;
-            font-size: 13px;
-            font-weight: 600;
+            margin: 0;
+            min-width: 3.75rem;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 500;
             color: #e2e8f0;
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 8px;
+            background: rgba(30, 41, 59, 0.85);
+            border: 1px solid rgba(71, 85, 105, 0.75);
+            border-radius: 7px;
             cursor: pointer;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            box-shadow: none;
         }
         .wip-card-actions .jinx-ctc-btn:hover {
-            background: #273549;
-            border-color: #475569;
+            background: rgba(51, 65, 85, 0.95);
+            border-color: #64748b;
+            color: #f8fafc;
         }
         .wip-card__meta {
             font-size: 11px;
-            line-height: 1.55;
+            line-height: 1.5;
             color: #64748b;
-            padding-top: 2px;
-            border-top: 1px solid rgba(51, 65, 85, 0.5);
+            padding-top: 4px;
+            border-top: 1px solid rgba(51, 65, 85, 0.35);
         }
-        .wip-meta-k { color: #64748b; font-weight: 500; }
-        .wip-meta-v { color: #94a3b8; font-weight: 400; }
-        .wip-meta-dot { color: #3f4f63; margin: 0 0.28em; user-select: none; }
+        .wip-meta-k { color: #64748b; font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .wip-meta-v { color: #94a3b8; font-weight: 400; font-size: 12px; }
+        .wip-meta-dot { color: #475569; margin: 0 0.25em; user-select: none; }
         .wip-meta-pill {
             display: inline-block;
             vertical-align: middle;
             margin: 1px 0 1px 0.35em;
-            padding: 2px 7px;
-            border-radius: 999px;
+            padding: 2px 6px;
+            border-radius: 6px;
             font-size: 10px;
-            font-weight: 600;
-            background: rgba(30, 41, 59, 0.9);
-            border: 1px solid #334155;
-            color: #cbd5e1;
+            font-weight: 500;
+            background: rgba(30, 41, 59, 0.65);
+            border: 1px solid rgba(51, 65, 85, 0.6);
+            color: #94a3b8;
         }
         .wip-card__controls {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            align-items: stretch;
+            align-items: center;
         }
         .wip-card__controls .status-select {
             flex: 1;
-            min-width: 200px;
-            background: #0f172a;
+            min-width: 180px;
+            min-height: 36px;
+            background: rgba(15, 23, 42, 0.9);
             color: #f1f5f9;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            padding: 10px 12px;
-            font-size: 14px;
-            font-weight: 500;
+            border: 1px solid rgba(71, 85, 105, 0.65);
+            border-radius: 7px;
+            padding: 7px 10px;
+            font-size: 13px;
+            font-weight: 450;
         }
         .wip-card__controls .open-checklist-btn {
-            background: transparent;
-            color: #cbd5e1;
-            border: 1px solid #475569;
-            border-radius: 8px;
-            padding: 10px 16px;
-            font-size: 13px;
-            font-weight: 600;
+            background: rgba(30, 41, 59, 0.75);
+            color: #e2e8f0;
+            border: 1px solid rgba(71, 85, 105, 0.75);
+            border-radius: 7px;
+            padding: 7px 14px;
+            font-size: 12px;
+            font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
+            min-height: 36px;
         }
         .wip-card__controls .open-checklist-btn:hover {
-            background: #1e293b;
+            background: rgba(51, 65, 85, 0.85);
             border-color: #64748b;
-            color: #f1f5f9;
+            color: #f8fafc;
+        }
+        .wip-chip-outstanding {
+            font: inherit;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+        }
+        .wip-chip-outstanding:hover {
+            filter: brightness(1.08);
+        }
+        .wip-chip-outstanding:active {
+            transform: scale(0.98);
+        }
+        .wip-chip-outstanding:focus-visible {
+            outline: 2px solid rgba(96, 165, 250, 0.65);
+            outline-offset: 1px;
+        }
+        .wip-chip-outstanding--clear {
+            background: rgba(6, 78, 59, 0.45);
+            border-color: rgba(16, 185, 129, 0.45);
+            color: #d1fae5;
+        }
+        .wip-chip-outstanding--pending {
+            background: rgba(120, 53, 15, 0.45);
+            border-color: rgba(245, 158, 11, 0.45);
+            color: #fef3c7;
+        }
+        .wip-card-actions .open-checklist-btn.wip-chip-outstanding {
+            min-height: unset;
+            min-width: unset;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 500;
+            border-radius: 999px;
+            line-height: 1.25;
+            box-shadow: none;
         }
         @keyframes wip-priority-glow {
-            0%, 100% { box-shadow: 0 0 0 1px rgba(37,99,235,0.22), 0 0 20px rgba(37,99,235,0.06); }
-            50% { box-shadow: 0 0 0 1px rgba(59,130,246,0.35), 0 0 24px rgba(59,130,246,0.1); }
+            0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15); }
+            50% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.28), 0 4px 20px rgba(37, 99, 235, 0.06); }
         }
         .wip-card-priority {
-            animation: wip-priority-glow 4.5s ease-in-out infinite;
-            border-color: rgba(59, 130, 246, 0.45) !important;
+            animation: wip-priority-glow 5s ease-in-out infinite;
+            border-color: rgba(59, 130, 246, 0.35) !important;
         }
         @keyframes wip-undialled-pulse {
-            0%, 100% {
-                box-shadow:
-                    0 0 0 2px rgba(245, 158, 11, 0.42),
-                    0 0 22px rgba(245, 158, 11, 0.12);
-            }
-            50% {
-                box-shadow:
-                    0 0 0 2px rgba(251, 191, 36, 0.58),
-                    0 0 34px rgba(251, 191, 36, 0.18);
-            }
+            0%, 100% { box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.28), 0 2px 16px rgba(245, 158, 11, 0.06); }
+            50% { box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.4), 0 4px 22px rgba(245, 158, 11, 0.1); }
         }
         .wip-card-undialled-attention {
-            animation: wip-undialled-pulse 2.4s ease-in-out infinite;
-            border-color: rgba(245, 158, 11, 0.72) !important;
-            background: linear-gradient(165deg, #1c1412 0%, #0f172a 55%, #0c1424 100%) !important;
+            animation: wip-undialled-pulse 2.8s ease-in-out infinite;
+            border-color: rgba(245, 158, 11, 0.45) !important;
+            background: linear-gradient(165deg, rgba(28, 20, 18, 0.55) 0%, rgba(15, 23, 42, 0.98) 55%) !important;
         }
         .wip-card__badge--undialled {
-            background: linear-gradient(135deg, #9a3412 0%, #c2410c 100%);
-            border: 1px solid #fbbf24;
+            background: rgba(154, 52, 18, 0.55);
+            border-color: rgba(251, 191, 36, 0.35);
             color: #fffbeb;
-            font-weight: 700;
-            letter-spacing: 0.04em;
+            font-weight: 500;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
-            font-size: 10px;
-            box-shadow: 0 0 14px rgba(251, 191, 36, 0.25);
+            font-size: 9px;
         }
         @keyframes wip-reengagement-pulse {
             0%, 100% {
-                box-shadow:
-                    0 0 0 2px rgba(239, 68, 68, 0.55),
-                    0 0 28px rgba(239, 68, 68, 0.2);
+                box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.35), 0 4px 24px rgba(244, 63, 94, 0.08);
             }
             50% {
-                box-shadow:
-                    0 0 0 2px rgba(251, 113, 133, 0.75),
-                    0 0 40px rgba(251, 113, 133, 0.28);
+                box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.45), 0 6px 28px rgba(244, 63, 94, 0.12);
             }
         }
         .wip-card-reengagement-unseen {
-            animation: wip-reengagement-pulse 2.2s ease-in-out infinite;
-            border-color: rgba(248, 113, 113, 0.85) !important;
-            background: linear-gradient(165deg, #1f1218 0%, #111827 45%, #0f172a 100%) !important;
+            animation: wip-reengagement-pulse 3s ease-in-out infinite;
+            border-color: rgba(244, 63, 94, 0.42) !important;
+            background: linear-gradient(165deg, rgba(30, 20, 24, 0.65) 0%, rgba(17, 24, 39, 0.98) 50%) !important;
+        }
+        .wip-card-reengagement-seen {
+            border-left: 3px solid rgba(244, 63, 94, 0.35);
+            background: linear-gradient(90deg, rgba(30, 20, 24, 0.35) 0%, rgba(15, 23, 42, 0.4) 8%, transparent 28%),
+                linear-gradient(165deg, rgba(17, 24, 39, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%) !important;
         }
         .wip-card__badge--reengaged {
-            background: linear-gradient(135deg, #b91c1c 0%, #ea580c 100%);
-            border: 1px solid #fecaca;
+            background: linear-gradient(135deg, rgba(185, 28, 28, 0.88) 0%, rgba(194, 65, 12, 0.82) 100%);
+            border: 1px solid rgba(254, 202, 202, 0.35);
             color: #fff7ed;
-            font-weight: 800;
-            letter-spacing: 0.02em;
-            font-size: 11px;
-            box-shadow: 0 0 16px rgba(248, 113, 113, 0.35);
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            font-size: 10px;
+            box-shadow: 0 1px 8px rgba(0, 0, 0, 0.2);
+        }
+        .wip-card-reengagement-seen .wip-card__badge--reengaged {
+            background: linear-gradient(135deg, rgba(127, 29, 29, 0.55) 0%, rgba(124, 45, 18, 0.5) 100%);
+            border-color: rgba(252, 165, 165, 0.2);
+            font-weight: 500;
         }
         .wip-card__badge--reengagement-channel {
-            background: rgba(15, 23, 42, 0.95);
-            border: 1px solid #f97316;
-            color: #ffedd5;
-            font-weight: 700;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(249, 115, 22, 0.4);
+            color: #fed7aa;
+            font-weight: 500;
             font-size: 10px;
             text-transform: none;
-            letter-spacing: 0.03em;
+            letter-spacing: 0.02em;
         }
         #wip-reengagement-toast {
             display: none;
@@ -236,17 +280,17 @@
         }
     </style>
 </head>
-<body style="margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
+<body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
-<div style="max-width:980px; margin:0 auto; padding:20px; box-sizing:border-box;">
+<div class="wip-page" style="max-width:980px; margin:0 auto; padding:18px 20px 28px; box-sizing:border-box;">
 
     @include('partials.app-nav')
 
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:12px;">
             <div>
-                <div style="font-size:26px; font-weight:700;">WIP</div>
-                <div style="font-size:13px; color:#9ca3af; margin-top:4px;">Case queue</div>
+                <div style="font-size:1.375rem; font-weight:600; letter-spacing:-0.03em;">WIP</div>
+                <div style="font-size:12px; color:#64748b; margin-top:3px;">Case queue</div>
             </div>
             <button type="button" id="wip-refresh-btn" title="Reload"
                     style="display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; cursor:pointer;">
@@ -273,7 +317,7 @@
     <div id="wip-ops-toast" role="status"></div>
     <div id="wip-reengagement-toast" role="alert"></div>
 
-    <div id="wip-filter-bar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px;">
+    <div id="wip-filter-bar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
         <input
             type="search"
             id="wip-filter-name"
@@ -312,7 +356,7 @@
         No cases match the current filters.
     </div>
 
-    <div id="wip-leads-grid" style="display:grid; gap:12px;">
+    <div id="wip-leads-grid" style="display:grid; gap:10px;">
         @php
             $unseenReengagementLeadSet = $unseen_reengagement_lead_set ?? [];
             $reengagementChannelByLeadId = $reengagement_channel_by_lead_id ?? [];
@@ -339,8 +383,6 @@
                 }
 
                 $outstanding = (int) ($lead->checklist_outstanding_count ?? 0);
-                $pillBg = $outstanding === 0 ? '#065f46' : '#92400e';
-                $pillBorder = $outstanding === 0 ? '#10b981' : '#f59e0b';
                 $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
                 $sourceRaw = $lead->source === null ? '' : trim((string) $lead->source);
                 $lastDialled = $lead->last_dialled_at;
@@ -364,10 +406,11 @@
                 } else {
                     $cardAttentionClass = '';
                 }
+                $reengagementSeenCalm = $isReengaged && ! $reengagementUnseen;
             @endphp
 
             <div
-                class="wip-card wip-lead-row {{ $cardAttentionClass }}"
+                class="wip-card wip-lead-row {{ $cardAttentionClass }}{{ $reengagementSeenCalm ? ' wip-card-reengagement-seen' : '' }}"
                 data-lead-id="{{ $lead->id }}"
                 data-lead-name="{{ strtolower($caseName) }}"
                 data-wip-status="{{ $lead->wip_status }}"
@@ -380,19 +423,22 @@
                     </div>
                     <div class="wip-card-actions">
                         @if ($isReengaged)
-                            <span class="wip-card__badge wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? '🔥 Re-engaged · review' : '🔥 Re-engaged' }}</span>
+                            <span class="wip-chip wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? 'Re-engaged · review' : 'Re-engaged' }}</span>
                             @if ($reengagementChannelLabel !== '')
-                                <span class="wip-card__badge wip-card__badge--reengagement-channel" title="Re-engagement channel">{{ $reengagementChannelLabel }}</span>
+                                <span class="wip-chip wip-card__badge--reengagement-channel" title="Channel">{{ $reengagementChannelLabel }}</span>
                             @endif
                         @endif
                         @if ($needsImmediateAttention)
-                            <span class="wip-card__badge wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
+                            <span class="wip-chip wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
                         @endif
-                        <span id="outstanding-pill-{{ $lead->id }}"
-                              class="wip-card__badge"
-                              style="background:{{ $pillBg }}; border:1px solid {{ $pillBorder }}; color:#f8fafc;">
-                            {{ $outstanding }} outstanding
-                        </span>
+                        <button
+                            type="button"
+                            id="outstanding-pill-{{ $lead->id }}"
+                            class="open-checklist-btn wip-chip wip-chip-outstanding {{ $outstanding === 0 ? 'wip-chip-outstanding--clear' : 'wip-chip-outstanding--pending' }}"
+                            data-lead-id="{{ $lead->id }}"
+                            data-case-name="{{ $caseName }}"
+                            title="Open checklist"
+                        >{{ $outstanding }} outstanding</button>
                         @if ($canCall)
                             @include('partials.lead-click-to-call', ['lead' => $lead])
                         @endif
@@ -599,13 +645,11 @@
         if (!pill) return;
 
         pill.textContent = `${outstanding} outstanding`;
-
+        pill.classList.remove('wip-chip-outstanding--clear', 'wip-chip-outstanding--pending');
         if (outstanding === 0) {
-            pill.style.background = '#065f46';
-            pill.style.border = '1px solid #10b981';
+            pill.classList.add('wip-chip-outstanding--clear');
         } else {
-            pill.style.background = '#92400e';
-            pill.style.border = '1px solid #f59e0b';
+            pill.classList.add('wip-chip-outstanding--pending');
         }
     }
 
@@ -687,7 +731,7 @@
             card.classList.remove('wip-card-reengagement-unseen');
             const badge = card.querySelector('.wip-card__badge--reengaged');
             if (badge) {
-                badge.textContent = '🔥 Re-engaged';
+                badge.textContent = 'Re-engaged';
             }
         } catch (e) {}
     }
