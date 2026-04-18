@@ -188,6 +188,15 @@
             font-size: 11px;
             box-shadow: 0 0 16px rgba(248, 113, 113, 0.35);
         }
+        .wip-card__badge--reengagement-channel {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #f97316;
+            color: #ffedd5;
+            font-weight: 700;
+            font-size: 10px;
+            text-transform: none;
+            letter-spacing: 0.03em;
+        }
         #wip-reengagement-toast {
             display: none;
             position: fixed;
@@ -306,6 +315,21 @@
     <div id="wip-leads-grid" style="display:grid; gap:12px;">
         @php
             $unseenReengagementLeadSet = $unseen_reengagement_lead_set ?? [];
+            $reengagementChannelByLeadId = $reengagement_channel_by_lead_id ?? [];
+            $formatReengagementChannel = static function (?string $raw): string {
+                if ($raw === null || trim($raw) === '') {
+                    return '';
+                }
+                $k = strtolower(trim($raw));
+
+                return match ($k) {
+                    'whatsapp' => 'WhatsApp',
+                    'sms' => 'SMS',
+                    'email' => 'Email',
+                    'call' => 'Call',
+                    default => \Illuminate\Support\Str::title(str_replace('_', ' ', $k)),
+                };
+            };
         @endphp
         @forelse($leads as $lead)
             @php
@@ -328,6 +352,9 @@
                 $needsImmediateAttention = $lead->needsImmediateAttention();
                 $isReengaged = $lead->wip_status === \App\Models\Lead::WIP_STATUS_REENGAGED;
                 $reengagementUnseen = $isReengaged && isset($unseenReengagementLeadSet[(int) $lead->id]);
+                $reengagementChannelLabel = $isReengaged
+                    ? $formatReengagementChannel($reengagementChannelByLeadId[(int) $lead->id] ?? null)
+                    : '';
                 if ($reengagementUnseen) {
                     $cardAttentionClass = 'wip-card-reengagement-unseen';
                 } elseif ($needsImmediateAttention) {
@@ -353,7 +380,10 @@
                     </div>
                     <div class="wip-card-actions">
                         @if ($isReengaged)
-                            <span class="wip-card__badge wip-card__badge--reengaged" title="WhatsApp re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? '🔥 Re-engaged · review' : '🔥 Re-engaged' }}</span>
+                            <span class="wip-card__badge wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? '🔥 Re-engaged · review' : '🔥 Re-engaged' }}</span>
+                            @if ($reengagementChannelLabel !== '')
+                                <span class="wip-card__badge wip-card__badge--reengagement-channel" title="Re-engagement channel">{{ $reengagementChannelLabel }}</span>
+                            @endif
                         @endif
                         @if ($needsImmediateAttention)
                             <span class="wip-card__badge wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
@@ -442,6 +472,63 @@
     const wipReengagementSnapshotIds = new Set(@json($unseen_reengagement_event_ids ?? []));
     const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
     const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
+
+    (function () {
+        let wipAlertAudioCtx = null;
+
+        function getWipAlertAudioContext() {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) {
+                return null;
+            }
+            if (!wipAlertAudioCtx) {
+                wipAlertAudioCtx = new AC();
+            }
+            return wipAlertAudioCtx;
+        }
+
+        function unlockWipAlertAudio() {
+            const ctx = getWipAlertAudioContext();
+            if (!ctx) {
+                return;
+            }
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(function () {});
+            }
+        }
+
+        ['click', 'keydown', 'touchstart'].forEach(function (ev) {
+            document.addEventListener(ev, unlockWipAlertAudio, { passive: true, capture: true });
+        });
+
+        window.jinxWipPlayReengagementAlertSound = function () {
+            try {
+                const ctx = getWipAlertAudioContext();
+                if (!ctx) {
+                    return;
+                }
+                const playTone = function () {
+                    [523.25, 659.25].forEach(function (freq, i) {
+                        const o = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        o.type = 'sine';
+                        o.frequency.value = freq;
+                        g.gain.value = 0.05;
+                        o.connect(g);
+                        g.connect(ctx.destination);
+                        const t0 = ctx.currentTime + i * 0.11;
+                        o.start(t0);
+                        o.stop(t0 + 0.18);
+                    });
+                };
+                if (ctx.state === 'suspended') {
+                    ctx.resume().then(playTone).catch(function () {});
+                } else {
+                    playTone();
+                }
+            } catch (e) {}
+        };
+    })();
 
     const wipFilterNameInput = document.getElementById('wip-filter-name');
     const wipFilterStatus = document.getElementById('wip-filter-status');
@@ -925,31 +1012,6 @@
         const alertedReengagementIds = new Set();
         const toast = document.getElementById('wip-reengagement-toast');
 
-        function playReengagementAlert() {
-            try {
-                const Ctx = window.AudioContext || window.webkitAudioContext;
-                if (!Ctx) {
-                    return;
-                }
-                const ctx = new Ctx();
-                [523.25, 659.25].forEach(function (freq, i) {
-                    const o = ctx.createOscillator();
-                    const g = ctx.createGain();
-                    o.type = 'sine';
-                    o.frequency.value = freq;
-                    g.gain.value = 0.042;
-                    o.connect(g);
-                    g.connect(ctx.destination);
-                    const t0 = ctx.currentTime + i * 0.11;
-                    o.start(t0);
-                    o.stop(t0 + 0.16);
-                });
-                setTimeout(function () {
-                    ctx.close();
-                }, 600);
-            } catch (e) {}
-        }
-
         async function pollReengagement() {
             try {
                 const r = await fetch(wipReengagementPollUrl, {
@@ -974,7 +1036,9 @@
                             toast.style.display = 'none';
                         }, 10000);
                     }
-                    playReengagementAlert();
+                    if (typeof window.jinxWipPlayReengagementAlertSound === 'function') {
+                        window.jinxWipPlayReengagementAlertSound();
+                    }
                 });
             } catch (e) {}
         }

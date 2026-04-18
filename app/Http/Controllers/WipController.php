@@ -96,6 +96,17 @@ class WipController extends Controller
             ->values()
             ->all();
 
+        $reengagementChannelByLeadId = [];
+        if ($leadIds->isNotEmpty()) {
+            $reengagementChannelByLeadId = LeadReengagementEvent::query()
+                ->whereIn('lead_id', $leadIds)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('lead_id')
+                ->mapWithKeys(fn (LeadReengagementEvent $e) => [(int) $e->lead_id => $e->channel])
+                ->all();
+        }
+
         $leads = $leads->sort(function (Lead $a, Lead $b) use ($unseenReengagementLeadSet) {
             $aUnseen = ($a->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $a->id]);
             $bUnseen = ($b->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $b->id]);
@@ -141,6 +152,7 @@ class WipController extends Controller
             'wip_source_filter_options' => $wipSourceFilterOptions,
             'unseen_reengagement_lead_set' => $unseenReengagementLeadSet,
             'unseen_reengagement_event_ids' => $unseenReengagementEventIds,
+            'reengagement_channel_by_lead_id' => $reengagementChannelByLeadId,
         ]);
     }
 
