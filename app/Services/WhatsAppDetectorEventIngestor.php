@@ -293,7 +293,7 @@ class WhatsAppDetectorEventIngestor
 
         $ids = [];
         foreach ($variants as $variant) {
-            $q = DB::table($table)->select($idCol);
+            $q = DB::connection('asterisk')->table($table)->select($idCol);
             $q->where(function ($w) use ($columns, $variant) {
                 foreach ($columns as $col) {
                     if (! is_string($col) || $col === '') {
@@ -332,7 +332,7 @@ class WhatsAppDetectorEventIngestor
             return null;
         }
 
-        $raw = DB::table($table)
+        $raw = DB::connection('mysql')->table($table)
             ->where('lead_id', $vicidialLeadId)
             ->where('task_type', 'flow_started')
             ->where('reason', 'flow_start')
