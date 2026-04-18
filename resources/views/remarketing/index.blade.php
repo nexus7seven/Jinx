@@ -95,10 +95,18 @@
         border-color: rgba(71, 85, 105, 0.55);
         color: #94a3b8;
     }
+    .rm-chip--source {
+        background: rgba(30, 41, 59, 0.55);
+        border-color: rgba(100, 116, 139, 0.45);
+        color: #cbd5e1;
+        max-width: 14rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
     .rm-card__actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
         justify-content: flex-end;
         flex-shrink: 0;
@@ -107,50 +115,65 @@
         display: inline;
         margin: 0;
     }
-    .rm-btn {
+    .rm-icon-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 38px;
-        padding: 8px 14px;
+        width: 38px;
+        height: 38px;
+        padding: 0;
         border-radius: 8px;
-        font-size: 13px;
-        font-weight: 500;
         font-family: inherit;
         cursor: pointer;
         text-decoration: none;
         border: 1px solid transparent;
-        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
     }
-    .rm-btn--primary {
-        background: rgba(37, 99, 235, 0.85);
-        border-color: rgba(59, 130, 246, 0.45);
-        color: #f8fafc;
+    .rm-icon-btn svg {
+        width: 20px;
+        height: 20px;
     }
-    .rm-btn--primary:hover {
-        background: rgba(29, 78, 216, 0.95);
+    .rm-icon-btn--call {
+        background: rgba(37, 99, 235, 0.18);
+        border-color: rgba(59, 130, 246, 0.42);
+        color: #93c5fd;
+    }
+    .rm-icon-btn--call:hover {
+        background: rgba(37, 99, 235, 0.32);
         border-color: rgba(96, 165, 250, 0.55);
-        color: #fff;
+        color: #e0f2fe;
     }
-    .rm-btn--whatsapp {
-        background: rgba(5, 150, 105, 0.85);
-        border-color: rgba(16, 185, 129, 0.45);
+    .rm-icon-btn--wa {
+        background: rgba(5, 150, 105, 0.18);
+        border-color: rgba(16, 185, 129, 0.42);
+        color: #6ee7b7;
+    }
+    .rm-icon-btn--wa:hover {
+        background: rgba(5, 150, 105, 0.32);
+        border-color: rgba(52, 211, 153, 0.55);
         color: #ecfdf5;
     }
-    .rm-btn--whatsapp:hover {
-        background: rgba(4, 120, 87, 0.95);
-        border-color: rgba(52, 211, 153, 0.55);
-        color: #fff;
+    .rm-icon-btn--complete {
+        background: rgba(30, 41, 59, 0.35);
+        border-color: rgba(71, 85, 105, 0.45);
+        color: #64748b;
     }
-    .rm-btn--secondary {
-        background: rgba(30, 41, 59, 0.75);
-        border-color: rgba(71, 85, 105, 0.75);
-        color: #e2e8f0;
+    .rm-icon-btn--complete:hover {
+        background: rgba(6, 78, 59, 0.28);
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #6ee7b7;
     }
-    .rm-btn--secondary:hover {
-        background: rgba(51, 65, 85, 0.85);
-        border-color: #64748b;
-        color: #f8fafc;
+    .rm-icon-btn--complete:active {
+        background: rgba(6, 78, 59, 0.38);
+        border-color: rgba(52, 211, 153, 0.5);
+        color: #a7f3d0;
+    }
+    .rm-icon-btn:focus-visible {
+        outline: 2px solid rgba(96, 165, 250, 0.75);
+        outline-offset: 2px;
+    }
+    .rm-icon-btn--complete:focus-visible {
+        outline-color: rgba(52, 211, 153, 0.65);
     }
     .rm-card__meta {
         font-size: 11px;

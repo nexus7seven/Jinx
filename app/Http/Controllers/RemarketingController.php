@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lead;
 use App\Models\RemarketingTask;
+use App\Support\LeadSourceDisplay;
 use App\Services\RemarketingCallbackService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDispositionService;
@@ -86,7 +87,19 @@ class RemarketingController extends Controller
             return $latestStopMarkerId === null || $latestStopMarkerId <= $latestFlowStartedId;
         })->values();
 
-        $activeTasks = $pendingTasks->sortBy('id')->values()->map(function (RemarketingTask $task) {
+        $vicidialIdsForSource = $pendingTasks->pluck('lead_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
+        $leadsByVicidialId = collect();
+        if ($vicidialIdsForSource->isNotEmpty()) {
+            $leadsByVicidialId = Lead::query()
+                ->whereIn('vicidial_lead_id', $vicidialIdsForSource->all())
+                ->get()
+                ->keyBy(fn (Lead $lead) => (int) $lead->vicidial_lead_id);
+        }
+
+        $activeTasks = $pendingTasks->sortBy('id')->values()->map(function (RemarketingTask $task) use ($leadsByVicidialId) {
+            $vicidialId = (int) $task->lead_id;
+            $leadRow = $leadsByVicidialId->get($vicidialId);
+
             $row = [
                 'id' => $task->id,
                 'lead_id' => $task->lead_id,
@@ -98,6 +111,7 @@ class RemarketingController extends Controller
                 'task_type' => $task->task_type,
                 'stage' => $task->stage,
                 'whatsapp_url' => null,
+                'source_label' => $leadRow ? LeadSourceDisplay::label($leadRow->source) : null,
             ];
 
             if ($task->task_type === 'whatsapp') {
