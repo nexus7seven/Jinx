@@ -17,6 +17,7 @@ class LeadChecklistService
     private const PROTECTED_STATUSES = [
         'Sale',
         'Lost Contact',
+        Lead::WIP_STATUS_REENGAGED,
         'DEAD',
     ];
 

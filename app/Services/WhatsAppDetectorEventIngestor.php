@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingTask;
 use App\Models\WhatsAppDetectorEvent;
 use Carbon\Carbon;
@@ -158,11 +159,13 @@ class WhatsAppDetectorEventIngestor
                 ];
 
                 try {
-                    WhatsAppDetectorEvent::query()->create($row);
+                    $detectorEvent = WhatsAppDetectorEvent::query()->create($row);
                     $stats['imported']++;
 
                     if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
                         try {
+                            $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
+
                             RemarketingTask::query()
                                 ->where('lead_id', $matchedLeadId)
                                 ->where('status', RemarketingTask::STATUS_PENDING)
@@ -175,7 +178,23 @@ class WhatsAppDetectorEventIngestor
                                 ->first();
 
                             if ($lead !== null) {
-                                $lead->update(['wip_status' => 'Re-engaged']);
+                                $lead->update(['wip_status' => Lead::WIP_STATUS_REENGAGED]);
+                            }
+
+                            LeadReengagementEvent::query()->create([
+                                'lead_id' => $lead?->id,
+                                'vicidial_lead_id' => $matchedLeadId,
+                                'whatsapp_detector_event_id' => $detectorEvent->id,
+                                'whatsapp_detector_event_uuid' => $eventId,
+                                'channel' => 'whatsapp',
+                                'remarketing_stage' => $context['stage'],
+                                'remarketing_task_type' => $context['task_type'],
+                                'remarketing_reason' => $context['reason'],
+                                'flow_started_at' => $flowStartedAt,
+                                'engagement_at' => $engagementAt,
+                            ]);
+
+                            if ($lead !== null) {
                                 $this->appendNotesToEvent(
                                     $eventId,
                                     'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply after flow_start.'
@@ -488,5 +507,41 @@ class WhatsAppDetectorEventIngestor
         $parts = $existing !== '' ? [$existing, $append] : [$append];
         $merged = $this->joinNotes($parts);
         $event->update(['notes' => $merged]);
+    }
+
+    /**
+     * Best-effort snapshot of the latest pending remarketing task in the current cycle (after latest flow_start).
+     *
+     * @return array{stage: ?string, task_type: ?string, reason: ?string}
+     */
+    private function snapCurrentCycleRemarketingContext(int $vicidialLeadId): array
+    {
+        $flowStart = RemarketingTask::query()
+            ->where('lead_id', $vicidialLeadId)
+            ->where('task_type', 'flow_started')
+            ->where('reason', 'flow_start')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($flowStart === null) {
+            return ['stage' => null, 'task_type' => null, 'reason' => null];
+        }
+
+        $task = RemarketingTask::query()
+            ->where('lead_id', $vicidialLeadId)
+            ->where('status', RemarketingTask::STATUS_PENDING)
+            ->where('id', '>', $flowStart->id)
+            ->orderByDesc('id')
+            ->first();
+
+        if ($task === null) {
+            return ['stage' => null, 'task_type' => null, 'reason' => null];
+        }
+
+        return [
+            'stage' => $task->stage !== null && trim((string) $task->stage) !== '' ? (string) $task->stage : null,
+            'task_type' => $task->task_type !== null && trim((string) $task->task_type) !== '' ? (string) $task->task_type : null,
+            'reason' => $task->reason !== null && trim((string) $task->reason) !== '' ? (string) $task->reason : null,
+        ];
     }
 }

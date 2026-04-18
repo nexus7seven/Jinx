@@ -21,6 +21,9 @@ class Lead extends Model
 
     public const DEFAULT_WIP_STATUS_PARTNER_INTAKE = 'Initial Assessment';
 
+    /** WhatsApp / detector re-engagement; only manual WIP changes should move away from this. */
+    public const WIP_STATUS_REENGAGED = 'Re-engaged';
+
     /** All selectable WIP case statuses (lead detail, WIP screen, API validation). */
     public const WIP_STATUSES = [
         'Initial Assessment',
@@ -30,6 +33,7 @@ class Lead extends Model
         'Ready to Draft',
         'Sale',
         'Lost Contact',
+        self::WIP_STATUS_REENGAGED,
         'DEAD',
     ];
 

@@ -364,6 +364,10 @@ class RemarketingController extends Controller
         $code = strtoupper(trim($latest));
 
         if (in_array($code, self::REMARKETING_TERMINAL_DISPOSITIONS, true)) {
+            if ($lead->wip_status === Lead::WIP_STATUS_REENGAGED) {
+                return;
+            }
+
             $lead->update(['wip_status' => 'DEAD']);
 
             RemarketingTask::query()
