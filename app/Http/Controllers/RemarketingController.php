@@ -33,14 +33,8 @@ class RemarketingController extends Controller
     ) {
     }
 
-    public function index(Request $request)
+    public function index()
     {
-        $stages = ['all', 'fresh', 'cooling', 'cold', 'dormant'];
-        $selectedStage = $request->query('stage', 'all');
-        if (! in_array($selectedStage, $stages, true)) {
-            $selectedStage = 'all';
-        }
-
         $pendingTasks = RemarketingTask::query()
             ->where('status', RemarketingTask::STATUS_PENDING)
             ->orderBy('id')
@@ -76,11 +70,7 @@ class RemarketingController extends Controller
             ->groupBy('lead_id')
             ->map(fn ($tasks) => (int) $tasks->first()->id);
 
-        $pendingTasks = $pendingTasks->filter(function (RemarketingTask $task) use ($latestFlowStartedIds, $latestStopMarkerIds, $selectedStage) {
-            if ($selectedStage !== 'all' && $task->stage !== $selectedStage) {
-                return false;
-            }
-
+        $pendingTasks = $pendingTasks->filter(function (RemarketingTask $task) use ($latestFlowStartedIds, $latestStopMarkerIds) {
             if ($task->lead_id === null) {
                 return false;
             }
@@ -96,49 +86,31 @@ class RemarketingController extends Controller
             return $latestStopMarkerId === null || $latestStopMarkerId <= $latestFlowStartedId;
         })->values();
 
-        $callTasks = $pendingTasks
-            ->where('task_type', 'call')
-            ->values()
-            ->map(function (RemarketingTask $task) {
-                return [
-                    'id' => $task->id,
-                    'lead_id' => $task->lead_id,
-                    'lead_name' => $task->lead_name,
-                    'phone' => $task->phone,
-                    'campaign_id' => $task->campaign_id,
-                    'reason' => $task->reason,
-                    'time_waiting' => $task->time_waiting_text ?? 'Waiting',
-                    'task_type' => $task->task_type,
-                    'stage' => $task->stage,
-                ];
-            })
-            ->all();
+        $activeTasks = $pendingTasks->sortBy('id')->values()->map(function (RemarketingTask $task) {
+            $row = [
+                'id' => $task->id,
+                'lead_id' => $task->lead_id,
+                'lead_name' => $task->lead_name,
+                'phone' => $task->phone,
+                'campaign_id' => $task->campaign_id,
+                'reason' => $task->reason,
+                'time_waiting' => $task->time_waiting_text ?? 'Waiting',
+                'task_type' => $task->task_type,
+                'stage' => $task->stage,
+                'whatsapp_url' => null,
+            ];
 
-        $whatsappTasks = $pendingTasks
-            ->where('task_type', 'whatsapp')
-            ->values()
-            ->map(function (RemarketingTask $task) {
-                $phone = str_replace(' ', '', $task->phone);
+            if ($task->task_type === 'whatsapp') {
+                $phone = str_replace(' ', '', (string) $task->phone);
                 if (str_starts_with($phone, '0')) {
                     $phone = '44' . substr($phone, 1);
                 }
                 $message = 'Hi ' . $task->lead_name . ', just following up in case WhatsApp is easier for you.';
-                $whatsappUrl = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
+                $row['whatsapp_url'] = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
+            }
 
-                return [
-                    'id' => $task->id,
-                    'lead_id' => $task->lead_id,
-                    'lead_name' => $task->lead_name,
-                    'phone' => $task->phone,
-                    'campaign_id' => $task->campaign_id,
-                    'reason' => $task->reason,
-                    'time_waiting' => $task->time_waiting_text ?? 'Waiting',
-                    'task_type' => $task->task_type,
-                    'stage' => $task->stage,
-                    'whatsapp_url' => $whatsappUrl,
-                ];
-            })
-            ->all();
+            return $row;
+        })->all();
 
         $recentActivity = RemarketingTask::query()
             ->whereIn('status', [
@@ -147,7 +119,7 @@ class RemarketingController extends Controller
                 RemarketingTask::STATUS_CLOSED,
             ])
             ->orderByDesc('updated_at')
-            ->limit(10)
+            ->limit(50)
             ->get()
             ->map(function (RemarketingTask $task) {
                 if ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_STARTED) {
@@ -175,10 +147,7 @@ class RemarketingController extends Controller
             ->all();
 
         return view('remarketing.index', [
-            'stages' => $stages,
-            'selectedStage' => $selectedStage,
-            'callTasks' => $callTasks,
-            'whatsappTasks' => $whatsappTasks,
+            'activeTasks' => $activeTasks,
             'recentActivity' => $recentActivity,
         ]);
     }
@@ -204,7 +173,7 @@ class RemarketingController extends Controller
 
         return redirect()
             ->route('remarketing.index')
-            ->with('success', 'Test task added.');
+            ->with('success', 'Task added.');
     }
 
     public function complete(Request $request)
@@ -237,7 +206,7 @@ class RemarketingController extends Controller
         }
 
         return redirect()
-            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+            ->route('remarketing.index')
             ->with('success', 'Task marked complete.');
     }
 
@@ -255,23 +224,23 @@ class RemarketingController extends Controller
         $task = RemarketingTask::query()->find($validated['task_id']);
         if (! $task || $task->status !== RemarketingTask::STATUS_PENDING || $task->task_type !== 'call') {
             return redirect()
-                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->route('remarketing.index')
                 ->with('error', 'Task is not available for calling.');
         }
 
         if (! $task->lead_id) {
             return redirect()
-                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->route('remarketing.index')
                 ->with('error', 'Task is missing lead_id.');
         }
         if (! $task->campaign_id) {
             return redirect()
-                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->route('remarketing.index')
                 ->with('error', 'Task is missing campaign_id.');
         }
         if (! $task->phone || trim((string) $task->phone) === '') {
             return redirect()
-                ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+                ->route('remarketing.index')
                 ->with('error', 'Task is missing a usable phone number.');
         }
 
@@ -326,7 +295,7 @@ class RemarketingController extends Controller
         }
 
         return redirect()
-            ->route('remarketing.index', ['stage' => $validated['current_stage'] ?? 'all'])
+            ->route('remarketing.index')
             ->with($flashType, $flashMessage);
     }
 
