@@ -174,23 +174,41 @@
             white-space: nowrap;
             border: 1px solid transparent;
         }
-        .wip-card-actions .jinx-ctc-btn {
+        .wip-card-actions .jinx-ctc-btn.jinx-ctc-btn--icon {
             margin: 0;
-            min-width: 3.75rem;
-            padding: 7px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            color: #e2e8f0;
-            background: rgba(30, 41, 59, 0.85);
-            border: 1px solid rgba(71, 85, 105, 0.75);
-            border-radius: 7px;
+            width: 38px;
+            height: 38px;
+            min-width: 38px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0;
+            line-height: 0;
+            color: #93c5fd;
+            background: rgba(37, 99, 235, 0.18);
+            border: 1px solid rgba(59, 130, 246, 0.42);
+            border-radius: 8px;
             cursor: pointer;
             box-shadow: none;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
         }
-        .wip-card-actions .jinx-ctc-btn:hover {
-            background: rgba(51, 65, 85, 0.95);
-            border-color: #64748b;
-            color: #f8fafc;
+        .wip-card-actions .jinx-ctc-btn.jinx-ctc-btn--icon svg {
+            width: 20px;
+            height: 20px;
+        }
+        .wip-card-actions .jinx-ctc-btn.jinx-ctc-btn--icon:hover {
+            background: rgba(37, 99, 235, 0.32);
+            border-color: rgba(96, 165, 250, 0.55);
+            color: #e0f2fe;
+        }
+        .wip-card-actions .jinx-ctc-btn.jinx-ctc-btn--icon:focus-visible {
+            outline: 2px solid rgba(96, 165, 250, 0.75);
+            outline-offset: 2px;
+        }
+        .wip-card-actions .jinx-ctc-btn.jinx-ctc-btn--icon:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
         }
         .wip-card__meta {
             font-size: 11px;
@@ -231,23 +249,6 @@
             padding: 7px 10px;
             font-size: 13px;
             font-weight: 450;
-        }
-        .wip-card__controls .open-checklist-btn {
-            background: rgba(30, 41, 59, 0.75);
-            color: #e2e8f0;
-            border: 1px solid rgba(71, 85, 105, 0.75);
-            border-radius: 7px;
-            padding: 7px 14px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            white-space: nowrap;
-            min-height: 36px;
-        }
-        .wip-card__controls .open-checklist-btn:hover {
-            background: rgba(51, 65, 85, 0.85);
-            border-color: #64748b;
-            color: #f8fafc;
         }
         .wip-chip-outstanding {
             font: inherit;
@@ -548,7 +549,7 @@
                             title="Open checklist"
                         >{{ $outstanding }} outstanding</button>
                         @if ($canCall)
-                            @include('partials.lead-click-to-call', ['lead' => $lead])
+                            @include('partials.lead-click-to-call', ['lead' => $lead, 'variant' => 'icon'])
                         @endif
                     </div>
                 </div>
@@ -571,14 +572,6 @@
                             </option>
                         @endforeach
                     </select>
-
-                    <button
-                        type="button"
-                        class="open-checklist-btn"
-                        data-lead-id="{{ $lead->id }}"
-                        data-case-name="{{ $caseName }}">
-                        Checklist
-                    </button>
                 </div>
             </div>
         @empty
