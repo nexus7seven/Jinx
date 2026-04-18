@@ -56,15 +56,6 @@
         font-weight: 600;
         line-height: 1;
     }
-    .app-nav__badge--dot {
-        min-width: 6px;
-        width: 6px;
-        height: 6px;
-        padding: 0;
-        border-radius: 50%;
-        background: rgba(248, 113, 113, 0.5);
-        border: 1px solid rgba(239, 68, 68, 0.35);
-    }
 </style>
 <nav class="app-nav" aria-label="Main">
     <div class="app-nav__tabs">
@@ -79,19 +70,11 @@
                     $reN = (int) $unseenReengagementCount;
                     $reLabel = $reN > 99 ? '99+' : (string) $reN;
                 @endphp
-                @if ($reN === 1)
-                    <span
-                        class="app-nav__badge app-nav__badge--dot"
-                        aria-label="1 unseen re-engagement"
-                        title="Unseen re-engagements"
-                    ></span>
-                @else
-                    <span
-                        class="app-nav__badge"
-                        aria-label="{{ $reN }} unseen re-engagements"
-                        title="Unseen re-engagements"
-                    >{{ $reLabel }}</span>
-                @endif
+                <span
+                    class="app-nav__badge"
+                    aria-label="{{ $reN }} unseen re-engagement{{ $reN === 1 ? '' : 's' }}"
+                    title="Unseen re-engagements"
+                >{{ $reLabel }}</span>
             @endif
         </a>
         <a

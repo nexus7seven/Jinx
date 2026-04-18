@@ -107,12 +107,25 @@ class WipController extends Controller
                 ->all();
         }
 
-        $leads = $leads->sort(function (Lead $a, Lead $b) use ($unseenReengagementLeadSet) {
-            $aUnseen = ($a->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $a->id]);
-            $bUnseen = ($b->wip_status === Lead::WIP_STATUS_REENGAGED) && isset($unseenReengagementLeadSet[(int) $b->id]);
-            if ($aUnseen !== $bUnseen) {
-                return $aUnseen ? -1 : 1;
+        $reengagementSortTier = static function (Lead $lead) use ($unseenReengagementLeadSet): int {
+            if ($lead->wip_status !== Lead::WIP_STATUS_REENGAGED) {
+                return 2;
             }
+
+            return isset($unseenReengagementLeadSet[(int) $lead->id]) ? 0 : 1;
+        };
+
+        $leads = $leads->sort(function (Lead $a, Lead $b) use ($reengagementSortTier) {
+            $aT = $reengagementSortTier($a);
+            $bT = $reengagementSortTier($b);
+            if ($aT !== $bT) {
+                return $aT <=> $bT;
+            }
+
+            if ($aT < 2) {
+                return $b->created_at <=> $a->created_at;
+            }
+
             $aPri = in_array($a->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
             $bPri = in_array($b->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
             if ($aPri !== $bPri) {
