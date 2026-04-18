@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Lead;
+use App\Models\RemarketingTask;
 use App\Models\WhatsAppDetectorEvent;
 use Carbon\Carbon;
 use DateTimeZone;
@@ -158,6 +160,39 @@ class WhatsAppDetectorEventIngestor
                 try {
                     WhatsAppDetectorEvent::query()->create($row);
                     $stats['imported']++;
+
+                    if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
+                        try {
+                            RemarketingTask::query()
+                                ->where('lead_id', $matchedLeadId)
+                                ->where('status', RemarketingTask::STATUS_PENDING)
+                                ->update([
+                                    'status' => RemarketingTask::STATUS_CLOSED,
+                                ]);
+
+                            $lead = Lead::query()
+                                ->where('vicidial_lead_id', $matchedLeadId)
+                                ->first();
+
+                            if ($lead !== null) {
+                                $lead->update(['wip_status' => 'Re-engaged']);
+                                $this->appendNotesToEvent(
+                                    $eventId,
+                                    'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply after flow_start.'
+                                );
+                            } else {
+                                $this->appendNotesToEvent(
+                                    $eventId,
+                                    'Closed pending remarketing tasks due to WhatsApp reply after flow_start. No Jinx lead matched vicidial_lead_id.'
+                                );
+                            }
+                        } catch (Throwable $e) {
+                            $this->appendNotesToEvent(
+                                $eventId,
+                                'Re-engagement handling failed: '.$e->getMessage()
+                            );
+                        }
+                    }
                 } catch (Throwable $e) {
                     if (WhatsAppDetectorEvent::query()->where('event_id', $eventId)->exists()) {
                         $stats['skipped_existing']++;
@@ -440,5 +475,18 @@ class WhatsAppDetectorEventIngestor
         }
 
         return $engagementAt->gt($flowStartedAt);
+    }
+
+    private function appendNotesToEvent(string $eventId, string $append): void
+    {
+        $event = WhatsAppDetectorEvent::query()->where('event_id', $eventId)->first();
+        if ($event === null) {
+            return;
+        }
+
+        $existing = trim((string) ($event->notes ?? ''));
+        $parts = $existing !== '' ? [$existing, $append] : [$append];
+        $merged = $this->joinNotes($parts);
+        $event->update(['notes' => $merged]);
     }
 }
