@@ -44,7 +44,7 @@ class RemarketingEntryService
         $last = trim((string) ($lead->last_name ?? ''));
         $fullName = trim($first . ' ' . $last);
 
-        RemarketingTask::create([
+        $flowStarted = RemarketingTask::create([
             'lead_id' => $vicidialLeadId,
             'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
             'phone' => (string) ($lead->phone_number ?? ''),
@@ -56,15 +56,17 @@ class RemarketingEntryService
             'time_waiting_text' => null,
         ]);
 
-        $pendingCallExists = RemarketingTask::query()
+        // Pending call tasks from earlier cycles have id < the new flow_start anchor; the remarketing UI
+        // only shows tasks with id > latest flow_started id, so close stale pending calls before adding
+        // the new cycle's call (same status convention as WipController when leaving Lost Contact).
+        RemarketingTask::query()
             ->where('lead_id', $vicidialLeadId)
             ->where('task_type', 'call')
-            ->where('status', 'pending')
-            ->exists();
-
-        if ($pendingCallExists) {
-            return;
-        }
+            ->where('status', RemarketingTask::STATUS_PENDING)
+            ->where('id', '<', $flowStarted->id)
+            ->update([
+                'status' => RemarketingTask::STATUS_CLOSED,
+            ]);
 
         $this->remarketingTaskService->createCallTaskForLead($lead->fresh(), [
             'campaign_id' => 'MAIN',
