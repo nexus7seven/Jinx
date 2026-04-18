@@ -20,6 +20,10 @@ class RemarketingEntryService
     /**
      * Single entry point for leads entering the remarketing flow (step 1: first CALL task only).
      *
+     * Each transition into this flow records a new flow_started / flow_start row so RunRemarketingBrain
+     * can anchor the current cycle on the latest row by id (same idea as WipController when leaving
+     * Lost Contact: it always inserts a fresh flow_started marker).
+     *
      * @param  string  $triggerSource  e.g. lost_contact — reserved for later timeline routing
      */
     public function enterRemarketingFlow(Lead $lead, string $triggerSource): void
@@ -36,29 +40,21 @@ class RemarketingEntryService
 
         $this->vicidialListService->moveLeadToList($vicidialLeadId, self::REMARKETING_VICIDIAL_LIST_ID);
 
-        $flowStartedExists = RemarketingTask::query()
-            ->where('lead_id', $vicidialLeadId)
-            ->where('task_type', 'flow_started')
-            ->where('reason', self::FLOW_START_REASON)
-            ->exists();
+        $first = trim((string) ($lead->first_name ?? ''));
+        $last = trim((string) ($lead->last_name ?? ''));
+        $fullName = trim($first . ' ' . $last);
 
-        if (! $flowStartedExists) {
-            $first = trim((string) ($lead->first_name ?? ''));
-            $last = trim((string) ($lead->last_name ?? ''));
-            $fullName = trim($first . ' ' . $last);
-
-            RemarketingTask::create([
-                'lead_id' => $vicidialLeadId,
-                'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
-                'phone' => (string) ($lead->phone_number ?? ''),
-                'campaign_id' => 'MAIN',
-                'task_type' => 'flow_started',
-                'reason' => self::FLOW_START_REASON,
-                'stage' => 'fresh',
-                'status' => 'completed',
-                'time_waiting_text' => null,
-            ]);
-        }
+        RemarketingTask::create([
+            'lead_id' => $vicidialLeadId,
+            'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
+            'phone' => (string) ($lead->phone_number ?? ''),
+            'campaign_id' => 'MAIN',
+            'task_type' => 'flow_started',
+            'reason' => self::FLOW_START_REASON,
+            'stage' => 'fresh',
+            'status' => 'completed',
+            'time_waiting_text' => null,
+        ]);
 
         $pendingCallExists = RemarketingTask::query()
             ->where('lead_id', $vicidialLeadId)
