@@ -21,6 +21,7 @@ class WhatsAppDetectorEventIngestor
      *   matched_not_after_flow_start: int,
      *   matched_no_flow_start: int,
      *   invalid_payload: int,
+     *   resolved_by_latest_flow_start: int,
      * }
      */
     public function ingest(?string $jsonlPath = null): array
@@ -36,6 +37,7 @@ class WhatsAppDetectorEventIngestor
             'matched_not_after_flow_start' => 0,
             'matched_no_flow_start' => 0,
             'invalid_payload' => 0,
+            'resolved_by_latest_flow_start' => 0,
         ];
 
         if (! is_string($path) || $path === '' || ! File::isReadable($path)) {
@@ -89,14 +91,24 @@ class WhatsAppDetectorEventIngestor
                 $matchStatus = 'unmatched';
                 $matchedLeadId = null;
                 $matchNotes = null;
+                $prefetchedFlowStartedAt = null;
 
                 if (count($leadIds) === 0) {
                     $matchStatus = 'unmatched';
                     $stats['unmatched']++;
                 } elseif (count($leadIds) > 1) {
-                    $matchStatus = 'ambiguous';
-                    $matchNotes = 'Multiple leads matched: ' . implode(',', $leadIds);
-                    $stats['ambiguous']++;
+                    $resolution = $this->resolveLeadIdFromCandidatesByLatestFlowStart($leadIds);
+                    if ($resolution['resolutionStatus'] === 'resolved') {
+                        $matchStatus = 'matched';
+                        $matchedLeadId = $resolution['matchedLeadId'];
+                        $matchNotes = $resolution['resolutionNote'];
+                        $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
+                        $stats['resolved_by_latest_flow_start']++;
+                    } else {
+                        $matchStatus = 'ambiguous';
+                        $matchNotes = $resolution['resolutionNote'];
+                        $stats['ambiguous']++;
+                    }
                 } else {
                     $matchStatus = 'matched';
                     $matchedLeadId = $leadIds[0];
@@ -104,7 +116,7 @@ class WhatsAppDetectorEventIngestor
 
                 $flowStartedAt = null;
                 if ($matchedLeadId !== null) {
-                    $flowStartedAt = $this->latestFlowStartedAt((int) $matchedLeadId);
+                    $flowStartedAt = $prefetchedFlowStartedAt ?? $this->latestFlowStartedAt((int) $matchedLeadId);
                     if ($flowStartedAt === null) {
                         $matchStatus = 'matched_no_flow_start';
                         $stats['matched_no_flow_start']++;
@@ -348,6 +360,73 @@ class WhatsAppDetectorEventIngestor
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * When several Vicidial leads share the same phone, prefer the one whose latest
+     * flow_start anchor in remarketing_tasks is most recent (mysql; task_type/reason as in latestFlowStartedAt).
+     *
+     * @param  list<int>  $leadIds
+     * @return array{
+     *   matchedLeadId: ?int,
+     *   resolvedFlowStartedAt: ?Carbon,
+     *   resolutionStatus: 'resolved'|'ambiguous_no_flow_start'|'ambiguous_tie',
+     *   resolutionNote: ?string,
+     * }
+     */
+    private function resolveLeadIdFromCandidatesByLatestFlowStart(array $leadIds): array
+    {
+        $byLead = [];
+        foreach ($leadIds as $id) {
+            $id = (int) $id;
+            $byLead[$id] = $this->latestFlowStartedAt($id);
+        }
+
+        $withFlow = array_filter($byLead, fn (?Carbon $v) => $v !== null);
+        $idsStr = implode(',', $leadIds);
+
+        if ($withFlow === []) {
+            return [
+                'matchedLeadId' => null,
+                'resolvedFlowStartedAt' => null,
+                'resolutionStatus' => 'ambiguous_no_flow_start',
+                'resolutionNote' => "Multiple leads matched phone ({$idsStr}); none had a flow_start anchor in remarketing_tasks.",
+            ];
+        }
+
+        $maxAt = null;
+        foreach ($withFlow as $at) {
+            if ($maxAt === null || $at->gt($maxAt)) {
+                $maxAt = $at;
+            }
+        }
+
+        $idsAtMax = [];
+        foreach ($withFlow as $leadId => $at) {
+            if ($maxAt !== null && $at->eq($maxAt)) {
+                $idsAtMax[] = $leadId;
+            }
+        }
+
+        if (count($idsAtMax) > 1) {
+            $tieStr = implode(',', $idsAtMax);
+
+            return [
+                'matchedLeadId' => null,
+                'resolvedFlowStartedAt' => null,
+                'resolutionStatus' => 'ambiguous_tie',
+                'resolutionNote' => "Multiple leads matched phone ({$idsStr}); tie on latest flow_start among candidates (lead_ids: {$tieStr}).",
+            ];
+        }
+
+        $winnerId = $idsAtMax[0];
+
+        return [
+            'matchedLeadId' => $winnerId,
+            'resolvedFlowStartedAt' => $byLead[$winnerId],
+            'resolutionStatus' => 'resolved',
+            'resolutionNote' => "Multiple leads matched phone ({$idsStr}); resolved to lead {$winnerId} using latest flow_start among candidates.",
+        ];
     }
 
     private function decideIsAfterFlowStart(?Carbon $engagementAt, ?Carbon $flowStartedAt, ?int $matchedLeadId): ?bool
