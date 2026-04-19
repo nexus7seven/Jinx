@@ -1,14 +1,11 @@
 /**
  * TransUnion statutory credit check — Playwright automation (server-side).
  *
- * JINX MAPPING (Lead → personalData → TransUnion):
- *   title            → #IndividualDetails_Title (select)
- *   first_name       → #IndividualDetails_Forename
- *   middle_name(s)   → #IndividualDetails_MiddleNames
- *   last_name        → #IndividualDetails_Surname
- *   dob (DD/MM/YYYY or YYYY-MM-DD) → #IndividualDetails_DateOfBirth_{Day,Month,Year}
- *   phone_number     → #IndividualDetails_PhoneNumber (UK leading 0 normalisation)
- *   postcode         → #Address_Postcode → #find-address → #address-dropdown (match house/building)
+ * personalData keys (from Laravel): title, first_name, middle_name, last_name, dob,
+ *   phone_number, postcode, house_number, house_name, building_number, address_line_1 (street hint for dropdown).
+ * JINX → TransUnion:
+ *   title → #IndividualDetails_Title | first_name → Forename | middle_name → MiddleNames | last_name → Surname
+ *   dob → Day/Month/Year | phone_number → PhoneNumber | postcode → find-address → #address-dropdown
  *
  * Usage: node scripts/credit-check-v2.mjs <payload.json>
  *
@@ -296,7 +293,7 @@ function resolveDobPartsFromJinx(personalData) {
  * Prepend 0 when the national number starts with 7 or 1 (mobile / some landline) without a leading 0.
  */
 function normalizeUkPhoneForTransUnion(personalData) {
-  let p = String(personalData.phone_number || personalData.phone || '')
+  let p = String(personalData.phone_number ?? '')
     .replace(/\s+/g, '')
     .trim();
   if (!p) return '';
@@ -315,9 +312,21 @@ function normalizeUkPhoneForTransUnion(personalData) {
   return p;
 }
 
+/** Street tokens from Jinx address_line_1 after stripping leading house number (TUNE). */
+function streetTokensFromAddressLine(addressLine1, houseNumber) {
+  let s = String(addressLine1 || '')
+    .trim()
+    .toLowerCase();
+  const hn = String(houseNumber || '').trim().toLowerCase();
+  if (hn && (s.startsWith(hn + ' ') || s.startsWith(hn + ',') || s.startsWith(hn + '-'))) {
+    s = s.slice(hn.length).replace(/^[\s,:-]+/, '').trim();
+  }
+  return s.split(/\s+/).filter((w) => w.length > 2 && !/^(flat|unit|apt)$/i.test(w));
+}
+
 /**
- * JINX MAPPING: house_number / house_name / building_number → pick best row in #address-dropdown.
- * TUNE: scoring if PAF labels differ.
+ * Score a PAF dropdown label: house_number + street (address_line_1) alignment.
+ * TUNE: weights if TransUnion changes label format (e.g. comma vs space after number).
  */
 function scoreAddressOptionText(text, hints) {
   const t = String(text || '')
@@ -326,50 +335,75 @@ function scoreAddressOptionText(text, hints) {
     .trim();
   if (!t || /select|choose|please|enter postcode/i.test(t)) return -1;
 
-  let score = 0;
   const hn = hints.house_number ? String(hints.house_number).toLowerCase().trim() : '';
   const hname = hints.house_name ? String(hints.house_name).toLowerCase().trim() : '';
   const bn = hints.building_number ? String(hints.building_number).toLowerCase().trim() : '';
-  const line1 = hints.address_line_1 ? String(hints.address_line_1).toLowerCase().trim() : '';
+  const streetWords = hints.street_words || [];
 
-  if (hn && t.includes(hn)) {
-    score += 25;
-    if (t.startsWith(hn) || new RegExp(`\\b${hn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)) {
-      score += 15;
+  let score = 0;
+
+  if (hn) {
+    const escaped = hn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (t.startsWith(hn + ' ') || t.startsWith(hn + ',') || t.startsWith(hn + '\t')) {
+      score += 100;
+    } else if (new RegExp(`^${escaped}\\b`).test(t)) {
+      score += 80;
+    } else if (t.includes(hn)) {
+      score += 35;
+      if (new RegExp(`\\b${escaped}\\b`).test(t)) score += 15;
     }
   }
-  if (hname && hname.length > 1 && t.includes(hname)) score += 12;
-  if (bn && bn.length > 0 && t.includes(bn)) score += 12;
-  if (line1 && line1.length > 3) {
-    const words = line1.split(/\s+/).filter((w) => w.length > 2);
-    for (const w of words.slice(0, 4)) {
-      if (t.includes(w)) score += 3;
-    }
+
+  for (const w of streetWords.slice(0, 6)) {
+    if (w && t.includes(w)) score += 8;
   }
+
+  if (hname && hname.length > 1 && t.includes(hname)) score += 14;
+  if (bn && bn.length > 0 && t.includes(bn)) score += 14;
 
   return score;
 }
 
+/** TUNE: below this, treat match as weak and use first real option instead. */
+const ADDRESS_STRONG_MATCH_MIN_SCORE = 28;
+
+/** TUNE: max wait for PAF dropdown after #find-address. */
+const ADDRESS_DROPDOWN_WAIT_MS = 8000;
+
 async function selectAddressDropdownMatchingJinx(page, personalData) {
+  logStep(`Using house_number: ${personalData.house_number || 'none'}`);
+
   const hints = {
-    house_number: personalData.house_number ?? personalData.houseNumber ?? '',
+    house_number: personalData.house_number ?? '',
     house_name: personalData.house_name ?? '',
     building_number: personalData.building_number ?? '',
-    address_line_1: personalData.address_line_1 ?? personalData.addressLine1 ?? '',
+    address_line_1: personalData.address_line_1 ?? '',
+    street_words: streetTokensFromAddressLine(personalData.address_line_1, personalData.house_number),
   };
 
-  logStep(`address: matching dropdown to Jinx house="${hints.house_number}" house_name="${hints.house_name}" building="${hints.building_number}"`);
+  logStep(
+    `address: scoring hints — house_name="${hints.house_name || ''}" building="${hints.building_number || ''}" streetWords=${JSON.stringify(hints.street_words)}`,
+  );
 
   const dd = page.locator('#address-dropdown');
-  await dd.waitFor({ state: 'visible', timeout: 20000 });
+  await dd.waitFor({ state: 'visible', timeout: ADDRESS_DROPDOWN_WAIT_MS });
 
   const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
+
+  const pickFirstUsableOptionIndex = async (getTextAtIndex, length) => {
+    for (let i = 0; i < length; i++) {
+      const t = (await getTextAtIndex(i)).trim();
+      if (t.length > 0 && !/select|choose|please/i.test(t)) return i;
+    }
+    return 0;
+  };
 
   if (tag === 'select') {
     const opts = dd.locator('option');
     const n = await opts.count();
     let bestIdx = -1;
     let bestScore = -1;
+    let bestText = '';
 
     for (let i = 0; i < n; i++) {
       const t = (await opts.nth(i).innerText()).trim();
@@ -377,32 +411,36 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
       if (sc > bestScore) {
         bestScore = sc;
         bestIdx = i;
+        bestText = t;
       }
     }
 
-    if (bestIdx >= 0 && bestScore >= 0) {
-      await dd.selectOption({ index: bestIdx });
-      logStep(`address: selected option index ${bestIdx} (score ${bestScore})`);
-      return;
+    let useIdx = bestIdx;
+    let useText = bestText;
+    if (bestIdx < 0 || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
+      const fb = await pickFirstUsableOptionIndex((i) => opts.nth(i).innerText(), n);
+      useIdx = fb;
+      useText = (await opts.nth(fb).innerText()).trim();
+      logStep(
+        `address: no strong match (bestScore=${bestScore}) — TUNE threshold ADDRESS_STRONG_MATCH_MIN_SCORE=${ADDRESS_STRONG_MATCH_MIN_SCORE}; using first usable option index ${fb}`,
+      );
     }
 
-    for (let i = 0; i < n; i++) {
-      const t = (await opts.nth(i).innerText()).trim();
-      if (t.length > 0 && !/select|choose|please/i.test(t)) {
-        await dd.selectOption({ index: i });
-        logStep(`address: fallback first non-placeholder option index ${i}`);
-        return;
-      }
-    }
-    await dd.selectOption({ index: 0 });
-    logStep('address: fallback index 0');
+    await dd.selectOption({ index: useIdx });
+    logStep(`Selected address: ${useText || '(empty)'}`);
     return;
   }
 
   const items = dd.locator('[role="option"], li, a, div[role="option"]');
   const count = await items.count();
+  if (count === 0) {
+    logStep('address: no list items under #address-dropdown (TUNE: child selectors)');
+    return;
+  }
+
   let bestIdx = 0;
   let bestScore = -1;
+  let bestText = '';
 
   for (let i = 0; i < count; i++) {
     const t = (await items.nth(i).innerText()).trim();
@@ -410,11 +448,23 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
     if (sc > bestScore) {
       bestScore = sc;
       bestIdx = i;
+      bestText = t;
     }
   }
 
-  await items.nth(bestIdx).click({ timeout: 10000 });
-  logStep(`address: clicked list item ${bestIdx} (score ${bestScore})`);
+  let clickIdx = bestIdx;
+  let selectedText = bestText;
+  if (bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
+    const fb = await pickFirstUsableOptionIndex((i) => items.nth(i).innerText(), count);
+    clickIdx = fb;
+    selectedText = (await items.nth(fb).innerText()).trim();
+    logStep(
+      `address: no strong match (bestScore=${bestScore}) — fallback to first usable item index ${fb} (TUNE)`,
+    );
+  }
+
+  await items.nth(clickIdx).click({ timeout: 10000 });
+  logStep(`Selected address: ${selectedText || '(empty)'}`);
 }
 
 // --- About You: TransUnion field IDs (TUNE if ASP.NET ids change) — fed by Jinx Lead → personalData ---
@@ -424,25 +474,20 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   logStep(`about-you: Jinx DOB → parts ${dobParts ? JSON.stringify(dobParts) : 'none'}`);
 
   const title = String(personalData.title || 'Mr').trim() || 'Mr';
-  // JINX MAPPING: title → #IndividualDetails_Title
   await fillIfPresent(page, 'Title #IndividualDetails_Title', async () => {
     await page.locator('#IndividualDetails_Title').selectOption({ label: title });
   });
 
-  // JINX MAPPING: first_name → #IndividualDetails_Forename
   await fillIfPresent(page, 'Forename #IndividualDetails_Forename', async () => {
-    await page.locator('#IndividualDetails_Forename').fill(String(personalData.firstName || personalData.first_name || ''));
+    await page.locator('#IndividualDetails_Forename').fill(String(personalData.first_name ?? ''));
   });
 
-  // JINX MAPPING: middle_name | middle_names → #IndividualDetails_MiddleNames
-  const middle = personalData.middle_names ?? personalData.middleNames ?? personalData.middleName ?? personalData.middle_name ?? '';
   await fillIfPresent(page, 'Middle names #IndividualDetails_MiddleNames', async () => {
-    await page.locator('#IndividualDetails_MiddleNames').fill(String(middle));
+    await page.locator('#IndividualDetails_MiddleNames').fill(String(personalData.middle_name ?? ''));
   });
 
-  // JINX MAPPING: last_name → #IndividualDetails_Surname
   await fillIfPresent(page, 'Surname #IndividualDetails_Surname', async () => {
-    await page.locator('#IndividualDetails_Surname').fill(String(personalData.lastName || personalData.last_name || ''));
+    await page.locator('#IndividualDetails_Surname').fill(String(personalData.last_name ?? ''));
   });
 
   if (dobParts) {

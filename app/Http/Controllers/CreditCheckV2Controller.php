@@ -67,38 +67,31 @@ class CreditCheckV2Controller extends Controller
                 'sessionId' => $sessionId,
             ], JSON_THROW_ON_ERROR));
 
+            /**
+             * $personalData — sent to Node (scripts/credit-check-v2.mjs). Snake_case only, aligned with Lead columns.
+             * Optional address_line_1: street line for dropdown scoring (house number + street match).
+             */
+            $personalData = [
+                'title' => $lead->title ?: 'Mr',
+                'first_name' => $lead->first_name,
+                'middle_name' => $lead->middle_name,
+                'last_name' => $lead->last_name,
+                'dob' => $dobForPayload,
+                'phone_number' => $lead->phone_number,
+                'postcode' => $lead->postcode,
+                'house_number' => $lead->house_number,
+                'house_name' => $lead->house_name,
+                'building_number' => $lead->building_number,
+                'address_line_1' => $lead->address_line_1,
+            ];
+
             $payload = [
                 'leadId' => $lead->id,
                 'sessionId' => $sessionId,
                 'sessionDir' => $sessionDir,
                 'reportPath' => $reportPath,
                 'creditCheckUrl' => 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
-                'personalData' => [
-                    // title → #IndividualDetails_Title
-                    'title' => $lead->title ?: 'Mr',
-                    // first_name → #IndividualDetails_Forename
-                    'firstName' => $lead->first_name,
-                    // last_name → #IndividualDetails_Surname
-                    'lastName' => $lead->last_name,
-                    // middle_name → #IndividualDetails_MiddleNames (aliases for Node)
-                    'middleName' => $lead->middle_name,
-                    'middle_names' => $lead->middle_name,
-                    'middleNames' => $lead->middle_name,
-                    // dob → split to Day/Month/Year (DD/MM/YYYY string from Jinx)
-                    'dob' => $dobForPayload,
-                    // phone_number → #IndividualDetails_PhoneNumber (Node ensures leading 0)
-                    'phone_number' => $lead->phone_number,
-                    'phone' => $lead->phone_number,
-                    // postcode → #Address_Postcode
-                    'postcode' => $lead->postcode,
-                    // house / building hints → address dropdown matcher
-                    'house_number' => $lead->house_number,
-                    'house_name' => $lead->house_name,
-                    'building_number' => $lead->building_number,
-                    'houseNumber' => $lead->house_number,
-                    'address_line_1' => $lead->address_line_1,
-                    'addressLine1' => $lead->address_line_1,
-                ],
+                'personalData' => $personalData,
                 'tempMail' => $email,
                 'tempEmail' => $email,
                 'tempMailApi' => [
