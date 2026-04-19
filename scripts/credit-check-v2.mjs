@@ -247,6 +247,103 @@ async function collectAboutYouValidationSnapshot(page) {
     }
   };
 
+  const structured = await page
+    .evaluate(() => {
+      const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+      function controlSnapshot(field) {
+        if (!field || !field.matches) return null;
+        if (!field.matches('input, select, textarea')) return null;
+        return {
+          tag: field.tagName,
+          id: field.id || null,
+          name: field.name || null,
+          type: field.type || null,
+          valuePreview: field.value !== undefined ? String(field.value).slice(0, 500) : null,
+          hasInputValidationError: field.classList.contains('input-validation-error'),
+        };
+      }
+
+      const valmsgForEntries = [];
+      document.querySelectorAll('[data-valmsg-for]').forEach((el) => {
+        const forAttr = el.getAttribute('data-valmsg-for') || '';
+        const text = norm(el.textContent).slice(0, 800);
+        let related = null;
+        if (forAttr) {
+          related = controlSnapshot(document.getElementById(forAttr));
+        }
+        valmsgForEntries.push({
+          dataValmsgFor: forAttr || null,
+          text,
+          tag: el.tagName,
+          className: el.className || null,
+          relatedControl: related,
+        });
+      });
+
+      const fieldValidationErrorEntries = [];
+      document.querySelectorAll('.field-validation-error').forEach((el) => {
+        const forAttr = el.getAttribute('data-valmsg-for') || '';
+        let related = null;
+        if (forAttr) {
+          related = controlSnapshot(document.getElementById(forAttr));
+        }
+        fieldValidationErrorEntries.push({
+          text: norm(el.textContent).slice(0, 800),
+          dataValmsgFor: forAttr || null,
+          className: el.className || null,
+          relatedControl: related,
+        });
+      });
+
+      const inputsWithValidationErrorClass = [];
+      document.querySelectorAll('input.input-validation-error, select.input-validation-error, textarea.input-validation-error').forEach((el) => {
+        inputsWithValidationErrorClass.push({
+          tag: el.tagName,
+          id: el.id || null,
+          name: el.name || null,
+          type: el.type || null,
+          valuePreview: el.value !== undefined ? String(el.value).slice(0, 500) : null,
+        });
+      });
+
+      const validationSummaryBlocks = [];
+      document
+        .querySelectorAll(
+          '.validation-summary-errors, .validation-summary-valid, [class*="validation-summary"], .alert-danger, .validation-summary',
+        )
+        .forEach((el) => {
+          const t = norm(el.innerText);
+          if (t) {
+            validationSummaryBlocks.push({
+              className: el.className || null,
+              text: t.slice(0, 1200),
+            });
+          }
+        });
+
+      const roleAlerts = [];
+      document.querySelectorAll('[role="alert"]').forEach((el) => {
+        const t = norm(el.innerText);
+        if (t) roleAlerts.push({ text: t.slice(0, 800), className: el.className || null });
+      });
+
+      return {
+        valmsgForEntries,
+        fieldValidationErrorEntries,
+        inputsWithValidationErrorClass,
+        validationSummaryBlocks,
+        roleAlerts,
+      };
+    })
+    .catch(() => ({
+      valmsgForEntries: [],
+      fieldValidationErrorEntries: [],
+      inputsWithValidationErrorClass: [],
+      validationSummaryBlocks: [],
+      roleAlerts: [],
+    }));
+
   const roleAlert = await gatherTexts('[role="alert"]', 10);
   const summaryBlocks = await gatherTexts(
     '.validation-summary-errors, .validation-summary-valid, [class*="validation-summary"], .alert-danger, .validation-summary',
@@ -269,7 +366,162 @@ async function collectAboutYouValidationSnapshot(page) {
       .isVisible()
       .catch(() => false),
     wizardStepSnippet: await safeText(page.locator('#wizard-step'), 1000),
+    structured: structured,
   };
+}
+
+/**
+ * Raw Jinx / payload values the script uses for About You (compare to DOM after submit).
+ * @param {Record<string, unknown>} personalData
+ */
+function collectJinxInputDebug(personalData, tempEmail) {
+  const dobParts = resolveDobPartsFromJinx(personalData);
+  return {
+    title: String(personalData.title ?? '').trim() || null,
+    first_name: personalData.first_name ?? null,
+    middle_name: personalData.middle_name ?? null,
+    last_name: personalData.last_name ?? null,
+    dobDay: dobParts?.day ?? personalData.dobDay ?? null,
+    dobMonth: dobParts?.month ?? personalData.dobMonth ?? null,
+    dobYear: dobParts?.year ?? personalData.dobYear ?? null,
+    dobRaw: personalData.dob ?? null,
+    dobPartsResolved: dobParts ?? null,
+    email: tempEmail ?? null,
+    phone_number: personalData.phone_number ?? null,
+    phone_normalized: normalizeUkPhoneForTransUnion(personalData),
+    postcode: personalData.postcode ?? null,
+    house_number: personalData.house_number ?? null,
+    house_name: personalData.house_name ?? null,
+    building_number: personalData.building_number ?? null,
+    building: personalData.building ?? null,
+    address_line_1: personalData.address_line_1 ?? null,
+    address_line_2: personalData.address_line_2 ?? null,
+    town: personalData.town ?? null,
+    city: personalData.city ?? null,
+    county: personalData.county ?? null,
+    country: personalData.country ?? null,
+  };
+}
+
+/**
+ * DOM state for address-related controls after submit (diagnostic).
+ */
+async function collectAddressFieldStateAfterSubmit(page) {
+  return page
+    .evaluate(() => {
+      const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+      function visible(el) {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const st = window.getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
+      }
+
+      function fieldState(sel) {
+        const el = document.querySelector(sel);
+        if (!el) return { selector: sel, exists: false };
+        const tag = el.tagName;
+        const base = {
+          selector: sel,
+          exists: true,
+          tag,
+          id: el.id || null,
+          name: el.name || null,
+          visible: visible(el),
+        };
+        if (el.matches('select')) {
+          const so = el.selectedOptions && el.selectedOptions[0];
+          return {
+            ...base,
+            value: el.value != null ? String(el.value) : '',
+            selectedText: so ? norm(so.textContent).slice(0, 500) : null,
+            optionCount: el.options ? el.options.length : 0,
+          };
+        }
+        if (el.matches('input, textarea')) {
+          return {
+            ...base,
+            type: el.type || null,
+            value: el.value !== undefined ? String(el.value).slice(0, 800) : '',
+          };
+        }
+        return base;
+      }
+
+      const targetedIds = [
+        '#Address_AbodeNumber',
+        '#Address_BuildingName',
+        '#Address_BuildingNumber',
+        '#Address_AddressLine1',
+        '#Address_AddressLine2',
+        '#Address_Town',
+        '#Address_Postcode',
+      ];
+      const targeted = {};
+      for (const sel of targetedIds) {
+        targeted[sel] = fieldState(sel);
+      }
+
+      const selectSel = 'select#PossibleAddresses_SelectedItemValue';
+      const hiddenSel = 'input[type="hidden"]#PossibleAddresses_SelectedItemValue';
+      targeted[selectSel] = fieldState(selectSel);
+      targeted[hiddenSel] = fieldState(hiddenSel);
+
+      const addressSectionControls = [];
+      const root = document.querySelector('#wizard-step') || document.body;
+      root.querySelectorAll('input, select, textarea').forEach((el) => {
+        const id = el.id || '';
+        const name = el.name || '';
+        const hay = `${id} ${name}`;
+        if (!/(Address|PossibleAddresses|Postcode|Town|Abode|Building|County)/i.test(hay)) return;
+        addressSectionControls.push({
+          tag: el.tagName,
+          id: id || null,
+          name: name || null,
+          type: el.type || null,
+          valuePreview: el.value !== undefined ? String(el.value).slice(0, 400) : '',
+          visible: visible(el),
+          hasInputValidationError: el.classList.contains('input-validation-error'),
+        });
+      });
+
+      const validationMessagesForAddressFields = [];
+      document.querySelectorAll('[data-valmsg-for]').forEach((span) => {
+        const forAttr = span.getAttribute('data-valmsg-for') || '';
+        if (!/^(Address_|PossibleAddresses)/i.test(forAttr)) return;
+        validationMessagesForAddressFields.push({
+          dataValmsgFor: forAttr,
+          text: norm(span.textContent).slice(0, 500),
+        });
+      });
+
+      const addressInputsWithErrorClass = [];
+      root.querySelectorAll('input.input-validation-error, select.input-validation-error, textarea.input-validation-error').forEach((el) => {
+        const id = el.id || '';
+        const name = el.name || '';
+        if (!/(Address|PossibleAddresses|Postcode|Town|Abode|Building)/i.test(`${id} ${name}`)) return;
+        addressInputsWithErrorClass.push({
+          id: id || null,
+          name: name || null,
+          type: el.type || null,
+          valuePreview: el.value !== undefined ? String(el.value).slice(0, 400) : '',
+        });
+      });
+
+      return {
+        targeted,
+        addressSectionControls,
+        validationMessagesForAddressFields,
+        addressInputsWithValidationErrorClass: addressInputsWithErrorClass,
+      };
+    })
+    .catch(() => ({
+      targeted: {},
+      addressSectionControls: [],
+      validationMessagesForAddressFields: [],
+      addressInputsWithValidationErrorClass: [],
+    }));
 }
 
 /** Terminal failure: `Negative Id Verification` (title) or negative DOM — emit payload and stop. */
@@ -1499,6 +1751,7 @@ async function tryManualAddressEntry(page, personalData) {
 async function fillAboutYouForm(page, personalData, tempEmail) {
   const dobParts = resolveDobPartsFromJinx(personalData);
   logStep(`about-you: Jinx DOB → parts ${dobParts ? JSON.stringify(dobParts) : 'none'}`);
+  logStep(`about-you input payload: ${JSON.stringify(collectJinxInputDebug(personalData, tempEmail))}`);
 
   const title = String(personalData.title || 'Mr').trim() || 'Mr';
   await fillIfPresent(page, 'Title #IndividualDetails_Title', async () => {
@@ -2054,11 +2307,13 @@ async function run() {
         if (st === 'unknown') {
           const snapshot = await collectJourneyDebugSnapshot(page);
           logStep(`post-submit unknown snapshot: ${JSON.stringify(snapshot)}`);
-          if (await isAboutYouPageStill(page)) {
-            logStep('post-submit still on about-you form');
-            const aboutSnap = await collectAboutYouValidationSnapshot(page);
-            logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
-          }
+        }
+        if (await isAboutYouPageStill(page)) {
+          logStep('post-submit still on about-you form');
+          const aboutSnap = await collectAboutYouValidationSnapshot(page);
+          logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
+          const addrState = await collectAddressFieldStateAfterSubmit(page);
+          logStep(`post-submit about-you address field state: ${JSON.stringify(addrState)}`);
         }
         if (st === 'negative') {
           if (await exitIfNegativeFailure(page)) {
@@ -2090,6 +2345,8 @@ async function run() {
         logStep('post-submit still on about-you form');
         const aboutSnap = await collectAboutYouValidationSnapshot(page);
         logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
+        const addrState = await collectAddressFieldStateAfterSubmit(page);
+        logStep(`post-submit about-you address field state: ${JSON.stringify(addrState)}`);
       }
 
       emitJson({ success: false, error: 'unknown_post_submit_state' });
