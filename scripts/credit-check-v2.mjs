@@ -678,6 +678,201 @@ async function waitForPossibleAddressesSelectReady(page) {
   return false;
 }
 
+/** Per-attempt wait for `#PossibleAddresses_SelectedItemValue` to gain real options after a trigger interaction. */
+const ADDRESS_LOOKUP_TRIGGER_WAIT_PER_ATTEMPT_MS = 10000;
+
+function addressLookupNetworkUrlMatches(url) {
+  return /Address|PossibleAddresses|AboutYou|CreditReport|ajax|Find/i.test(String(url || ''));
+}
+
+async function gatherAddressLookupDomDebug(page) {
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  const possibleAddressesSelectExists = (await sel.count().catch(() => 0)) > 0;
+  let optionCount = 0;
+  let realOptionCount = 0;
+  if (possibleAddressesSelectExists) {
+    const opts = sel.locator('option');
+    optionCount = await opts.count().catch(() => 0);
+    for (let i = 0; i < optionCount; i++) {
+      const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+      const text = (await opts.nth(i).innerText().catch(() => '')).trim();
+      if (!isPlaceholderAddressOption(val, text)) realOptionCount++;
+    }
+  }
+  const hiddenSelectListInputCount = await page
+    .locator('input[id^="PossibleAddresses_SelectList_"]')
+    .count()
+    .catch(() => 0);
+  const validationTexts = await page
+    .evaluate(() => {
+      const out = [];
+      document.querySelectorAll('.field-validation-error, [data-valmsg-for]').forEach((el) => {
+        const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (t) out.push(t.slice(0, 400));
+      });
+      return [...new Set(out)].slice(0, 20);
+    })
+    .catch(() => []);
+  const wrap = page.locator('#address-dropdown');
+  let wrapperHtmlSnippet = '';
+  let addressDropdownInnerHTMLLength = 0;
+  if ((await wrap.count().catch(() => 0)) > 0) {
+    const html = (await wrap.first().innerHTML().catch(() => '')) || '';
+    addressDropdownInnerHTMLLength = html.length;
+    wrapperHtmlSnippet = html.slice(0, 1500);
+  }
+  return {
+    possibleAddressesSelectExists,
+    optionCount,
+    realOptionCount,
+    hiddenSelectListInputCount,
+    validationTexts,
+    addressDropdownInnerHTMLLength,
+    wrapperHtmlSnippet,
+  };
+}
+
+function safeSerializeTriggerResult(result) {
+  if (!result || typeof result !== 'object') return result;
+  return {
+    success: result.success,
+    possibleAddressesSelectExists: result.possibleAddressesSelectExists,
+    realOptionCount: result.realOptionCount,
+    attempts: result.attempts,
+    seenRequests: (result.seenRequests || []).slice(0, 40),
+    seenResponses: (result.seenResponses || []).slice(0, 40),
+    validationTexts: result.validationTexts,
+    addressDropdownInnerHTMLLength: result.addressDropdownInnerHTMLLength,
+    wrapperHtmlSnippet: result.wrapperHtmlSnippet
+      ? String(result.wrapperHtmlSnippet).slice(0, 2000)
+      : result.wrapperHtmlSnippet,
+  };
+}
+
+/**
+ * Prove whether `#find-address` caused network activity and `#PossibleAddresses_SelectedItemValue` to populate.
+ */
+async function tryTriggerAddressLookup(page) {
+  const seenRequests = [];
+  const seenResponses = [];
+  const maxNet = 60;
+  const onRequest = (req) => {
+    if (seenRequests.length >= maxNet) return;
+    try {
+      const url = req.url();
+      if (!addressLookupNetworkUrlMatches(url)) return;
+      seenRequests.push({ method: req.method(), url: url.slice(0, 900) });
+    } catch {
+      /* ignore */
+    }
+  };
+  const onResponse = (res) => {
+    if (seenResponses.length >= maxNet) return;
+    try {
+      const url = res.url();
+      if (!addressLookupNetworkUrlMatches(url)) return;
+      seenResponses.push({ status: res.status(), url: url.slice(0, 900) });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  page.on('request', onRequest);
+  page.on('response', onResponse);
+
+  const pcLoc = page.locator('#Address_Postcode');
+  const findAddr = page.locator('#find-address');
+  const attempts = [];
+
+  const pollForPopulatedSelect = async () => {
+    const deadline = Date.now() + ADDRESS_LOOKUP_TRIGGER_WAIT_PER_ATTEMPT_MS;
+    while (Date.now() < deadline) {
+      if (await possibleAddressesSelectHasRealOptions(page)) {
+        return true;
+      }
+      await sleep(300);
+    }
+    return false;
+  };
+
+  const runAttempt = async (label, action) => {
+    logStep(`address lookup ${label}`);
+    try {
+      await action();
+    } catch (e) {
+      const domAfter = await gatherAddressLookupDomDebug(page);
+      attempts.push({ label, error: String(e?.message || e), domAfter });
+      return false;
+    }
+    await sleep(400);
+    const ok = await pollForPopulatedSelect();
+    const domAfter = await gatherAddressLookupDomDebug(page);
+    logStep(
+      `address lookup dom after ${label}: select=${domAfter.possibleAddressesSelectExists} options=${domAfter.optionCount} realOptions=${domAfter.realOptionCount} hiddenSelectListInputs=${domAfter.hiddenSelectListInputCount} wrapperHtmlLen=${domAfter.addressDropdownInnerHTMLLength}`,
+    );
+    attempts.push({ label, ok, domAfter });
+    return ok;
+  };
+
+  const sequence = [
+    [
+      'attempt 1: normal click',
+      async () => {
+        await findAddr.click({ timeout: 15000 });
+      },
+    ],
+    [
+      'attempt 2: focus postcode + Enter',
+      async () => {
+        await pcLoc.focus();
+        await page.keyboard.press('Enter');
+      },
+    ],
+    [
+      'attempt 3: refocus postcode + normal click find-address',
+      async () => {
+        await pcLoc.click({ timeout: 10000 });
+        await sleep(200);
+        await findAddr.click({ timeout: 15000 });
+      },
+    ],
+    [
+      'attempt 4: forced click find-address',
+      async () => {
+        await findAddr.click({ force: true, timeout: 15000 });
+      },
+    ],
+  ];
+
+  let success = false;
+  for (const [label, fn] of sequence) {
+    if (await runAttempt(label, fn)) {
+      success = true;
+      break;
+    }
+  }
+
+  page.off('request', onRequest);
+  page.off('response', onResponse);
+
+  const finalDom = await gatherAddressLookupDomDebug(page);
+  if (!success) {
+    success = await possibleAddressesSelectHasRealOptions(page);
+  }
+
+  return {
+    success,
+    possibleAddressesSelectExists: finalDom.possibleAddressesSelectExists,
+    realOptionCount: finalDom.realOptionCount,
+    attempts,
+    seenRequests,
+    seenResponses,
+    validationTexts: finalDom.validationTexts,
+    addressDropdownInnerHTMLLength: finalDom.addressDropdownInnerHTMLLength,
+    wrapperHtmlSnippet: finalDom.wrapperHtmlSnippet,
+  };
+}
+
 /**
  * Temporary debugging: real &lt;select&gt; options (#address-dropdown is only a wrapper).
  */
@@ -1181,57 +1376,32 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   await logAddressLookupDiagnostics(page, 'before find-address click');
 
   const pcLoc = page.locator('#Address_Postcode');
-  const findAddr = page.locator('#find-address');
   await pcLoc.evaluate((el) => el.dispatchEvent(new Event('input', { bubbles: true })));
   await pcLoc.evaluate((el) => el.dispatchEvent(new Event('change', { bubbles: true })));
   await pcLoc.blur().catch(() => {});
   await pcLoc.press('Tab').catch(() => {});
+  await sleep(300);
 
-  try {
-    await findAddr.click({ timeout: 15000 });
-    logStep('form: Find address #find-address — ok');
-  } catch (e) {
-    logStep(`form: Find address #find-address — failed (${e?.message || e})`);
-    throw e;
+  const triggerResult = await tryTriggerAddressLookup(page);
+  logStep(`address lookup trigger result: ${JSON.stringify(safeSerializeTriggerResult(triggerResult))}`);
+
+  if (!triggerResult.success) {
+    const rawDump = await collectRawAddressCandidates(page);
+    logStep(`address raw dump: ${JSON.stringify(rawDump)}`);
+    throw new Error('address_lookup_not_triggered');
   }
-  logStep('address: clicked #find-address (postcode blurred + change dispatched)');
 
-  await sleep(400);
-  await logAddressLookupDiagnostics(page, 'after find-address click');
-
-  const lookupState = await waitForAddressLookupState(page);
-  logStep(`address: waitForAddressLookupState → ${JSON.stringify(lookupState)}`);
+  await logAddressLookupDiagnostics(page, 'after address lookup triggered');
 
   let addressResolved = false;
   try {
-    if (lookupState.mode === 'error') {
-      logStep(`address: validation/error after lookup: ${JSON.stringify(lookupState.details)}`);
-    } else if (lookupState.mode === 'dropdown') {
-      const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
-      if (ddResult.resolved) {
-        addressResolved = true;
-        logStep('form: Address #address-dropdown (match house/building) — ok');
-      } else {
-        logStep('address: dropdown mode but selection failed — trying manual entry if offered');
-        if (await tryManualAddressEntry(page, personalData)) {
-          addressResolved = true;
-          logStep('form: Address manual entry — ok');
-        }
-      }
-    } else if (lookupState.mode === 'manual') {
-      if (await tryManualAddressEntry(page, personalData)) {
-        addressResolved = true;
-        logStep('form: Address manual entry — ok');
-      }
+    const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
+    if (ddResult.resolved) {
+      addressResolved = true;
+      logStep('form: Address PossibleAddresses select (match house/building) — ok');
     } else {
-      logStep('address: lookup state none — attempting dropdown selection then manual as fallback');
-      const snapNone = await collectAddressDropdownSnapshot(page);
-      logStep(`address-dropdown snapshot: ${JSON.stringify(snapNone)}`);
-      const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
-      if (ddResult.resolved) {
-        addressResolved = true;
-        logStep('form: Address #address-dropdown (match house/building) — ok');
-      } else if (await tryManualAddressEntry(page, personalData)) {
+      logStep('address: populated select present but selection/scoring failed — trying manual entry if offered');
+      if (await tryManualAddressEntry(page, personalData)) {
         addressResolved = true;
         logStep('form: Address manual entry — ok');
       }
