@@ -208,6 +208,70 @@ async function collectJourneyDebugSnapshot(page) {
   };
 }
 
+function isAboutYouUrl(url) {
+  return /CreditReport\/AboutYou/i.test(String(url || ''));
+}
+
+/** True when still on the About You step (URL + form markers). */
+async function isAboutYouPageStill(page) {
+  if (!isAboutYouUrl(page.url())) return false;
+  const h1About = await page.getByRole('heading', { name: /about you/i }).first().isVisible().catch(() => false);
+  const forename = await page.locator('#IndividualDetails_Forename').isVisible().catch(() => false);
+  return h1About || forename;
+}
+
+/** Validation / error copy when About You submit did not navigate away (ASP.NET unobtrusive + summaries). */
+async function collectAboutYouValidationSnapshot(page) {
+  const safeText = async (locator, limit = 1000) => {
+    try {
+      const txt = await locator.innerText();
+      return txt.replace(/\s+/g, ' ').trim().slice(0, limit);
+    } catch {
+      return '';
+    }
+  };
+
+  const gatherTexts = async (selector, max = 20) => {
+    try {
+      const loc = page.locator(selector);
+      const n = await loc.count();
+      const out = [];
+      for (let i = 0; i < Math.min(n, max); i++) {
+        const t = await loc.nth(i).innerText().catch(() => '');
+        const s = t.replace(/\s+/g, ' ').trim();
+        if (s) out.push(s.slice(0, 500));
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  };
+
+  const roleAlert = await gatherTexts('[role="alert"]', 10);
+  const summaryBlocks = await gatherTexts(
+    '.validation-summary-errors, .validation-summary-valid, [class*="validation-summary"], .alert-danger, .validation-summary',
+    5,
+  );
+
+  return {
+    title: await page.title().catch(() => ''),
+    url: page.url(),
+    visibleErrorTexts: roleAlert,
+    validationSummaryTexts: summaryBlocks,
+    fieldValidationTexts: await gatherTexts('.field-validation-error'),
+    dataValmsgTexts: await gatherTexts('[data-valmsg-for]'),
+    aboutYouHeadingVisible: await page.getByRole('heading', { name: /about you/i }).first().isVisible().catch(() => false),
+    postcodeControlVisible: await page.locator('#Address_Postcode').isVisible().catch(() => false),
+    addressDropdownVisible: await page.locator('#address-dropdown').isVisible().catch(() => false),
+    manualAddressControlsVisible: await page
+      .locator('input[id*="AddressLine" i], input[name*="AddressLine" i]')
+      .first()
+      .isVisible()
+      .catch(() => false),
+    wizardStepSnippet: await safeText(page.locator('#wizard-step'), 1000),
+  };
+}
+
 /** Terminal failure: `Negative Id Verification` (title) or negative DOM — emit payload and stop. */
 async function exitIfNegativeFailure(page) {
   const st = await detectJourneyState(page);
@@ -564,6 +628,18 @@ const ADDRESS_STRONG_MATCH_MIN_SCORE = 28;
 /** TUNE: max wait for PAF dropdown after #find-address. */
 const ADDRESS_DROPDOWN_WAIT_MS = 8000;
 
+async function findFirstUsableOptionIndex(getTextAtIndex, length) {
+  for (let i = 0; i < length; i++) {
+    const t = (await getTextAtIndex(i)).trim();
+    if (t.length > 0 && !/select|choose|please/i.test(t)) return i;
+  }
+  return -1;
+}
+
+/**
+ * PAF dropdown/list: only returns resolved when a real option was chosen or list item clicked.
+ * @returns {Promise<{ resolved: boolean }>}
+ */
 async function selectAddressDropdownMatchingJinx(page, personalData) {
   logStep(`Using house_number: ${personalData.house_number || 'none'}`);
 
@@ -580,21 +656,23 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
   );
 
   const dd = page.locator('#address-dropdown');
-  await dd.waitFor({ state: 'visible', timeout: ADDRESS_DROPDOWN_WAIT_MS });
+  try {
+    await dd.waitFor({ state: 'visible', timeout: ADDRESS_DROPDOWN_WAIT_MS });
+  } catch (e) {
+    logStep(`address: #address-dropdown not visible (${e?.message || e})`);
+    return { resolved: false };
+  }
 
   const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
-
-  const pickFirstUsableOptionIndex = async (getTextAtIndex, length) => {
-    for (let i = 0; i < length; i++) {
-      const t = (await getTextAtIndex(i)).trim();
-      if (t.length > 0 && !/select|choose|please/i.test(t)) return i;
-    }
-    return 0;
-  };
 
   if (tag === 'select') {
     const opts = dd.locator('option');
     const n = await opts.count();
+    if (n === 0) {
+      logStep('address: no selectable address option found');
+      return { resolved: false };
+    }
+
     let bestIdx = -1;
     let bestScore = -1;
     let bestText = '';
@@ -612,7 +690,11 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
     let useIdx = bestIdx;
     let useText = bestText;
     if (bestIdx < 0 || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
-      const fb = await pickFirstUsableOptionIndex((i) => opts.nth(i).innerText(), n);
+      const fb = await findFirstUsableOptionIndex((i) => opts.nth(i).innerText(), n);
+      if (fb < 0) {
+        logStep('address: no selectable address option found');
+        return { resolved: false };
+      }
       useIdx = fb;
       useText = (await opts.nth(fb).innerText()).trim();
       logStep(
@@ -623,17 +705,17 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
     await dd.selectOption({ index: useIdx });
     logStep(`Selected address: ${useText || '(empty)'}`);
     logProgress(`Address selected: ${(useText || '').slice(0, 120) || 'option'}`);
-    return;
+    return { resolved: true };
   }
 
   const items = dd.locator('[role="option"], li, a, div[role="option"]');
   const count = await items.count();
   if (count === 0) {
-    logStep('address: no list items under #address-dropdown (TUNE: child selectors)');
-    return;
+    logStep('address: no selectable address option found');
+    return { resolved: false };
   }
 
-  let bestIdx = 0;
+  let bestIdx = -1;
   let bestScore = -1;
   let bestText = '';
 
@@ -649,8 +731,12 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
 
   let clickIdx = bestIdx;
   let selectedText = bestText;
-  if (bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
-    const fb = await pickFirstUsableOptionIndex((i) => items.nth(i).innerText(), count);
+  if (bestIdx < 0 || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
+    const fb = await findFirstUsableOptionIndex((i) => items.nth(i).innerText(), count);
+    if (fb < 0) {
+      logStep('address: no selectable address option found');
+      return { resolved: false };
+    }
     clickIdx = fb;
     selectedText = (await items.nth(fb).innerText()).trim();
     logStep(
@@ -661,6 +747,55 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
   await items.nth(clickIdx).click({ timeout: 10000 });
   logStep(`Selected address: ${selectedText || '(empty)'}`);
   logProgress(`Address selected: ${(selectedText || '').slice(0, 120) || 'option'}`);
+  return { resolved: true };
+}
+
+/**
+ * If TransUnion offers manual address entry, open it and fill from Jinx (TUNE selectors).
+ * @returns {Promise<boolean>}
+ */
+async function tryManualAddressEntry(page, personalData) {
+  const lineSel =
+    '#Address_AddressLine1, #AddressLine1, input[id*="AddressLine1" i], input[name*="AddressLine1" i]';
+  let line1 = page.locator(lineSel).first();
+
+  if (!(await line1.isVisible().catch(() => false))) {
+    const manualLink = page
+      .getByRole('link', { name: /enter.*address.*manually|can't find|cannot find your address|address not listed/i })
+      .first();
+    if (await manualLink.isVisible().catch(() => false)) {
+      await manualLink.click({ timeout: 8000 });
+      await sleep(1000);
+    }
+    line1 = page.locator(lineSel).first();
+  }
+
+  if (!(await line1.isVisible().catch(() => false))) {
+    return false;
+  }
+
+  const street = String(personalData.address_line_1 || '').trim();
+  if (!street) {
+    logStep('address: manual path visible but address_line_1 empty — cannot resolve');
+    return false;
+  }
+
+  await line1.fill(street);
+
+  const town = page.locator('#Address_Town, #Town, input[id*="Town" i]').first();
+  const townVal = String(personalData.town || personalData.city || '').trim();
+  if (townVal && (await town.isVisible().catch(() => false))) {
+    await town.fill(townVal);
+  }
+
+  const pcField = page.locator('#Address_Postcode').first();
+  const pcVal = String(personalData.postcode || '').trim();
+  if (pcVal && (await pcField.isVisible().catch(() => false))) {
+    await pcField.fill(pcVal);
+  }
+
+  logStep('address: manual entry fields filled (TUNE selectors)');
+  return true;
 }
 
 // --- About You: TransUnion field IDs (TUNE if ASP.NET ids change) — fed by Jinx Lead → personalData ---
@@ -721,9 +856,26 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
 
   await sleep(2000);
 
-  await fillIfPresent(page, 'Address #address-dropdown (match house/building)', async () => {
-    await selectAddressDropdownMatchingJinx(page, personalData);
-  });
+  let addressResolved = false;
+  try {
+    const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
+    if (ddResult.resolved) {
+      addressResolved = true;
+      logStep('form: Address #address-dropdown (match house/building) — ok');
+    } else {
+      logStep('address: dropdown not resolved — trying manual entry if offered');
+      if (await tryManualAddressEntry(page, personalData)) {
+        addressResolved = true;
+        logStep('form: Address manual entry — ok');
+      }
+    }
+  } catch (e) {
+    logStep(`address: selection error (${e?.message || e})`);
+  }
+
+  if (!addressResolved) {
+    throw new Error('address_not_resolved_before_submit');
+  }
 
   await page.check('#TermsOfUseAndPrivacyNoticeAccepted', { force: true });
   logProgress('Agreed to Terms of Use');
@@ -1078,6 +1230,11 @@ async function run() {
       if (st === 'unknown') {
         const snapshot = await collectJourneyDebugSnapshot(page);
         logStep(`post-submit unknown snapshot: ${JSON.stringify(snapshot)}`);
+        if (await isAboutYouPageStill(page)) {
+          logStep('post-submit still on about-you form');
+          const aboutSnap = await collectAboutYouValidationSnapshot(page);
+          logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
+        }
       }
       if (st === 'negative') {
         if (await exitIfNegativeFailure(page)) {
@@ -1102,6 +1259,12 @@ async function run() {
     if (stPost === 'unknown') {
       const snapshot = await collectJourneyDebugSnapshot(page);
       logStep(`post-submit final unknown snapshot: ${JSON.stringify(snapshot)}`);
+
+      if (await isAboutYouPageStill(page)) {
+        logStep('post-submit still on about-you form');
+        const aboutSnap = await collectAboutYouValidationSnapshot(page);
+        logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
+      }
 
       emitJson({ success: false, error: 'unknown_post_submit_state' });
       throw new Error('unknown_post_submit_state');
