@@ -14,6 +14,8 @@ return [
     |
     */
 
+    'node_binary' => env('NODE_BINARY', '/root/.nvm/versions/node/v24.11.0/bin/node'),
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
