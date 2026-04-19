@@ -32,14 +32,11 @@ const ABOUT_URL = 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou'
 const STEALTH_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
 
-const POLL_MS_MIN = 4000;
-const POLL_MS_MAX = 6000;
+/** Temp-mail API list/message fetches: 3 attempts max, 20s apart (low monthly quota). */
+const TEMP_MAIL_POLL_INTERVAL_MS = 20000;
+const TEMP_MAIL_MAX_ATTEMPTS = 3;
 
 const MAX_KBA_ATTEMPTS = 2;
-
-function randomPollDelayMs() {
-  return POLL_MS_MIN + Math.floor(Math.random() * (POLL_MS_MAX - POLL_MS_MIN + 1));
-}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -65,26 +62,48 @@ const IDENTITY_FAILURE_PAYLOAD = {
 };
 
 /**
- * Negative ID verification / "sorry we couldn't verify" failure page.
- * Call after navigations and after KBA / email verification steps.
+ * TransUnion terminal failure: div#wizard-step → article#wizard-page[data-ga-event="negative"],
+ * title "Negative Id Verification", heading "ID Verification", and the canonical failure paragraphs.
  */
 async function isNegativeIdVerificationPage(page) {
-  const negArticle = await page
-    .locator('article#wizard-page[data-ga-event="negative"]')
-    .isVisible()
-    .catch(() => false);
-  if (negArticle) {
+  const combined = page.locator('#wizard-step article#wizard-page[data-ga-event="negative"]');
+  const negArticle = page.locator('article#wizard-page[data-ga-event="negative"]');
+
+  const combinedVisible = await combined.first().isVisible().catch(() => false);
+  const combinedCount = await combined.count().catch(() => 0);
+  const articleVisible = await negArticle.first().isVisible().catch(() => false);
+
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 48000);
+  const docTitle = (await page.title().catch(() => '')).trim();
+  const h1 = (await page.locator('h1').first().innerText().catch(() => '')).trim();
+  const blob = `${docTitle}\n${h1}\n${body}`;
+
+  const phraseVerifyReport =
+    /Sorry, we haven't been able to verify and validate your identity and can't provide your credit report/i;
+  const phraseAutoVerify =
+    /Unfortunately we've not been able to automatically verify and validate your identity/i;
+  const hasTitleAndHeading =
+    /Negative Id Verification/i.test(blob) && /\bID Verification\b/.test(blob);
+
+  const hasFailureCopy = phraseVerifyReport.test(blob) || phraseAutoVerify.test(blob);
+
+  if (combinedVisible && hasFailureCopy) {
     return true;
   }
-  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 24000);
-  const h2Parts = (await page.locator('h2').allInnerTexts().catch(() => [])).join('\n');
-  const blob = `${body}\n${h2Parts}`;
-  if (/Sorry, we haven't been able to verify/i.test(blob)) {
+  if (combinedVisible && hasTitleAndHeading) {
     return true;
   }
-  if (/Negative Id Verification/i.test(blob)) {
+  if (combinedCount > 0 && hasFailureCopy) {
     return true;
   }
+
+  if (articleVisible && hasFailureCopy) {
+    return true;
+  }
+  if (articleVisible && hasTitleAndHeading) {
+    return true;
+  }
+
   return false;
 }
 
@@ -187,12 +206,13 @@ async function apiGetJson(url, apiKey) {
   return r.json();
 }
 
-async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 90 }) {
+async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = TEMP_MAIL_MAX_ATTEMPTS }) {
   const enc = encodeURIComponent(email);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const delayMs = randomPollDelayMs();
-    logStep(`temp-mail: verification link poll ${attempt}/${maxAttempts} (sleep ${delayMs}ms)`);
+    logStep(
+      `temp-mail: verification link poll ${attempt}/${maxAttempts} (interval ${TEMP_MAIL_POLL_INTERVAL_MS}ms)`,
+    );
 
     const list = await apiGetJson(`${baseUrl}/v1/emails/${enc}/messages`, apiKey);
     const raw = list.messages ?? list;
@@ -239,19 +259,20 @@ async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 9
       }
     }
 
-    await sleep(delayMs);
+    if (attempt < maxAttempts) {
+      await sleep(TEMP_MAIL_POLL_INTERVAL_MS);
+    }
   }
 
   return null;
 }
 
 /** Poll inbox for OTP / code after email-auth step. */
-async function waitForOtpInEmail({ baseUrl, apiKey, email, maxAttempts = 45 }) {
+async function waitForOtpInEmail({ baseUrl, apiKey, email, maxAttempts = TEMP_MAIL_MAX_ATTEMPTS }) {
   const enc = encodeURIComponent(email);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const delayMs = randomPollDelayMs();
-    logStep(`temp-mail: OTP/code poll ${attempt}/${maxAttempts} (sleep ${delayMs}ms)`);
+    logStep(`temp-mail: OTP/code poll ${attempt}/${maxAttempts} (interval ${TEMP_MAIL_POLL_INTERVAL_MS}ms)`);
 
     const list = await apiGetJson(`${baseUrl}/v1/emails/${enc}/messages`, apiKey);
     const raw = list.messages ?? list;
@@ -279,7 +300,9 @@ async function waitForOtpInEmail({ baseUrl, apiKey, email, maxAttempts = 45 }) {
       }
     }
 
-    await sleep(delayMs);
+    if (attempt < maxAttempts) {
+      await sleep(TEMP_MAIL_POLL_INTERVAL_MS);
+    }
   }
 
   return null;
