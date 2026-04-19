@@ -159,6 +159,55 @@ async function detectJourneyState(page) {
   return 'unknown';
 }
 
+/** Temporary debugging: page evidence when journey state is unknown (post-submit tuning). */
+async function collectJourneyDebugSnapshot(page) {
+  const safeText = async (locator, limit = 2000) => {
+    try {
+      const txt = await locator.innerText();
+      return txt.replace(/\s+/g, ' ').trim().slice(0, limit);
+    } catch {
+      return '';
+    }
+  };
+
+  const exists = async (locator) => {
+    try {
+      return (await locator.count()) > 0;
+    } catch {
+      return false;
+    }
+  };
+
+  const getTexts = async (locator, max = 5) => {
+    try {
+      const nodes = await locator.all();
+      const out = [];
+      for (let i = 0; i < Math.min(nodes.length, max); i++) {
+        const t = await nodes[i].innerText().catch(() => '');
+        if (t) out.push(t.replace(/\s+/g, ' ').trim().slice(0, 300));
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  };
+
+  return {
+    title: await page.title().catch(() => ''),
+    url: page.url(),
+    wizardStepExists: await exists(page.locator('#wizard-step')),
+    wizardPageExists: await exists(page.locator('#wizard-page')),
+    wizardPageGaEvent: await page.locator('#wizard-page').getAttribute('data-ga-event').catch(() => null),
+    inputCodeExists: await exists(page.locator('#InputCode')),
+    bodySnippet: await safeText(page.locator('body')),
+    wizardStepSnippet: await safeText(page.locator('#wizard-step')),
+    h1Texts: await getTexts(page.locator('h1')),
+    h2Texts: await getTexts(page.locator('h2')),
+    boldFontTexts: await getTexts(page.locator('.bold-font')),
+    paragraphSnippets: await getTexts(page.locator('p')),
+  };
+}
+
 /** Terminal failure: `Negative Id Verification` (title) or negative DOM — emit payload and stop. */
 async function exitIfNegativeFailure(page) {
   const st = await detectJourneyState(page);
@@ -1026,6 +1075,10 @@ async function run() {
     for (let i = 0; i < 5; i++) {
       const st = await detectJourneyState(page);
       logStep(`state: ${st}`);
+      if (st === 'unknown') {
+        const snapshot = await collectJourneyDebugSnapshot(page);
+        logStep(`post-submit unknown snapshot: ${JSON.stringify(snapshot)}`);
+      }
       if (st === 'negative') {
         if (await exitIfNegativeFailure(page)) {
           return;
@@ -1047,6 +1100,9 @@ async function run() {
       }
     }
     if (stPost === 'unknown') {
+      const snapshot = await collectJourneyDebugSnapshot(page);
+      logStep(`post-submit final unknown snapshot: ${JSON.stringify(snapshot)}`);
+
       emitJson({ success: false, error: 'unknown_post_submit_state' });
       throw new Error('unknown_post_submit_state');
     }
