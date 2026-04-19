@@ -16,6 +16,8 @@ return [
 
     'node_binary' => env('NODE_BINARY', '/usr/bin/node'),
 
+    'playwright_browsers_path' => env('PLAYWRIGHT_BROWSERS_PATH', '/var/www/.cache/ms-playwright'),
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

@@ -201,7 +201,9 @@ class CreditCheckV2Controller extends Controller
         $process = new Process(
             [$nodeBinary, $script, $payloadPath],
             base_path(),
-            null,
+            [
+                'PLAYWRIGHT_BROWSERS_PATH' => (string) config('services.playwright_browsers_path', '/var/www/.cache/ms-playwright'),
+            ],
             null,
             $timeout
         );
