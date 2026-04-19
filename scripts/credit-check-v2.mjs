@@ -675,7 +675,8 @@ async function performAboutYouSubmitWithDiagnostics(page) {
     };
   });
 
-  logStep(`submit pre-diagnostics: ${JSON.stringify({ button: btnMeta, fields: preFields })}`);
+  const addressHydration = await collectAddressHydrationState(page);
+  logStep(`submit pre-diagnostics: ${JSON.stringify({ button: btnMeta, fields: preFields, addressHydration })}`);
 
   const sub = page.locator('#submit').first();
   const altSubmit = page.locator('input[name="submit"]').first();
@@ -1297,6 +1298,68 @@ async function waitForAddressLookupPopulation(page, baselineHtmlLength, timeoutM
     await sleep(ADDRESS_LOOKUP_POPULATE_POLL_MS);
   }
   return false;
+}
+
+async function collectAddressHydrationState(page) {
+  return page
+    .evaluate(() => {
+      const gv = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        return el.value != null ? String(el.value) : '';
+      };
+      const selEl = document.querySelector('select#PossibleAddresses_SelectedItemValue');
+      const hid = document.querySelector('input[type="hidden"]#PossibleAddresses_SelectedItemValue');
+      return {
+        selectValue: selEl ? String(selEl.value ?? '') : null,
+        hiddenSelectedValue: hid ? String(hid.value ?? '') : null,
+        address1: gv('#Address_Address1'),
+        address2: gv('#Address_Address2'),
+        buildingNumber: gv('#Address_BuildingNumber'),
+        buildingName: gv('#Address_BuildingName'),
+        abodeNumber: gv('#Address_AbodeNumber'),
+        town: gv('#Address_Town'),
+        postcode: gv('#Address_Postcode'),
+      };
+    })
+    .catch(() => ({
+      selectValue: null,
+      hiddenSelectedValue: null,
+      address1: null,
+      address2: null,
+      buildingNumber: null,
+      buildingName: null,
+      abodeNumber: null,
+      town: null,
+      postcode: null,
+    }));
+}
+
+function addressHydrationLooksReady(state) {
+  const sv = String(state.selectValue ?? '').trim();
+  const hv = String(state.hiddenSelectedValue ?? '').trim();
+  if (!sv || sv === 'NOT_SELECTED') return false;
+  if (!hv || hv === 'NOT_SELECTED') return false;
+  const a1 = String(state.address1 ?? '').trim();
+  const tw = String(state.town ?? '').trim();
+  if (a1.length > 0) return true;
+  if (tw.length > 0) return true;
+  return false;
+}
+
+async function waitForAddressDetailHydration(page, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastState = await collectAddressHydrationState(page);
+  while (Date.now() < deadline) {
+    if (addressHydrationLooksReady(lastState)) {
+      logStep(`address hydration ready: ${JSON.stringify(lastState)}`);
+      return lastState;
+    }
+    await sleep(250);
+    lastState = await collectAddressHydrationState(page);
+  }
+  logStep(`address hydration timeout: ${JSON.stringify(lastState)}`);
+  return null;
 }
 
 async function gatherAddressLookupDomDebug(page) {
@@ -2014,6 +2077,15 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
   }
 
   logStep(`address selected candidate: "${selectedOptionText}" value="${bestValue}"`);
+  logStep('address hydration waiting after selection');
+  const hydrationState = await waitForAddressDetailHydration(page);
+  if (hydrationState == null) {
+    logStep(
+      'address: PAF option was selected but TransUnion did not hydrate visible address fields (address line / town) within the timeout — refusing to submit',
+    );
+    emitJson({ success: false, error: 'address_detail_not_hydrated' });
+    throw new Error('address_detail_not_hydrated');
+  }
   logProgress(`Address selected: ${selectedOptionText.slice(0, 120)}`);
   return { resolved: true };
 }
