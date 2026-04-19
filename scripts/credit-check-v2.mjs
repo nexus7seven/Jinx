@@ -61,11 +61,22 @@ const IDENTITY_FAILURE_PAYLOAD = {
   message: IDENTITY_FAILURE_USER_MESSAGE,
 };
 
+const KBA_FIRST_MARKER_NORM =
+  'please answer the following questions to verify your identity.';
+const KBA_SECOND_MARKER_NORM =
+  'unfortunately one or more answers that you provided was incorrect. you now have the opportunity to have a second and final attempt to answer these questions in order to verify your identity.';
+
+function normalizeJourneyText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
- * TransUnion terminal failure: div#wizard-step → article#wizard-page[data-ga-event="negative"],
- * title "Negative Id Verification", heading "ID Verification", and the canonical failure paragraphs.
+ * DOM fallback when &lt;title&gt; has not updated yet: wizard-step + negative article + failure copy.
  */
-async function isNegativeIdVerificationPage(page) {
+async function isNegativeIdVerificationDom(page) {
   const combined = page.locator('#wizard-step article#wizard-page[data-ga-event="negative"]');
   const negArticle = page.locator('article#wizard-page[data-ga-event="negative"]');
 
@@ -107,11 +118,54 @@ async function isNegativeIdVerificationPage(page) {
   return false;
 }
 
-/** If the failure page is shown, emit JSON and return true (caller should stop and let finally close the browser). */
+/**
+ * Single journey classifier. Negative always checked first (title `Negative Id Verification` wins).
+ * @returns {'negative'|'email_auth'|'kba_first'|'kba_second'|'pdf'|'unknown'}
+ */
+async function detectJourneyState(page) {
+  const docTitle = (await page.title().catch(() => '')).trim();
+  const titleNorm = normalizeJourneyText(docTitle);
+
+  if (titleNorm.includes('negative id verification')) {
+    return 'negative';
+  }
+  if (await isNegativeIdVerificationDom(page)) {
+    return 'negative';
+  }
+
+  if (await isPdfOfferVisible(page)) {
+    return 'pdf';
+  }
+
+  const wizardText = (await page.locator('#wizard-step').first().innerText().catch(() => '')).slice(0, 24000);
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 64000);
+  const blob = normalizeJourneyText(`${docTitle}\n${wizardText}\n${body}`);
+
+  if (blob.includes(KBA_SECOND_MARKER_NORM)) {
+    return 'kba_second';
+  }
+  if (blob.includes(KBA_FIRST_MARKER_NORM)) {
+    return 'kba_first';
+  }
+
+  if (titleNorm.includes('email authentication required')) {
+    return 'email_auth';
+  }
+  const hasInputCode = await page.locator('#InputCode').isVisible().catch(() => false);
+  if (hasInputCode && /email authentication/i.test(body)) {
+    return 'email_auth';
+  }
+
+  return 'unknown';
+}
+
+/** Terminal failure: `Negative Id Verification` (title) or negative DOM — emit payload and stop. */
 async function exitIfNegativeFailure(page) {
-  if (!(await isNegativeIdVerificationPage(page))) {
+  const st = await detectJourneyState(page);
+  if (st !== 'negative') {
     return false;
   }
+  logStep('state: negative');
   logProgress('Failed: identity could not be verified online');
   logStep('negative-id: TransUnion negative ID verification / sorry page detected');
   emitJson(IDENTITY_FAILURE_PAYLOAD);
@@ -637,10 +691,13 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
 }
 
 async function isEmailAuthenticationPage(page) {
+  const docTitle = (await page.title().catch(() => '')).trim();
+  if (/email authentication required/i.test(docTitle)) {
+    return true;
+  }
   const hasInputCode = await page.locator('#InputCode').isVisible().catch(() => false);
-  const title = (await page.locator('body').innerText().catch(() => '')).slice(0, 8000);
-  const textHit = /Email Authentication Required|email authentication/i.test(title);
-  return hasInputCode || textHit;
+  const bodyHead = (await page.locator('body').innerText().catch(() => '')).slice(0, 8000);
+  return hasInputCode && /email authentication required|email authentication/i.test(bodyHead);
 }
 
 async function handleEmailAuthenticationPage(page, baseUrl, apiKey, email) {
@@ -965,26 +1022,16 @@ async function run() {
     logStep('stage: About You form (exact field IDs)');
     await fillAboutYouForm(page, personalData, tempEmail);
 
-    let skipVerificationLinkPoll = false;
-    logStep('post-submit: settle loop (5×3s) — check negative / email-auth / KBA / PDF before temp-mail poll');
+    logStep('post-submit: settle loop (5×3s) — detectJourneyState (no temp-mail until Email Authentication Required)');
     for (let i = 0; i < 5; i++) {
-      if (await exitIfNegativeFailure(page)) {
-        return;
+      const st = await detectJourneyState(page);
+      logStep(`state: ${st}`);
+      if (st === 'negative') {
+        if (await exitIfNegativeFailure(page)) {
+          return;
+        }
       }
-      if (await isEmailAuthenticationPage(page)) {
-        skipVerificationLinkPoll = true;
-        logStep('post-submit settle: email authentication page — skipping temp-mail verification-link poll');
-        break;
-      }
-      if (await isKbaWizardPage(page)) {
-        skipVerificationLinkPoll = true;
-        logProgress('Security questions detected…');
-        logStep('post-submit settle: KBA wizard — skipping temp-mail verification-link poll');
-        break;
-      }
-      if (await isPdfOfferVisible(page)) {
-        skipVerificationLinkPoll = true;
-        logStep('post-submit settle: PDF controls — skipping temp-mail verification-link poll');
+      if (st === 'email_auth' || st === 'kba_first' || st === 'kba_second' || st === 'pdf') {
         break;
       }
       if (i < 4) {
@@ -992,37 +1039,33 @@ async function run() {
       }
     }
 
-    if (await exitIfNegativeFailure(page)) {
-      return;
-    }
-
-    if (!skipVerificationLinkPoll) {
-      logProgress('Waiting for verification email…');
-      logStep('stage: poll temp-mail for verification link');
-      const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempEmail });
-      if (!verification?.url) {
-        emitJson({ success: false, error: 'verification_link_not_found' });
-        throw new Error('Verification link not found');
-      }
-
-      logProgress('Opening verification link…');
-      logStep('stage: open verification link');
-      await page.goto(verification.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-      await sleep(2500);
-      if (await exitIfNegativeFailure(page)) {
-        return;
-      }
-    } else {
-      await sleep(1500);
+    const stPost = await detectJourneyState(page);
+    logStep(`post-submit resolved state: ${stPost}`);
+    if (stPost === 'negative') {
       if (await exitIfNegativeFailure(page)) {
         return;
       }
     }
+    if (stPost === 'unknown') {
+      emitJson({ success: false, error: 'unknown_post_submit_state' });
+      throw new Error('unknown_post_submit_state');
+    }
 
-    if (await isEmailAuthenticationPage(page)) {
-      logStep('stage: email authentication / OTP page');
+    if (stPost === 'email_auth') {
+      logStep('stage: email authentication / OTP page (temp-mail code retrieval only here)');
       await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
       await sleep(3000);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+    } else if (stPost === 'pdf') {
+      await sleep(500);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+    } else if (stPost === 'kba_first' || stPost === 'kba_second') {
+      logStep(`journey: ${stPost} — no verification-link email polling`);
+      await sleep(1500);
       if (await exitIfNegativeFailure(page)) {
         return;
       }
@@ -1030,27 +1073,39 @@ async function run() {
 
     const answerTimeout = Number(process.env.CREDIT_CHECK_V2_ANSWER_TIMEOUT_MS) || 45 * 60 * 1000;
 
-    // Wait up to ~60s for KBA or PDF after verification / OTP
-    for (let w = 0; w < 20; w++) {
-      if (await exitIfNegativeFailure(page)) {
-        return;
-      }
-      if (await isPdfOfferVisible(page)) {
-        logStep('flow: PDF controls already visible');
-        break;
-      }
-      if (await isKbaWizardPage(page)) {
-        logProgress('Security questions detected…');
-        logStep('flow: KBA wizard detected');
-        break;
-      }
-      if (await isEmailAuthenticationPage(page)) {
-        await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
+    if (stPost !== 'pdf') {
+      // Wait up to ~60s for KBA or PDF after post-submit routing
+      for (let w = 0; w < 20; w++) {
         if (await exitIfNegativeFailure(page)) {
           return;
         }
+        const ws = await detectJourneyState(page);
+        logStep(`state: ${ws}`);
+        if (ws === 'negative') {
+          if (await exitIfNegativeFailure(page)) {
+            return;
+          }
+        }
+        if (ws === 'pdf' || (await isPdfOfferVisible(page))) {
+          logStep('flow: PDF controls already visible');
+          break;
+        }
+        if (ws === 'kba_first' || ws === 'kba_second' || (await isKbaWizardPage(page))) {
+          logProgress('Security questions detected…');
+          logStep('flow: KBA wizard detected');
+          break;
+        }
+        if (ws === 'email_auth' || (await isEmailAuthenticationPage(page))) {
+          logStep('stage: email authentication / OTP page (wait loop)');
+          await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
+          if (await exitIfNegativeFailure(page)) {
+            return;
+          }
+        }
+        await sleep(3000);
       }
-      await sleep(3000);
+    } else {
+      logStep('flow: PDF/report page already detected — skipping KBA wait loop');
     }
 
     for (let attempt = 1; attempt <= MAX_KBA_ATTEMPTS; attempt++) {
