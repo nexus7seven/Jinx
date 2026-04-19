@@ -110,28 +110,39 @@ class CreditCheckV2Controller extends Controller
      */
     private function prepareRun(Lead $lead): array
     {
-        $service = new TempMailService();
+        $reuseExistingInbox = (bool) config('services.temp_mail.credit_check_reuse_existing_inbox', false);
+        $existingInbox = trim((string) ($lead->temp_mail ?? ''));
 
-        // Same proven path as TempMailController::generate: GET /v1/domains then POST /v1/emails with domain
-        // (createNewEmail() uses an empty POST body and can fail with 500 on some API versions.)
-        $inbox = $service->createInboxUsingRandomDomain();
-        $email = $inbox['email'] ?? null;
+        if ($reuseExistingInbox && $existingInbox !== '') {
+            // Testing reuse path: no TempMailService inbox creation — avoids GET /v1/domains and POST /v1/emails before Playwright.
+            $email = $existingInbox;
+            logger()->info('credit-check-v2: testing reuse path — using existing lead temp_mail inbox (skipped createInboxUsingRandomDomain)', [
+                'lead_id' => $lead->id,
+            ]);
+        } else {
+            $service = new TempMailService();
 
-        if (! $email) {
-            throw new \RuntimeException('No email address returned by temp-mail provider.');
+            // Same proven path as TempMailController::generate: GET /v1/domains then POST /v1/emails with domain
+            // (createNewEmail() uses an empty POST body and can fail with 500 on some API versions.)
+            $inbox = $service->createInboxUsingRandomDomain();
+            $email = $inbox['email'] ?? null;
+
+            if (! $email) {
+                throw new \RuntimeException('No email address returned by temp-mail provider.');
+            }
+
+            $lead->update([
+                'temp_mail' => $email,
+                'temp_mail_provider' => config('services.temp_mail.provider', 'tempmailio'),
+                'temp_mail_created_at' => now(),
+                'temp_mail_last_checked_at' => null,
+                'temp_mail_last_code' => null,
+                'temp_mail_last_subject' => null,
+                'temp_mail_last_from' => null,
+                'temp_mail_last_message_id' => null,
+                'temp_mail_last_body_text' => null,
+            ]);
         }
-
-        $lead->update([
-            'temp_mail' => $email,
-            'temp_mail_provider' => config('services.temp_mail.provider', 'tempmailio'),
-            'temp_mail_created_at' => now(),
-            'temp_mail_last_checked_at' => null,
-            'temp_mail_last_code' => null,
-            'temp_mail_last_subject' => null,
-            'temp_mail_last_from' => null,
-            'temp_mail_last_message_id' => null,
-            'temp_mail_last_body_text' => null,
-        ]);
 
         $dobForPayload = $lead->dob;
         if (is_string($dobForPayload) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobForPayload)) {

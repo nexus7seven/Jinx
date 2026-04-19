@@ -43,6 +43,11 @@ return [
     'provider' => env('TEMP_MAIL_PROVIDER', 'tempmailio'),
     'key' => env('TEMP_MAIL_API_KEY'),
     'base_url' => env('TEMP_MAIL_BASE_URL', 'https://api.temp-mail.io'),
+    /*
+     * Credit-check v2 testing: reuse lead.temp_mail and skip createInboxUsingRandomDomain (no GET /v1/domains + POST /v1/emails).
+     * Production: leave false so each run creates a fresh inbox as before.
+     */
+    'credit_check_reuse_existing_inbox' => env('CREDIT_CHECK_V2_REUSE_LEAD_INBOX', false),
 ],
 
 'vicidial' => [
