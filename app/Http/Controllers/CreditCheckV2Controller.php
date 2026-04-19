@@ -196,7 +196,7 @@ class CreditCheckV2Controller extends Controller
         $script = base_path('scripts/credit-check-v2.mjs');
         $timeout = (float) env('CREDIT_CHECK_V2_PROCESS_TIMEOUT', 7200);
 
-        $nodeBinary = (string) config('services.node_binary', '/root/.nvm/versions/node/v24.11.0/bin/node');
+        $nodeBinary = (string) config('services.node_binary', '/usr/bin/node');
 
         $process = new Process(
             [$nodeBinary, $script, $payloadPath],
