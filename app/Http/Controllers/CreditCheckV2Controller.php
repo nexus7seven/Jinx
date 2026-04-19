@@ -112,7 +112,9 @@ class CreditCheckV2Controller extends Controller
     {
         $service = new TempMailService();
 
-        $inbox = $service->createNewEmail();
+        // Same proven path as TempMailController::generate: GET /v1/domains then POST /v1/emails with domain
+        // (createNewEmail() uses an empty POST body and can fail with 500 on some API versions.)
+        $inbox = $service->createInboxUsingRandomDomain();
         $email = $inbox['email'] ?? null;
 
         if (! $email) {

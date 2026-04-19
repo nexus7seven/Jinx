@@ -109,6 +109,7 @@ function stripHtml(html) {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** OTP / passcode extraction from message body (same role as TempMailService::extractSpecificAuthCode on the lead inbox). */
 function extractOtpFromText(text) {
   const s = String(text || '').trim();
   if (!s) return null;
@@ -161,13 +162,27 @@ function isLikelyTransUnionVerification(blob, subj, from) {
   return /transunion|statreport|trans union|verify your email|confirm your email address/i.test(blob);
 }
 
+/**
+ * temp-mail.io HTTP API — mirrors App\Services\TempMailService:
+ * - Headers: X-API-Key, Accept: application/json (same as Laravel Http client).
+ * - List messages: GET /v1/emails/{email}/messages (email path-segment encoded).
+ * - Full message: GET /v1/messages/{id} (same as getMessage()).
+ * Inbox creation runs in PHP via createInboxUsingRandomDomain() (same as TempMailController::generate).
+ */
 async function apiGetJson(url, apiKey) {
   const r = await fetch(url, {
     headers: { 'X-API-Key': apiKey, Accept: 'application/json' },
   });
   if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`Temp-mail GET ${url} failed: ${r.status} ${t}`);
+    const text = await r.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j?.error?.detail ?? j?.message ?? text;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(`Temp mail API error: ${String(detail).trim() || r.statusText || String(r.status)}`);
   }
   return r.json();
 }
