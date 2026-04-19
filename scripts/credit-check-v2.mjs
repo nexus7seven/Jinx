@@ -632,54 +632,80 @@ const ADDRESS_DROPDOWN_WAIT_MS = 12000;
 const ADDRESS_LOOKUP_MAX_MS = 22000;
 const ADDRESS_LOOKUP_POLL_MS = 450;
 
-/**
- * Temporary debugging: raw #address-dropdown DOM (custom div lists often omit native options).
- */
-async function collectAddressDropdownSnapshot(page) {
-  const dd = page.locator('#address-dropdown');
-  const exists = (await dd.count().catch(() => 0)) > 0;
-  if (!exists) {
-    return {
-      exists: false,
-      tag: '',
-      innerHTML: '',
-      innerText: '',
-      candidateSnippets: [],
-    };
-  }
-  const first = dd.first();
-  const tag = (await first.evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
-  const innerHTML = (await first.innerHTML().catch(() => '')).slice(0, 3000);
-  const innerText = (await first.innerText().catch(() => '')).slice(0, 3000);
-  const candidateSnippets = [];
-  const subSelectors = ['li', 'button', 'a', '[role="option"]', '.option', '.item', '.address', 'div'];
-  for (const sel of subSelectors) {
-    const loc = first.locator(sel);
-    const n = await loc.count().catch(() => 0);
-    for (let i = 0; i < Math.min(n, 12); i++) {
-      const t = (await loc.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 300);
-      if (t) candidateSnippets.push({ sel, i, text: t });
-    }
-  }
-  return { exists: true, tag, innerHTML, innerText, candidateSnippets };
+/** TransUnion wraps PAF results in #address-dropdown but the real control is this native &lt;select&gt;. */
+const POSSIBLE_ADDRESSES_SELECT = '#PossibleAddresses_SelectedItemValue';
+
+function isPlaceholderAddressOption(value, text) {
+  const v = String(value || '').trim();
+  const t = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!v || v === 'NOT_SELECTED' || /^not_selected$/i.test(v)) return true;
+  if (t === 'select…' || t === 'select...' || /^select[….]?$/.test(t)) return true;
+  if (/^select\b/.test(t) && t.length < 28) return true;
+  return false;
 }
 
-/** True when #address-dropdown has meaningful text or clickable rows (including custom div markup). */
-async function addressDropdownLooksPopulated(page) {
-  return page.evaluate(() => {
-    const root = document.querySelector('#address-dropdown');
-    if (!root) return false;
-    const raw = (root.innerText || '').replace(/\s+/g, ' ').trim();
-    if (raw.length > 12 && !/^select\s+an?\s+address$/i.test(raw)) return true;
-    const q =
-      'option, li, button, a, [role="option"], .option, .item, .address, [class*="option"], [class*="item"], [class*="address"]';
-    if (root.querySelectorAll(q).length > 0) return true;
-    for (const ch of root.children) {
-      const t = (ch.textContent || '').replace(/\s+/g, ' ').trim();
-      if (t.length > 8) return true;
+/** True when the real address &lt;select&gt; has at least one non-placeholder option. */
+async function possibleAddressesSelectHasRealOptions(page) {
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  if ((await sel.count().catch(() => 0)) === 0) return false;
+  const opts = sel.locator('option');
+  const n = await opts.count().catch(() => 0);
+  for (let i = 0; i < n; i++) {
+    const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+    const text = (await opts.nth(i).innerText().catch(() => '')).trim();
+    if (!isPlaceholderAddressOption(val, text)) return true;
+  }
+  return false;
+}
+
+async function waitForPossibleAddressesSelectReady(page) {
+  const until = Date.now() + ADDRESS_DROPDOWN_WAIT_MS;
+  while (Date.now() < until) {
+    const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+    if ((await sel.count().catch(() => 0)) === 0) {
+      await sleep(200);
+      continue;
     }
-    return false;
-  });
+    await sel.first().waitFor({ state: 'attached', timeout: 2000 }).catch(() => {});
+    if (await possibleAddressesSelectHasRealOptions(page)) {
+      return true;
+    }
+    await sleep(200);
+  }
+  return false;
+}
+
+/**
+ * Temporary debugging: real &lt;select&gt; options (#address-dropdown is only a wrapper).
+ */
+async function collectAddressDropdownSnapshot(page) {
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  const selectExists = (await sel.count().catch(() => 0)) > 0;
+  const optionsPreview = [];
+  if (selectExists) {
+    const opts = sel.locator('option');
+    const n = await opts.count().catch(() => 0);
+    for (let i = 0; i < Math.min(n, 15); i++) {
+      const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+      const text = (await opts.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 220);
+      optionsPreview.push({ i, value: val, text, placeholder: isPlaceholderAddressOption(val, text) });
+    }
+  }
+  const wrap = page.locator('#address-dropdown');
+  const wrapperExists = (await wrap.count().catch(() => 0)) > 0;
+  let wrapperSnippet = '';
+  if (wrapperExists) {
+    wrapperSnippet = (await wrap.first().innerHTML().catch(() => '')).slice(0, 1500);
+  }
+  return {
+    possibleAddressesSelectExists: selectExists,
+    optionsPreview,
+    addressDropdownWrapperExists: wrapperExists,
+    addressDropdownInnerHTMLSnippet: wrapperSnippet,
+  };
 }
 
 /**
@@ -689,6 +715,7 @@ async function logAddressLookupDiagnostics(page, phaseLabel) {
   const pc = page.locator('#Address_Postcode');
   const fa = page.locator('#find-address');
   const dd = page.locator('#address-dropdown');
+  const addrSel = page.locator(POSSIBLE_ADDRESSES_SELECT);
   let pcVal = '';
   try {
     pcVal = (await pc.inputValue().catch(() => '')).trim();
@@ -698,19 +725,27 @@ async function logAddressLookupDiagnostics(page, phaseLabel) {
   const faCount = await fa.count().catch(() => 0);
   const faVis = faCount ? await fa.first().isVisible().catch(() => false) : false;
   const ddCount = await dd.count().catch(() => 0);
-  let ddVis = false;
-  let ddHiddenAttr = null;
-  let tag = '';
+  const ddVis = ddCount ? await dd.first().isVisible().catch(() => false) : false;
+  const selCount = await addrSel.count().catch(() => 0);
+  const selVis = selCount ? await addrSel.first().isVisible().catch(() => false) : false;
   let optionCount = 0;
-  let itemCount = 0;
-  if (ddCount) {
-    ddVis = await dd.first().isVisible().catch(() => false);
-    ddHiddenAttr = await dd.first().getAttribute('hidden').catch(() => null);
-    tag = (await dd.first().evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
-    if (tag === 'select') {
-      optionCount = await dd.locator('option').count().catch(() => 0);
+  let realOptionCount = 0;
+  const optionPreview = [];
+  if (selCount) {
+    const opts = addrSel.locator('option');
+    optionCount = await opts.count().catch(() => 0);
+    for (let i = 0; i < optionCount; i++) {
+      const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+      const text = (await opts.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+      if (i < 6) {
+        optionPreview.push({ value: val, text: text.slice(0, 120) });
+      }
+      if (!isPlaceholderAddressOption(val, text)) realOptionCount++;
     }
-    itemCount = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
+  }
+  let selectedValueBefore = '';
+  if (selCount) {
+    selectedValueBefore = (await addrSel.inputValue().catch(() => '')) || '';
   }
   const manualLinkVis = await page
     .getByRole('link', { name: /enter.*address.*manually|can't find|cannot find your address|address not listed/i })
@@ -724,7 +759,7 @@ async function logAddressLookupDiagnostics(page, phaseLabel) {
     .catch(() => false);
 
   logStep(
-    `address: [${phaseLabel}] postcode="${pcVal}" find-address count=${faCount} visible=${faVis} | #address-dropdown count=${ddCount} visible=${ddVis} hiddenAttr=${ddHiddenAttr} tag=${tag} optionCount=${optionCount} itemCount=${itemCount} computedVisibilityOk=${ddVis} | manualLink=${manualLinkVis} manualLine=${manualLineVis}`,
+    `address: [${phaseLabel}] postcode="${pcVal}" find-address count=${faCount} visible=${faVis} | wrapper #address-dropdown count=${ddCount} visible=${ddVis} | ${POSSIBLE_ADDRESSES_SELECT} count=${selCount} visible=${selVis} options=${optionCount} realOptions=${realOptionCount} selectedValue="${selectedValueBefore}" preview=${JSON.stringify(optionPreview)} | manualLink=${manualLinkVis} manualLine=${manualLineVis}`,
   );
 }
 
@@ -737,6 +772,7 @@ async function waitForAddressLookupState(page) {
   let lastSnapshot = {};
 
   while (Date.now() < deadline) {
+    const addrSel = page.locator(POSSIBLE_ADDRESSES_SELECT);
     const dd = page.locator('#address-dropdown');
 
     const validationTexts = await page
@@ -772,17 +808,19 @@ async function waitForAddressLookupState(page) {
       );
 
     const ddCount = await dd.count().catch(() => 0);
-    let tag = '';
+    const possibleAddressesCount = await addrSel.count().catch(() => 0);
     let optionCount = 0;
-    let itemCount = 0;
-    let ddVisible = false;
-    if (ddCount) {
-      tag = (await dd.first().evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
-      ddVisible = await dd.first().isVisible().catch(() => false);
-      if (tag === 'select') {
-        optionCount = await dd.locator('option').count().catch(() => 0);
+    let realOptionCount = 0;
+    let addrSelVisible = false;
+    if (possibleAddressesCount) {
+      addrSelVisible = await addrSel.first().isVisible().catch(() => false);
+      const opts = addrSel.locator('option');
+      optionCount = await opts.count().catch(() => 0);
+      for (let i = 0; i < optionCount; i++) {
+        const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+        const text = (await opts.nth(i).innerText().catch(() => '')).trim();
+        if (!isPlaceholderAddressOption(val, text)) realOptionCount++;
       }
-      itemCount = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
     }
 
     const manualLinkVis = await page
@@ -799,10 +837,10 @@ async function waitForAddressLookupState(page) {
     lastSnapshot = {
       errBlob: errBlob.slice(0, 8),
       ddCount,
-      tag,
-      ddVisible,
+      possibleAddressesCount,
+      addrSelVisible,
       optionCount,
-      itemCount,
+      realOptionCount,
       manualLinkVis,
       manualLineVis,
     };
@@ -811,17 +849,12 @@ async function waitForAddressLookupState(page) {
       return { mode: 'error', details: { ...lastSnapshot, messages: errBlob } };
     }
 
-    const selectPopulated = tag === 'select' && optionCount > 0;
-    const listPopulated = itemCount > 0;
-    const customDivPopulated =
-      ddCount > 0 && ddVisible && tag === 'div' && (await addressDropdownLooksPopulated(page));
-    const dropdownUsable =
-      ddCount > 0 && (selectPopulated || listPopulated || customDivPopulated);
+    const dropdownUsable = possibleAddressesCount > 0 && realOptionCount > 0;
 
     if (dropdownUsable) {
       return {
         mode: 'dropdown',
-        details: { ...lastSnapshot, selectPopulated, listPopulated },
+        details: { ...lastSnapshot, selectPopulated: realOptionCount > 0 },
       };
     }
 
@@ -836,60 +869,7 @@ async function waitForAddressLookupState(page) {
 }
 
 /**
- * Wait until #address-dropdown is attached and has options/list items, or custom div content (PAF markup).
- */
-async function waitForAddressDropdownReady(page) {
-  const dd = page.locator('#address-dropdown');
-  const until = Date.now() + ADDRESS_DROPDOWN_WAIT_MS;
-  while (Date.now() < until) {
-    const n = await dd.count().catch(() => 0);
-    if (n === 0) {
-      await sleep(200);
-      continue;
-    }
-    const first = dd.first();
-    await first.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {});
-    const tag = (await first.evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
-    const visible = await first.isVisible().catch(() => false);
-
-    if (tag === 'select') {
-      const oc = await dd.locator('option').count().catch(() => 0);
-      if (oc > 0) {
-        return true;
-      }
-    } else {
-      const ic = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
-      if (ic > 0) {
-        return true;
-      }
-    }
-
-    if (visible && (tag === 'div' || tag !== 'select')) {
-      if (await addressDropdownLooksPopulated(page)) {
-        return true;
-      }
-    }
-
-    if (visible) {
-      await sleep(200);
-      const tag2 = (await first.evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
-      if (tag2 === 'select' && (await dd.locator('option').count().catch(() => 0)) > 0) return true;
-      if (
-        tag2 !== 'select' &&
-        (await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0)) > 0
-      ) {
-        return true;
-      }
-    }
-
-    await sleep(200);
-  }
-  return false;
-}
-
-/**
- * PAF dropdown/list: only returns resolved when a real option was chosen or list item clicked.
- * Custom div UIs: scan many selectors; score with scoreAddressOptionText; no weak index-0 fallback.
+ * Native TransUnion control inside #address-dropdown wrapper — populate & select real PAF options.
  * @returns {Promise<{ resolved: boolean }>}
  */
 async function selectAddressDropdownMatchingJinx(page, personalData) {
@@ -907,131 +887,69 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
     `address: scoring hints — house_name="${hints.house_name || ''}" building="${hints.building_number || ''}" streetWords=${JSON.stringify(hints.street_words)}`,
   );
 
-  const dd = page.locator('#address-dropdown');
-  const ready = await waitForAddressDropdownReady(page);
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  const ready = await waitForPossibleAddressesSelectReady(page);
   if (!ready) {
-    logStep('address: #address-dropdown not ready (no options/list items within timeout)');
+    logStep(`address: ${POSSIBLE_ADDRESSES_SELECT} not ready (no real options within timeout)`);
     const snap = await collectAddressDropdownSnapshot(page);
     logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
     return { resolved: false };
   }
 
-  const tag = await dd.first().evaluate((el) => el.tagName.toLowerCase());
+  const selCount = await sel.count().catch(() => 0);
+  logStep(`address: ${POSSIBLE_ADDRESSES_SELECT} exists count=${selCount}`);
+  const valueBefore = (await sel.inputValue().catch(() => '')) || '';
+  logStep(`address: PossibleAddresses selected value before selection: "${valueBefore}"`);
 
-  if (tag === 'select') {
-    const opts = dd.locator('option');
-    const n = await opts.count();
-    if (n === 0) {
-      const snap = await collectAddressDropdownSnapshot(page);
-      logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
-      logStep('address: no selectable address option found');
-      return { resolved: false };
-    }
-
-    let bestIdx = -1;
-    let bestScore = -1;
-    let bestText = '';
-
-    for (let i = 0; i < n; i++) {
-      const t = (await opts.nth(i).innerText()).trim();
-      const sc = scoreAddressOptionText(t, hints);
-      logStep(`address candidate: "${t.slice(0, 200)}" score=${sc}`);
-      if (sc > bestScore) {
-        bestScore = sc;
-        bestIdx = i;
-        bestText = t;
-      }
-    }
-
-    if (bestIdx < 0 || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
-      const snap = await collectAddressDropdownSnapshot(page);
-      logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
-      logStep(
-        `address: no candidate meets strong match threshold (bestScore=${bestScore}, min=${ADDRESS_STRONG_MATCH_MIN_SCORE})`,
-      );
-      return { resolved: false };
-    }
-
-    await dd.selectOption({ index: bestIdx });
-    logStep(`address selected candidate: "${bestText}"`);
-    logProgress(`Address selected: ${(bestText || '').slice(0, 120) || 'option'}`);
-    return { resolved: true };
+  const opts = sel.locator('option');
+  const n = await opts.count();
+  logStep(`address: PossibleAddresses option count=${n}`);
+  if (n === 0) {
+    const snap = await collectAddressDropdownSnapshot(page);
+    logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
+    return { resolved: false };
   }
 
-  const combined = dd.locator(
-    'option, li, button, a, [role="option"], .option, .item, .address, [class*="option"], [class*="item"], [class*="address"], > div',
-  );
-  const count = await combined.count();
-  /** @type {Map<string, { score: number, idx: number }>} */
-  const byText = new Map();
-
-  for (let i = 0; i < count; i++) {
-    const t = (await combined.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-    if (t.length < 4 || /^(select|choose|please)/i.test(t)) continue;
-    if (t.length > 220) continue;
-    const sc = scoreAddressOptionText(t, hints);
-    logStep(`address candidate: "${t.slice(0, 200)}" score=${sc}`);
-    const prev = byText.get(t);
-    if (!prev || sc > prev.score) {
-      byText.set(t, { score: sc, idx: i });
-    }
-  }
-
-  let bestIdx = -1;
   let bestScore = -1;
   let bestText = '';
-  for (const [text, { score, idx }] of byText) {
-    if (score > bestScore) {
-      bestScore = score;
-      bestIdx = idx;
+  let bestValue = '';
+
+  for (let i = 0; i < n; i++) {
+    const opt = opts.nth(i);
+    const val = (await opt.getAttribute('value').catch(() => '')) || '';
+    const text = (await opt.innerText().catch(() => '')).trim();
+    if (isPlaceholderAddressOption(val, text)) continue;
+    const sc = scoreAddressOptionText(text, hints);
+    logStep(`address candidate: "${text.slice(0, 200)}" value="${val}" score=${sc}`);
+    if (sc > bestScore) {
+      bestScore = sc;
       bestText = text;
+      bestValue = val;
     }
   }
 
-  if (bestIdx < 0 || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
-    const extraTexts = await page.evaluate(() => {
-      const root = document.querySelector('#address-dropdown');
-      if (!root) return [];
-      const seen = new Set();
-      const out = [];
-      root.querySelectorAll('div, span').forEach((el) => {
-        const t = (el.innerText || '').replace(/\s+/g, ' ').trim();
-        if (t.length < 8 || t.length > 200) return;
-        if (/^(select|choose|please)/i.test(t)) return;
-        if (seen.has(t)) return;
-        seen.add(t);
-        out.push(t);
-      });
-      return out;
-    });
-    let bestS = bestScore;
-    let bestT = bestText;
-    for (const t of extraTexts) {
-      const sc = scoreAddressOptionText(t, hints);
-      logStep(`address candidate: "${t.slice(0, 200)}" score=${sc}`);
-      if (sc > bestS) {
-        bestS = sc;
-        bestT = t;
-      }
-    }
-    if (bestS >= ADDRESS_STRONG_MATCH_MIN_SCORE && bestT) {
-      await dd.getByText(bestT, { exact: true }).first().click({ timeout: 10000 });
-      logStep(`address selected candidate: "${bestT}"`);
-      logProgress(`Address selected: ${bestT.slice(0, 120)}`);
-      return { resolved: true };
-    }
-
+  if (!bestValue || bestScore < ADDRESS_STRONG_MATCH_MIN_SCORE) {
     const snap = await collectAddressDropdownSnapshot(page);
     logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
     logStep(
-      `address: no candidate meets strong match threshold (bestScore=${bestS}, min=${ADDRESS_STRONG_MATCH_MIN_SCORE})`,
+      `address: no candidate meets strong match threshold (bestScore=${bestScore}, min=${ADDRESS_STRONG_MATCH_MIN_SCORE})`,
     );
     return { resolved: false };
   }
 
-  await combined.nth(bestIdx).click({ timeout: 10000 });
-  logStep(`address selected candidate: "${bestText}"`);
-  logProgress(`Address selected: ${(bestText || '').slice(0, 120) || 'option'}`);
+  await sel.selectOption({ value: bestValue });
+
+  const valueAfter = (await sel.inputValue().catch(() => '')) || '';
+  logStep(`address: PossibleAddresses selected value after selectOption: "${valueAfter}"`);
+  if (!valueAfter || valueAfter === 'NOT_SELECTED') {
+    const snap = await collectAddressDropdownSnapshot(page);
+    logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
+    logStep('address: select value did not leave NOT_SELECTED');
+    return { resolved: false };
+  }
+
+  logStep(`address selected candidate: "${bestText}" value="${bestValue}"`);
+  logProgress(`Address selected: ${bestText.slice(0, 120)}`);
   return { resolved: true };
 }
 
