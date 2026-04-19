@@ -11,6 +11,7 @@
  *
  * Machine-readable stdout (one line each):
  *   CREDIT_CHECK_V2_JSON:{"status":"security_questions","sessionId":"...","questions":[{"id":"...","text":"..."},...]}
+ *   CREDIT_CHECK_V2_JSON:{"status":"failed","reason":"identity_verification_failed","message":"..."}
  *   CREDIT_CHECK_V2_JSON:{"success":true,"reportPath":"..."}
  *
  * answers.json format:
@@ -44,8 +45,54 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Human-facing progress line for CRM terminal (no timestamp). */
+function logProgress(userMessage) {
+  process.stdout.write(`[credit-check-v2] • ${userMessage}\n`);
+}
+
 function logStep(description) {
   process.stdout.write(`[credit-check-v2] ${new Date().toISOString()} ${description}\n`);
+}
+
+const IDENTITY_FAILURE_PAYLOAD = {
+  status: 'failed',
+  reason: 'identity_verification_failed',
+  message: 'TransUnion could not verify identity automatically',
+};
+
+/**
+ * Negative ID verification / "sorry we couldn't verify" failure page.
+ * Call after navigations and after KBA / email verification steps.
+ */
+async function isNegativeIdVerificationPage(page) {
+  const negArticle = await page
+    .locator('article#wizard-page[data-ga-event="negative"]')
+    .isVisible()
+    .catch(() => false);
+  if (negArticle) {
+    return true;
+  }
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 24000);
+  const h2Parts = (await page.locator('h2').allInnerTexts().catch(() => [])).join('\n');
+  const blob = `${body}\n${h2Parts}`;
+  if (/Sorry, we haven't been able to verify/i.test(blob)) {
+    return true;
+  }
+  if (/Negative Id Verification/i.test(blob)) {
+    return true;
+  }
+  return false;
+}
+
+/** If the failure page is shown, emit JSON and return true (caller should stop and let finally close the browser). */
+async function exitIfNegativeFailure(page) {
+  if (!(await isNegativeIdVerificationPage(page))) {
+    return false;
+  }
+  logProgress('Failed: identity verification failed');
+  logStep('negative-id: TransUnion negative ID verification / sorry page detected');
+  emitJson(IDENTITY_FAILURE_PAYLOAD);
+  return true;
 }
 
 function emitJson(obj) {
@@ -162,6 +209,7 @@ async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 9
       }
 
       if (candidates.length > 0) {
+        logProgress('Verification email received');
         logStep(`temp-mail: verification URL from message id=${mid}`);
         return {
           url: candidates[0],
@@ -428,6 +476,7 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
 
     await dd.selectOption({ index: useIdx });
     logStep(`Selected address: ${useText || '(empty)'}`);
+    logProgress(`Address selected: ${(useText || '').slice(0, 120) || 'option'}`);
     return;
   }
 
@@ -465,6 +514,7 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
 
   await items.nth(clickIdx).click({ timeout: 10000 });
   logStep(`Selected address: ${selectedText || '(empty)'}`);
+  logProgress(`Address selected: ${(selectedText || '').slice(0, 120) || 'option'}`);
 }
 
 // --- About You: TransUnion field IDs (TUNE if ASP.NET ids change) — fed by Jinx Lead → personalData ---
@@ -824,6 +874,7 @@ async function run() {
   await mkdir(sessionDir, { recursive: true });
 
   const headless = process.env.PLAYWRIGHT_HEADLESS !== '0';
+  logProgress('Launching browser…');
   logStep(`launch: headless=${headless}, stealth Chromium, 1920×1080, en-GB, Europe/London`);
 
   const browser = await chromium.launch({
@@ -863,10 +914,15 @@ async function run() {
     logStep(`navigate: ${creditCheckUrl}`);
     await page.goto(creditCheckUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await dismissCookieBanner(page);
+    if (await exitIfNegativeFailure(page)) {
+      return;
+    }
 
+    logProgress('Filling personal details…');
     logStep('stage: About You form (exact field IDs)');
     await fillAboutYouForm(page, personalData, tempEmail);
 
+    logProgress('Waiting for verification email…');
     logStep('stage: poll temp-mail for verification link');
     const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempEmail });
     if (!verification?.url) {
@@ -874,35 +930,52 @@ async function run() {
       throw new Error('Verification link not found');
     }
 
+    logProgress('Opening verification link…');
     logStep('stage: open verification link');
     await page.goto(verification.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await sleep(2500);
+    if (await exitIfNegativeFailure(page)) {
+      return;
+    }
 
     if (await isEmailAuthenticationPage(page)) {
       logStep('stage: email authentication / OTP page');
       await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
       await sleep(3000);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
     }
 
     const answerTimeout = Number(process.env.CREDIT_CHECK_V2_ANSWER_TIMEOUT_MS) || 45 * 60 * 1000;
 
     // Wait up to ~60s for KBA or PDF after verification / OTP
     for (let w = 0; w < 20; w++) {
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
       if (await isPdfOfferVisible(page)) {
         logStep('flow: PDF controls already visible');
         break;
       }
       if (await isKbaWizardPage(page)) {
+        logProgress('Security questions detected…');
         logStep('flow: KBA wizard detected');
         break;
       }
       if (await isEmailAuthenticationPage(page)) {
         await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
+        if (await exitIfNegativeFailure(page)) {
+          return;
+        }
       }
       await sleep(3000);
     }
 
     for (let attempt = 1; attempt <= MAX_KBA_ATTEMPTS; attempt++) {
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
       if (await isPdfOfferVisible(page)) {
         logStep('flow: skipping KBA — PDF ready');
         break;
@@ -913,11 +986,15 @@ async function run() {
         let seen = false;
         for (let r = 0; r < 5; r++) {
           await sleep(3000);
+          if (await exitIfNegativeFailure(page)) {
+            return;
+          }
           if (await isPdfOfferVisible(page)) {
             seen = true;
             break;
           }
           if (await isKbaWizardPage(page)) {
+            logProgress('Security questions detected…');
             seen = true;
             break;
           }
@@ -930,6 +1007,7 @@ async function run() {
         }
       }
 
+      logProgress('Security questions detected…');
       logStep(`stage: KBA / ID Verification (round ${attempt}/${MAX_KBA_ATTEMPTS})`);
       const extracted = await extractKbaQuestions(page);
       if (extracted.length === 0) {
@@ -958,6 +1036,10 @@ async function run() {
       await clickKbaContinue(page);
       await sleep(4000);
 
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+
       if (await isWrongKbaAnswersPage(page)) {
         logStep(`kba: incorrect answers message detected (round ${attempt})`);
         if (attempt >= MAX_KBA_ATTEMPTS) {
@@ -972,6 +1054,10 @@ async function run() {
     }
 
     await sleep(2000);
+    if (await exitIfNegativeFailure(page)) {
+      return;
+    }
+    logProgress('Downloading PDF report…');
     logStep('stage: download PDF report');
     const ok = await downloadReportPdf(page, reportPath);
     if (!ok) {
@@ -981,6 +1067,7 @@ async function run() {
 
     const final = { success: true, reportPath };
     emitJson(final);
+    logProgress('Credit check completed — PDF saved');
     logStep(`complete: ${JSON.stringify(final)}`);
   } finally {
     await browser.close();

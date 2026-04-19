@@ -9,144 +9,263 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Process\Process;
 use Throwable;
 
 class CreditCheckV2Controller extends Controller
 {
-    public function run(Request $request, Lead $lead): JsonResponse
+    public function run(Request $request, Lead $lead): JsonResponse|StreamedResponse
     {
         try {
-            $service = new TempMailService();
+            $prepared = $this->prepareRun($lead);
 
-            $inbox = $service->createNewEmail();
-            $email = $inbox['email'] ?? null;
-
-            if (!$email) {
-                return response()->json([
-                    'ok' => false,
-                    'message' => 'No email address returned by temp-mail provider.',
-                ], 500);
+            if ($request->boolean('stream') || $request->query('stream') === '1') {
+                return $this->streamRun($lead, $prepared);
             }
 
-            $lead->update([
-                'temp_mail' => $email,
-                'temp_mail_provider' => config('services.temp_mail.provider', 'tempmailio'),
-                'temp_mail_created_at' => now(),
-                'temp_mail_last_checked_at' => null,
-                'temp_mail_last_code' => null,
-                'temp_mail_last_subject' => null,
-                'temp_mail_last_from' => null,
-                'temp_mail_last_message_id' => null,
-                'temp_mail_last_body_text' => null,
-            ]);
-
-            // JINX MAPPING: Lead fields → Node personalData → TransUnion #IndividualDetails_* / #Address_*
-            // DOB: Jinx stores human-readable date; Node prefers "DD/MM/YYYY". Normalize ISO rows for the script.
-            $dobForPayload = $lead->dob;
-            if (is_string($dobForPayload) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobForPayload)) {
-                try {
-                    $dobForPayload = Carbon::parse($dobForPayload)->format('d/m/Y');
-                } catch (\Throwable) {
-                    // leave as-is
-                }
-            }
-
-            $sessionId = (string) Str::uuid();
-            $sessionDir = storage_path('app/credit-check-v2/sessions/'.$sessionId);
-            $reportPath = storage_path('app/credit-check-v2/reports/'.$sessionId.'.pdf');
-
-            foreach ([$sessionDir, \dirname($reportPath)] as $dir) {
-                if (! is_dir($dir)) {
-                    File::makeDirectory($dir, 0755, true);
-                }
-            }
-
-            file_put_contents($sessionDir.'/meta.json', json_encode([
-                'leadId' => $lead->id,
-                'sessionId' => $sessionId,
-            ], JSON_THROW_ON_ERROR));
-
-            /**
-             * $personalData — sent to Node (scripts/credit-check-v2.mjs). Snake_case only, aligned with Lead columns.
-             * Optional address_line_1: street line for dropdown scoring (house number + street match).
-             */
-            $personalData = [
-                'title' => $lead->title ?: 'Mr',
-                'first_name' => $lead->first_name,
-                'middle_name' => $lead->middle_name,
-                'last_name' => $lead->last_name,
-                'dob' => $dobForPayload,
-                'phone_number' => $lead->phone_number,
-                'postcode' => $lead->postcode,
-                'house_number' => $lead->house_number,
-                'house_name' => $lead->house_name,
-                'building_number' => $lead->building_number,
-                'address_line_1' => $lead->address_line_1,
-            ];
-
-            $payload = [
-                'leadId' => $lead->id,
-                'sessionId' => $sessionId,
-                'sessionDir' => $sessionDir,
-                'reportPath' => $reportPath,
-                'creditCheckUrl' => 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
-                'personalData' => $personalData,
-                'tempMail' => $email,
-                'tempEmail' => $email,
-                'tempMailApi' => [
-                    'baseUrl' => rtrim((string) config('services.temp_mail.base_url'), '/'),
-                    'apiKey' => (string) config('services.temp_mail.key'),
-                ],
-            ];
-
-            $payloadPath = tempnam(sys_get_temp_dir(), 'ccv2_');
-            if ($payloadPath === false) {
-                throw new \RuntimeException('Could not create temp payload file.');
-            }
-
-            file_put_contents($payloadPath, json_encode($payload, JSON_THROW_ON_ERROR));
-
-            $script = base_path('scripts/credit-check-v2.mjs');
-
-            $timeout = (float) env('CREDIT_CHECK_V2_PROCESS_TIMEOUT', 7200);
-
-            $process = new Process(
-                ['node', $script, $payloadPath],
-                base_path(),
-                null,
-                null,
-                $timeout
-            );
-
-            $process->run();
-
-            @unlink($payloadPath);
-
-            $stdout = $process->getOutput();
-            $parsedEvents = self::parseCreditCheckJsonLines($stdout);
-            $securityQuestionsEvent = self::lastSecurityQuestionsEvent($parsedEvents);
-
-            return response()->json([
-                'ok' => $process->isSuccessful(),
-                'exit_code' => $process->getExitCode(),
-                'email' => $email,
-                'sessionId' => $sessionId,
-                'sessionDir' => $sessionDir,
-                'reportPath' => $reportPath,
-                'answersUrl' => route('leads.credit-check-v2.answers', ['lead' => $lead, 'sessionId' => $sessionId]),
-                'events' => $parsedEvents,
-                'security_questions' => $securityQuestionsEvent,
-                'security_questions_events' => self::filterSecurityQuestionsEvents($parsedEvents),
-                'stdout' => $stdout,
-                'stderr' => $process->getErrorOutput(),
-            ], $process->isSuccessful() ? 200 : 500);
+            return $this->jsonRun($lead, $prepared);
         } catch (Throwable $e) {
             return response()->json([
                 'ok' => false,
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * @return array{
+     *     email: string,
+     *     sessionId: string,
+     *     sessionDir: string,
+     *     reportPath: string,
+     *     payloadPath: string,
+     *     process: Process,
+     * }
+     */
+    private function prepareRun(Lead $lead): array
+    {
+        $service = new TempMailService();
+
+        $inbox = $service->createNewEmail();
+        $email = $inbox['email'] ?? null;
+
+        if (! $email) {
+            throw new \RuntimeException('No email address returned by temp-mail provider.');
+        }
+
+        $lead->update([
+            'temp_mail' => $email,
+            'temp_mail_provider' => config('services.temp_mail.provider', 'tempmailio'),
+            'temp_mail_created_at' => now(),
+            'temp_mail_last_checked_at' => null,
+            'temp_mail_last_code' => null,
+            'temp_mail_last_subject' => null,
+            'temp_mail_last_from' => null,
+            'temp_mail_last_message_id' => null,
+            'temp_mail_last_body_text' => null,
+        ]);
+
+        $dobForPayload = $lead->dob;
+        if (is_string($dobForPayload) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobForPayload)) {
+            try {
+                $dobForPayload = Carbon::parse($dobForPayload)->format('d/m/Y');
+            } catch (\Throwable) {
+                // leave as-is
+            }
+        }
+
+        $sessionId = (string) Str::uuid();
+        $sessionDir = storage_path('app/credit-check-v2/sessions/'.$sessionId);
+        $reportPath = storage_path('app/credit-check-v2/reports/'.$sessionId.'.pdf');
+
+        foreach ([$sessionDir, \dirname($reportPath)] as $dir) {
+            if (! is_dir($dir)) {
+                File::makeDirectory($dir, 0755, true);
+            }
+        }
+
+        file_put_contents($sessionDir.'/meta.json', json_encode([
+            'leadId' => $lead->id,
+            'sessionId' => $sessionId,
+        ], JSON_THROW_ON_ERROR));
+
+        $personalData = [
+            'title' => $lead->title ?: 'Mr',
+            'first_name' => $lead->first_name,
+            'middle_name' => $lead->middle_name,
+            'last_name' => $lead->last_name,
+            'dob' => $dobForPayload,
+            'phone_number' => $lead->phone_number,
+            'postcode' => $lead->postcode,
+            'house_number' => $lead->house_number,
+            'house_name' => $lead->house_name,
+            'building_number' => $lead->building_number,
+            'address_line_1' => $lead->address_line_1,
+        ];
+
+        $payload = [
+            'leadId' => $lead->id,
+            'sessionId' => $sessionId,
+            'sessionDir' => $sessionDir,
+            'reportPath' => $reportPath,
+            'creditCheckUrl' => 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
+            'personalData' => $personalData,
+            'tempMail' => $email,
+            'tempEmail' => $email,
+            'tempMailApi' => [
+                'baseUrl' => rtrim((string) config('services.temp_mail.base_url'), '/'),
+                'apiKey' => (string) config('services.temp_mail.key'),
+            ],
+        ];
+
+        $payloadPath = tempnam(sys_get_temp_dir(), 'ccv2_');
+        if ($payloadPath === false) {
+            throw new \RuntimeException('Could not create temp payload file.');
+        }
+
+        file_put_contents($payloadPath, json_encode($payload, JSON_THROW_ON_ERROR));
+
+        $script = base_path('scripts/credit-check-v2.mjs');
+        $timeout = (float) env('CREDIT_CHECK_V2_PROCESS_TIMEOUT', 7200);
+
+        $process = new Process(
+            ['node', $script, $payloadPath],
+            base_path(),
+            null,
+            null,
+            $timeout
+        );
+
+        return [
+            'email' => $email,
+            'sessionId' => $sessionId,
+            'sessionDir' => $sessionDir,
+            'reportPath' => $reportPath,
+            'payloadPath' => $payloadPath,
+            'process' => $process,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $prepared
+     */
+    private function jsonRun(Lead $lead, array $prepared): JsonResponse
+    {
+        $process = $prepared['process'];
+        $payloadPath = $prepared['payloadPath'];
+        $email = $prepared['email'];
+        $sessionId = $prepared['sessionId'];
+        $sessionDir = $prepared['sessionDir'];
+        $reportPath = $prepared['reportPath'];
+
+        $process->run();
+
+        @unlink($payloadPath);
+
+        $stdout = $process->getOutput();
+        $parsedEvents = self::parseCreditCheckJsonLines($stdout);
+        $securityQuestionsEvent = self::lastSecurityQuestionsEvent($parsedEvents);
+        $failedEvent = self::lastFailedEvent($parsedEvents);
+
+        $ok = self::computeRunOk($process, $parsedEvents);
+        $httpStatus = self::httpStatusForRun($process, $failedEvent);
+
+        return response()->json([
+            'ok' => $ok,
+            'exit_code' => $process->getExitCode(),
+            'email' => $email,
+            'sessionId' => $sessionId,
+            'sessionDir' => $sessionDir,
+            'reportPath' => $reportPath,
+            'answersUrl' => route('leads.credit-check-v2.answers', ['lead' => $lead, 'sessionId' => $sessionId]),
+            'events' => $parsedEvents,
+            'security_questions' => $securityQuestionsEvent,
+            'security_questions_events' => self::filterSecurityQuestionsEvents($parsedEvents),
+            'failed' => $failedEvent,
+            'stdout' => $stdout,
+            'stderr' => $process->getErrorOutput(),
+        ], $httpStatus);
+    }
+
+    /**
+     * Stream Node stdout/stderr live for the CRM terminal view.
+     *
+     * @param  array<string, mixed>  $prepared
+     */
+    private function streamRun(Lead $lead, array $prepared): StreamedResponse
+    {
+        $process = $prepared['process'];
+        $payloadPath = $prepared['payloadPath'];
+        $email = $prepared['email'];
+        $sessionId = $prepared['sessionId'];
+
+        $answersUrl = route('leads.credit-check-v2.answers', ['lead' => $lead, 'sessionId' => $sessionId]);
+
+        return response()->stream(function () use ($process, $payloadPath) {
+            try {
+                $process->start();
+
+                while ($process->isRunning()) {
+                    $out = $process->getIncrementalOutput();
+                    if ($out !== '') {
+                        echo $out;
+                    }
+                    $err = $process->getIncrementalErrorOutput();
+                    if ($err !== '') {
+                        echo $err;
+                    }
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
+                    flush();
+                    usleep(40000);
+                }
+
+                $rest = $process->getIncrementalOutput();
+                if ($rest !== '') {
+                    echo $rest;
+                }
+                $restErr = $process->getIncrementalErrorOutput();
+                if ($restErr !== '') {
+                    echo $restErr;
+                }
+            } finally {
+                @unlink($payloadPath);
+            }
+        }, 200, [
+            'Content-Type' => 'text/plain; charset=UTF-8',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+            'X-Credit-Check-Session-Id' => $sessionId,
+            'X-Credit-Check-Email' => $email,
+            'X-Credit-Check-Answers-Url' => $answersUrl,
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $parsedEvents
+     */
+    private static function computeRunOk(Process $process, array $parsedEvents): bool
+    {
+        if (! $process->isSuccessful()) {
+            return false;
+        }
+
+        return self::lastFailedEvent($parsedEvents) === null;
+    }
+
+    private static function httpStatusForRun(Process $process, ?array $failedEvent): int
+    {
+        if (! $process->isSuccessful()) {
+            return 500;
+        }
+
+        if ($failedEvent !== null) {
+            return 422;
+        }
+
+        return 200;
     }
 
     public function submitAnswers(Request $request, Lead $lead, string $sessionId): JsonResponse
@@ -216,6 +335,24 @@ class CreditCheckV2Controller extends Controller
         $last = null;
         foreach ($events as $event) {
             if (($event['status'] ?? null) === 'security_questions') {
+                $last = $event;
+            }
+        }
+
+        return $last;
+    }
+
+    /**
+     * Last terminal `status: failed` event (e.g. identity verification failed).
+     *
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<string, mixed>|null
+     */
+    private static function lastFailedEvent(array $events): ?array
+    {
+        $last = null;
+        foreach ($events as $event) {
+            if (($event['status'] ?? null) === 'failed') {
                 $last = $event;
             }
         }
