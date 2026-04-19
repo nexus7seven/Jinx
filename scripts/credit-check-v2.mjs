@@ -625,8 +625,12 @@ function scoreAddressOptionText(text, hints) {
 /** TUNE: below this, treat match as weak and use first real option instead. */
 const ADDRESS_STRONG_MATCH_MIN_SCORE = 28;
 
-/** TUNE: max wait for PAF dropdown after #find-address. */
-const ADDRESS_DROPDOWN_WAIT_MS = 8000;
+/** TUNE: max wait for PAF dropdown after #find-address (polling inside selectAddressDropdownMatchingJinx). */
+const ADDRESS_DROPDOWN_WAIT_MS = 12000;
+
+/** TUNE: total time to wait for address API / DOM after clicking #find-address. */
+const ADDRESS_LOOKUP_MAX_MS = 22000;
+const ADDRESS_LOOKUP_POLL_MS = 450;
 
 async function findFirstUsableOptionIndex(getTextAtIndex, length) {
   for (let i = 0; i < length; i++) {
@@ -634,6 +638,202 @@ async function findFirstUsableOptionIndex(getTextAtIndex, length) {
     if (t.length > 0 && !/select|choose|please/i.test(t)) return i;
   }
   return -1;
+}
+
+/**
+ * Rich logging for postcode / find-address debugging (before and after click).
+ */
+async function logAddressLookupDiagnostics(page, phaseLabel) {
+  const pc = page.locator('#Address_Postcode');
+  const fa = page.locator('#find-address');
+  const dd = page.locator('#address-dropdown');
+  let pcVal = '';
+  try {
+    pcVal = (await pc.inputValue().catch(() => '')).trim();
+  } catch {
+    pcVal = '';
+  }
+  const faCount = await fa.count().catch(() => 0);
+  const faVis = faCount ? await fa.first().isVisible().catch(() => false) : false;
+  const ddCount = await dd.count().catch(() => 0);
+  let ddVis = false;
+  let ddHiddenAttr = null;
+  let tag = '';
+  let optionCount = 0;
+  let itemCount = 0;
+  if (ddCount) {
+    ddVis = await dd.first().isVisible().catch(() => false);
+    ddHiddenAttr = await dd.first().getAttribute('hidden').catch(() => null);
+    tag = (await dd.first().evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
+    if (tag === 'select') {
+      optionCount = await dd.locator('option').count().catch(() => 0);
+    }
+    itemCount = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
+  }
+  const manualLinkVis = await page
+    .getByRole('link', { name: /enter.*address.*manually|can't find|cannot find your address|address not listed/i })
+    .first()
+    .isVisible()
+    .catch(() => false);
+  const manualLineVis = await page
+    .locator('#Address_AddressLine1, #AddressLine1, input[id*="AddressLine1" i]')
+    .first()
+    .isVisible()
+    .catch(() => false);
+
+  logStep(
+    `address: [${phaseLabel}] postcode="${pcVal}" find-address count=${faCount} visible=${faVis} | #address-dropdown count=${ddCount} visible=${ddVis} hiddenAttr=${ddHiddenAttr} tag=${tag} optionCount=${optionCount} itemCount=${itemCount} computedVisibilityOk=${ddVis} | manualLink=${manualLinkVis} manualLine=${manualLineVis}`,
+  );
+}
+
+/**
+ * After #find-address, wait for dropdown population, manual entry, or validation errors.
+ * @returns {Promise<{ mode: 'dropdown' | 'manual' | 'error' | 'none', details: Record<string, unknown> }>}
+ */
+async function waitForAddressLookupState(page) {
+  const deadline = Date.now() + ADDRESS_LOOKUP_MAX_MS;
+  let lastSnapshot = {};
+
+  while (Date.now() < deadline) {
+    const dd = page.locator('#address-dropdown');
+
+    const validationTexts = await page
+      .evaluate(() => {
+        const out = [];
+        const root =
+          document.querySelector('#Address_Postcode')?.closest('form') ||
+          document.querySelector('#wizard-step') ||
+          document.body;
+        root.querySelectorAll('.field-validation-error, span.field-validation-error').forEach((el) => {
+          const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) out.push(t.slice(0, 400));
+        });
+        root.querySelectorAll('[data-valmsg-for]').forEach((el) => {
+          const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) out.push(t.slice(0, 400));
+        });
+        return [...new Set(out)].slice(0, 12);
+      })
+      .catch(() => []);
+
+    const summaryErr = await page
+      .locator('.validation-summary-errors li, .validation-summary-valid')
+      .allTextContents()
+      .catch(() => []);
+    const errBlob = [...validationTexts, ...summaryErr.map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean)];
+    const hasHardError =
+      errBlob.length > 0 &&
+      errBlob.some((t) =>
+        /postcode|post code|address|find an address|invalid|not valid|no match|could not find|unable to find|enter a valid/i.test(
+          t,
+        ),
+      );
+
+    const ddCount = await dd.count().catch(() => 0);
+    let tag = '';
+    let optionCount = 0;
+    let itemCount = 0;
+    let ddVisible = false;
+    if (ddCount) {
+      tag = (await dd.first().evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
+      ddVisible = await dd.first().isVisible().catch(() => false);
+      if (tag === 'select') {
+        optionCount = await dd.locator('option').count().catch(() => 0);
+      }
+      itemCount = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
+    }
+
+    const manualLinkVis = await page
+      .getByRole('link', { name: /enter.*address.*manually|can't find|cannot find your address|address not listed/i })
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const manualLineVis = await page
+      .locator('#Address_AddressLine1, #AddressLine1, input[id*="AddressLine1" i]')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    lastSnapshot = {
+      errBlob: errBlob.slice(0, 8),
+      ddCount,
+      tag,
+      ddVisible,
+      optionCount,
+      itemCount,
+      manualLinkVis,
+      manualLineVis,
+    };
+
+    if (hasHardError) {
+      return { mode: 'error', details: { ...lastSnapshot, messages: errBlob } };
+    }
+
+    const selectPopulated = tag === 'select' && optionCount > 0;
+    const listPopulated = itemCount > 0;
+    const dropdownUsable = ddCount > 0 && (selectPopulated || listPopulated);
+
+    if (dropdownUsable) {
+      return {
+        mode: 'dropdown',
+        details: { ...lastSnapshot, selectPopulated, listPopulated },
+      };
+    }
+
+    if (manualLinkVis || manualLineVis) {
+      return { mode: 'manual', details: { ...lastSnapshot } };
+    }
+
+    await sleep(ADDRESS_LOOKUP_POLL_MS);
+  }
+
+  return { mode: 'none', details: lastSnapshot };
+}
+
+/**
+ * Wait until #address-dropdown is attached and has options/list items, or is visible with content (PAF can stay hidden until populated).
+ */
+async function waitForAddressDropdownReady(page) {
+  const dd = page.locator('#address-dropdown');
+  const until = Date.now() + ADDRESS_DROPDOWN_WAIT_MS;
+  while (Date.now() < until) {
+    const n = await dd.count().catch(() => 0);
+    if (n === 0) {
+      await sleep(200);
+      continue;
+    }
+    const first = dd.first();
+    await first.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {});
+    const tag = (await first.evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
+    const visible = await first.isVisible().catch(() => false);
+
+    if (tag === 'select') {
+      const oc = await dd.locator('option').count().catch(() => 0);
+      if (oc > 0) {
+        return true;
+      }
+    } else {
+      const ic = await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0);
+      if (ic > 0) {
+        return true;
+      }
+    }
+
+    if (visible) {
+      await sleep(200);
+      const tag2 = (await first.evaluate((el) => el.tagName.toLowerCase()).catch(() => '')) || '';
+      if (tag2 === 'select' && (await dd.locator('option').count().catch(() => 0)) > 0) return true;
+      if (
+        tag2 !== 'select' &&
+        (await dd.locator('[role="option"], li, a, div[role="option"]').count().catch(() => 0)) > 0
+      ) {
+        return true;
+      }
+    }
+
+    await sleep(200);
+  }
+  return false;
 }
 
 /**
@@ -656,14 +856,13 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
   );
 
   const dd = page.locator('#address-dropdown');
-  try {
-    await dd.waitFor({ state: 'visible', timeout: ADDRESS_DROPDOWN_WAIT_MS });
-  } catch (e) {
-    logStep(`address: #address-dropdown not visible (${e?.message || e})`);
+  const ready = await waitForAddressDropdownReady(page);
+  if (!ready) {
+    logStep('address: #address-dropdown not ready (no options/list items within timeout)');
     return { resolved: false };
   }
 
-  const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
+  const tag = await dd.first().evaluate((el) => el.tagName.toLowerCase());
 
   if (tag === 'select') {
     const opts = dd.locator('option');
@@ -846,25 +1045,64 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   });
 
   // JINX MAPPING: postcode → #Address_Postcode
+  const postcodeVal = String(personalData.postcode || '').trim();
   await fillIfPresent(page, 'Postcode #Address_Postcode', async () => {
-    await page.locator('#Address_Postcode').fill(String(personalData.postcode || '').trim());
+    await page.locator('#Address_Postcode').fill(postcodeVal);
   });
+  logStep(`address: postcode value before find-address: "${postcodeVal}"`);
 
-  await fillIfPresent(page, 'Find address #find-address', async () => {
-    await page.locator('#find-address').click({ timeout: 15000 });
-  });
+  await logAddressLookupDiagnostics(page, 'before find-address click');
 
-  await sleep(2000);
+  const pcLoc = page.locator('#Address_Postcode');
+  const findAddr = page.locator('#find-address');
+  await pcLoc.evaluate((el) => el.dispatchEvent(new Event('input', { bubbles: true })));
+  await pcLoc.evaluate((el) => el.dispatchEvent(new Event('change', { bubbles: true })));
+  await pcLoc.blur().catch(() => {});
+  await pcLoc.press('Tab').catch(() => {});
+
+  try {
+    await findAddr.click({ timeout: 15000 });
+    logStep('form: Find address #find-address — ok');
+  } catch (e) {
+    logStep(`form: Find address #find-address — failed (${e?.message || e})`);
+    throw e;
+  }
+  logStep('address: clicked #find-address (postcode blurred + change dispatched)');
+
+  await sleep(400);
+  await logAddressLookupDiagnostics(page, 'after find-address click');
+
+  const lookupState = await waitForAddressLookupState(page);
+  logStep(`address: waitForAddressLookupState → ${JSON.stringify(lookupState)}`);
 
   let addressResolved = false;
   try {
-    const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
-    if (ddResult.resolved) {
-      addressResolved = true;
-      logStep('form: Address #address-dropdown (match house/building) — ok');
-    } else {
-      logStep('address: dropdown not resolved — trying manual entry if offered');
+    if (lookupState.mode === 'error') {
+      logStep(`address: validation/error after lookup: ${JSON.stringify(lookupState.details)}`);
+    } else if (lookupState.mode === 'dropdown') {
+      const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
+      if (ddResult.resolved) {
+        addressResolved = true;
+        logStep('form: Address #address-dropdown (match house/building) — ok');
+      } else {
+        logStep('address: dropdown mode but selection failed — trying manual entry if offered');
+        if (await tryManualAddressEntry(page, personalData)) {
+          addressResolved = true;
+          logStep('form: Address manual entry — ok');
+        }
+      }
+    } else if (lookupState.mode === 'manual') {
       if (await tryManualAddressEntry(page, personalData)) {
+        addressResolved = true;
+        logStep('form: Address manual entry — ok');
+      }
+    } else {
+      logStep('address: lookup state none — attempting dropdown selection then manual as fallback');
+      const ddResult = await selectAddressDropdownMatchingJinx(page, personalData);
+      if (ddResult.resolved) {
+        addressResolved = true;
+        logStep('form: Address #address-dropdown (match house/building) — ok');
+      } else if (await tryManualAddressEntry(page, personalData)) {
         addressResolved = true;
         logStep('form: Address manual entry — ok');
       }
