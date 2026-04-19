@@ -964,25 +964,59 @@ async function run() {
     logProgress('Filling personal details…');
     logStep('stage: About You form (exact field IDs)');
     await fillAboutYouForm(page, personalData, tempEmail);
-    await sleep(4000);
+
+    let skipVerificationLinkPoll = false;
+    logStep('post-submit: settle loop (5×3s) — check negative / email-auth / KBA / PDF before temp-mail poll');
+    for (let i = 0; i < 5; i++) {
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+      if (await isEmailAuthenticationPage(page)) {
+        skipVerificationLinkPoll = true;
+        logStep('post-submit settle: email authentication page — skipping temp-mail verification-link poll');
+        break;
+      }
+      if (await isKbaWizardPage(page)) {
+        skipVerificationLinkPoll = true;
+        logProgress('Security questions detected…');
+        logStep('post-submit settle: KBA wizard — skipping temp-mail verification-link poll');
+        break;
+      }
+      if (await isPdfOfferVisible(page)) {
+        skipVerificationLinkPoll = true;
+        logStep('post-submit settle: PDF controls — skipping temp-mail verification-link poll');
+        break;
+      }
+      if (i < 4) {
+        await sleep(3000);
+      }
+    }
+
     if (await exitIfNegativeFailure(page)) {
       return;
     }
 
-    logProgress('Waiting for verification email…');
-    logStep('stage: poll temp-mail for verification link');
-    const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempEmail });
-    if (!verification?.url) {
-      emitJson({ success: false, error: 'verification_link_not_found' });
-      throw new Error('Verification link not found');
-    }
+    if (!skipVerificationLinkPoll) {
+      logProgress('Waiting for verification email…');
+      logStep('stage: poll temp-mail for verification link');
+      const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempEmail });
+      if (!verification?.url) {
+        emitJson({ success: false, error: 'verification_link_not_found' });
+        throw new Error('Verification link not found');
+      }
 
-    logProgress('Opening verification link…');
-    logStep('stage: open verification link');
-    await page.goto(verification.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await sleep(2500);
-    if (await exitIfNegativeFailure(page)) {
-      return;
+      logProgress('Opening verification link…');
+      logStep('stage: open verification link');
+      await page.goto(verification.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await sleep(2500);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+    } else {
+      await sleep(1500);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
     }
 
     if (await isEmailAuthenticationPage(page)) {
