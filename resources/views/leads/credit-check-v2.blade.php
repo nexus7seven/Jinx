@@ -71,7 +71,7 @@
                 data-stream-url="{{ $runUrl }}?stream=1"
                 style="background:#5b21b6; color:#ffffff; border:0; border-radius:8px; padding:12px 18px; font-size:14px; cursor:pointer;"
             >
-                Run automated credit check
+                Request statutory credit report
             </button>
             <button
                 type="button"
@@ -185,6 +185,23 @@
     /**
      * @param {'success'|'failed'|'security'|'cancelled'|'error'} kind
      */
+    function showValidationErrorBanner(message, errors) {
+        const errObj = errors && typeof errors === 'object' && ! Array.isArray(errors) ? errors : {};
+        const lines = Object.keys(errObj).map(function (k) {
+            return errObj[k];
+        });
+        resultBanner.style.display = 'block';
+        resultBanner.style.background = '#422006';
+        resultBanner.style.border = '1px solid #a16207';
+        resultBanner.style.color = '#fde68a';
+        const listHtml = lines.length
+            ? '<ul style="margin:10px 0 0 20px;padding:0;line-height:1.55;">' + lines.map(function (line) {
+                return '<li style="margin-bottom:4px;">' + escapeHtml(String(line)) + '</li>';
+            }).join('') + '</ul>'
+            : '';
+        resultBanner.innerHTML = '<strong>' + escapeHtml(message || 'Validation failed') + '</strong>' + listHtml;
+    }
+
     function showResultBanner(kind, title, detail) {
         const styles = {
             success: { bg: '#052e16', border: '#166534', color: '#bbf7d0' },
@@ -377,6 +394,21 @@
                 body: JSON.stringify({}),
                 signal: streamAbortController.signal,
             });
+
+            if (response.status === 422) {
+                let j = {};
+                try {
+                    j = await response.json();
+                } catch (e) {
+                    j = { message: 'Validation failed', errors: {} };
+                }
+                appendLiveLog('\n--- validation ---\n' + (j.message || 'Please fix the lead record.') + '\n');
+                showValidationErrorBanner(j.message, j.errors);
+                setStatus('Lead data incomplete', '#f59e0b');
+                sessionMeta.textContent = 'Update the lead on the main lead page, then try again.';
+                runnerOutput.textContent = JSON.stringify(j, null, 2);
+                return;
+            }
 
             const sessionId = response.headers.get('X-Credit-Check-Session-Id') || '';
             const email = response.headers.get('X-Credit-Check-Email') || '';

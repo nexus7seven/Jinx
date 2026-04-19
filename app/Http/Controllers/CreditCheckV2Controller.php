@@ -15,9 +15,21 @@ use Throwable;
 
 class CreditCheckV2Controller extends Controller
 {
+    /**
+     * Start statutory credit report automation (Playwright). Same entry point as "Request statutory credit report" in the UI.
+     */
     public function run(Request $request, Lead $lead): JsonResponse|StreamedResponse
     {
         try {
+            $validationErrors = $this->validateLeadForStatutoryCreditReport($lead);
+            if ($validationErrors !== []) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Please complete the required lead fields before requesting a statutory credit report.',
+                    'errors' => $validationErrors,
+                ], 422);
+            }
+
             $prepared = $this->prepareRun($lead);
 
             if ($request->boolean('stream') || $request->query('stream') === '1') {
@@ -31,6 +43,59 @@ class CreditCheckV2Controller extends Controller
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Strong validation before temp-mail / Playwright — avoids obvious failures from incomplete lead data.
+     *
+     * @return array<string, string> field key => user-facing message
+     */
+    private function validateLeadForStatutoryCreditReport(Lead $lead): array
+    {
+        $errors = [];
+
+        if (trim((string) ($lead->title ?? '')) === '') {
+            $errors['title'] = 'Title is required — select a title on the lead record.';
+        }
+
+        if (trim((string) ($lead->first_name ?? '')) === '') {
+            $errors['first_name'] = 'First name is required.';
+        }
+
+        if (trim((string) ($lead->last_name ?? '')) === '') {
+            $errors['last_name'] = 'Last name is required.';
+        }
+
+        $dobRaw = $lead->getAttribute('dob');
+        if ($dobRaw === null || $dobRaw === '') {
+            $errors['dob'] = 'Date of birth is required.';
+        } else {
+            $dobStr = is_string($dobRaw) ? trim($dobRaw) : trim((string) $dobRaw);
+            if ($dobStr === '') {
+                $errors['dob'] = 'Date of birth is required.';
+            } elseif (
+                ! preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}$/', $dobStr)
+                && ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobStr)
+            ) {
+                $errors['dob'] = 'Date of birth must be in DD/MM/YYYY format (e.g. 15/03/1990).';
+            }
+        }
+
+        if (trim((string) ($lead->phone_number ?? '')) === '') {
+            $errors['phone_number'] = 'Phone number is required — TransUnion needs a valid UK contact number.';
+        }
+
+        if (trim((string) ($lead->postcode ?? '')) === '') {
+            $errors['postcode'] = 'Postcode is required for address lookup.';
+        }
+
+        $house = trim((string) ($lead->house_number ?? ''));
+        $building = trim((string) ($lead->building_number ?? ''));
+        if ($house === '' && $building === '') {
+            $errors['house_number'] = 'Missing house number — enter a house number or building number for address lookup.';
+        }
+
+        return $errors;
     }
 
     /**

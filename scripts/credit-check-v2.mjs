@@ -584,9 +584,9 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
     await selectAddressDropdownMatchingJinx(page, personalData);
   });
 
-  await fillIfPresent(page, 'Terms #TermsOfUseAndPrivacyNoticeAccepted', async () => {
-    await page.locator('#TermsOfUseAndPrivacyNoticeAccepted').check({ force: true });
-  });
+  await page.check('#TermsOfUseAndPrivacyNoticeAccepted', { force: true });
+  logProgress('Agreed to Terms of Use');
+  logStep('form: Terms #TermsOfUseAndPrivacyNoticeAccepted — checked');
 
   await fillIfPresent(page, 'Submit #submit', async () => {
     const sub = page.locator('#submit');
