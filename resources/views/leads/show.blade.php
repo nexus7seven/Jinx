@@ -72,7 +72,9 @@
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
-        @php($leadDisplayName = $lead->formattedName())
+        @php
+            $leadDisplayName = $lead->formattedName();
+        @endphp
         @if($leadDisplayName !== '')
             <div style="margin:-8px 0 18px 0; font-size:20px; line-height:1.3; font-weight:600; color:#e5e7eb;">
                 {{ $leadDisplayName }}
@@ -146,7 +148,9 @@
                 >
             </div>
 
-            @php($titleField = old('title', $lead->title))
+            @php
+                $titleField = old('title', $lead->title);
+            @endphp
             <div>
                 <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Title</label>
                 <select
