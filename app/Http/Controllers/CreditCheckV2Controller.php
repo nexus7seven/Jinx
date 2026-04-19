@@ -203,6 +203,9 @@ class CreditCheckV2Controller extends Controller
             base_path(),
             [
                 'PLAYWRIGHT_BROWSERS_PATH' => (string) config('services.playwright_browsers_path', '/var/www/.cache/ms-playwright'),
+                'PATH' => '/opt/node-v24.11.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                'HOME' => '/var/www',
+                'NODE_ENV' => 'production',
             ],
             null,
             $timeout
