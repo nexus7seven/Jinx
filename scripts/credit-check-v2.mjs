@@ -1216,11 +1216,87 @@ async function waitForPossibleAddressesSelectReady(page) {
   return false;
 }
 
-/** Per-attempt wait for `#PossibleAddresses_SelectedItemValue` to gain real options after a trigger interaction. */
-const ADDRESS_LOOKUP_TRIGGER_WAIT_PER_ATTEMPT_MS = 10000;
+/** Poll after #find-address: select real options or wrapper HTML grows materially vs baseline. */
+const ADDRESS_LOOKUP_POPULATE_WAIT_MS = 10000;
+const ADDRESS_LOOKUP_POPULATE_POLL_MS = 250;
+/**
+ * Empty wrapper ~100–200 chars; populated ~7k+. Growth vs pre-click baseline to treat as populated
+ * when select is not yet enumerable.
+ */
+const ADDRESS_WRAPPER_MIN_GROWTH = 800;
 
 function addressLookupNetworkUrlMatches(url) {
   return /Address|PossibleAddresses|AboutYou|CreditReport|ajax|Find/i.test(String(url || ''));
+}
+
+function pickAddressUrlMatches(url) {
+  return /PickAddress/i.test(String(url || ''));
+}
+
+/** True when `select#PossibleAddresses_SelectedItemValue` exists and has &gt;0 non-placeholder options. */
+async function addressLookupIsReady(page) {
+  return possibleAddressesSelectHasRealOptions(page);
+}
+
+/**
+ * Metrics for #address-dropdown wrapper and the real PAF &lt;select&gt;.
+ * @returns {Promise<{ wrapperExists: boolean, wrapperVisible: boolean, wrapperHtmlLength: number, selectExists: boolean, optionCount: number, realOptionCount: number, selectedValue: string }>}
+ */
+async function getAddressDropdownMetrics(page) {
+  const wrap = page.locator('#address-dropdown');
+  const wrapperExists = (await wrap.count().catch(() => 0)) > 0;
+  let wrapperVisible = false;
+  let wrapperHtmlLength = 0;
+  if (wrapperExists) {
+    wrapperVisible = await wrap.first().isVisible().catch(() => false);
+    const html = (await wrap.first().innerHTML().catch(() => '')) || '';
+    wrapperHtmlLength = html.length;
+  }
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  const selectExists = (await sel.count().catch(() => 0)) > 0;
+  let optionCount = 0;
+  let realOptionCount = 0;
+  let selectedValue = '';
+  if (selectExists) {
+    const opts = sel.first().locator('option');
+    optionCount = await opts.count().catch(() => 0);
+    for (let i = 0; i < optionCount; i++) {
+      const val = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+      const text = (await opts.nth(i).innerText().catch(() => '')).trim();
+      if (!isPlaceholderAddressOption(val, text)) realOptionCount++;
+    }
+    selectedValue = (await sel.first().inputValue().catch(() => '')) || '';
+  }
+  return {
+    wrapperExists,
+    wrapperVisible,
+    wrapperHtmlLength,
+    selectExists,
+    optionCount,
+    realOptionCount,
+    selectedValue,
+  };
+}
+
+function addressWrapperGrewMaterially(metrics, baselineHtmlLength) {
+  return metrics.wrapperHtmlLength - baselineHtmlLength >= ADDRESS_WRAPPER_MIN_GROWTH;
+}
+
+async function addressLookupPopulationDetected(page, baselineHtmlLength) {
+  if (await addressLookupIsReady(page)) return true;
+  const m = await getAddressDropdownMetrics(page);
+  return addressWrapperGrewMaterially(m, baselineHtmlLength);
+}
+
+async function waitForAddressLookupPopulation(page, baselineHtmlLength, timeoutMs = ADDRESS_LOOKUP_POPULATE_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await addressLookupPopulationDetected(page, baselineHtmlLength)) {
+      return true;
+    }
+    await sleep(ADDRESS_LOOKUP_POPULATE_POLL_MS);
+  }
+  return false;
 }
 
 async function gatherAddressLookupDomDebug(page) {
@@ -1274,6 +1350,7 @@ function safeSerializeTriggerResult(result) {
   if (!result || typeof result !== 'object') return result;
   return {
     success: result.success,
+    successPath: result.successPath,
     possibleAddressesSelectExists: result.possibleAddressesSelectExists,
     realOptionCount: result.realOptionCount,
     attempts: result.attempts,
@@ -1338,7 +1415,7 @@ async function ensurePostcodeReadyForLookup(page, expectedPostcode, attemptNum) 
 
 /**
  * Prove whether `#find-address` caused network activity and `#PossibleAddresses_SelectedItemValue` to populate.
- * @param {string} expectedPostcode Jinx postcode — re-applied before each attempt
+ * @param {string} expectedPostcode Jinx postcode — re-applied before find-address clicks
  */
 async function tryTriggerAddressLookup(page, expectedPostcode) {
   const seenRequests = [];
@@ -1371,92 +1448,115 @@ async function tryTriggerAddressLookup(page, expectedPostcode) {
   const findAddr = page.locator('#find-address');
   const attempts = [];
 
-  const pollForPopulatedSelect = async () => {
-    const deadline = Date.now() + ADDRESS_LOOKUP_TRIGGER_WAIT_PER_ATTEMPT_MS;
-    while (Date.now() < deadline) {
-      if (await possibleAddressesSelectHasRealOptions(page)) {
-        return true;
-      }
-      await sleep(300);
-    }
-    return false;
-  };
+  const pickAddressFiredSince = (reqCountBefore) =>
+    seenRequests.slice(reqCountBefore).some((r) => pickAddressUrlMatches(r.url));
 
-  const runAttempt = async (attemptNum, label, action) => {
-    logStep(`address lookup ${label}`);
+  const runClickWithInterceptRetry = async (clickFn, phaseLabel) => {
+    const exec = async () => {
+      await clickFn();
+    };
     try {
-      const execAction = async () => {
-        await action();
-      };
-      try {
-        await execAction();
-      } catch (e) {
-        const msg = String(e?.message || e);
-        const intercept =
-          /intercepts pointer|CookieBanner|cookie|modal|overlay/i.test(msg) ||
-          /subtree intercepts pointer/i.test(msg);
-        if (intercept) {
-          logStep(`address lookup: click intercepted (cookie/modal likely) — ${msg.slice(0, 240)}`);
-          await ensureCookieBannerDismissed(page, 'after-pointer-intercept');
-          const stillBlocking = await isCookieBannerBlockingInteractions(page);
-          logStep(`cookie banner: blocking after dismiss = ${stillBlocking}`);
-          try {
-            await execAction();
-          } catch (e2) {
-            const domAfter = await gatherAddressLookupDomDebug(page);
-            attempts.push({
-              label,
-              error: String(e2?.message || e2),
-              domAfter,
-              retriedAfterCookieDismiss: true,
-            });
-            return false;
-          }
-        } else {
-          const domAfter = await gatherAddressLookupDomDebug(page);
-          attempts.push({ label, error: msg, domAfter });
-          return false;
-        }
+      await exec();
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const intercept =
+        /intercepts pointer|CookieBanner|cookie|modal|overlay/i.test(msg) ||
+        /subtree intercepts pointer/i.test(msg);
+      if (intercept) {
+        logStep(`address lookup: click intercepted (${phaseLabel}) — ${msg.slice(0, 240)}`);
+        await ensureCookieBannerDismissed(page, 'after-pointer-intercept');
+        await exec();
+      } else {
+        throw e;
       }
-      await sleep(400);
-      const ok = await pollForPopulatedSelect();
-      const domAfter = await gatherAddressLookupDomDebug(page);
-      logStep(
-        `address lookup dom after ${label}: select=${domAfter.possibleAddressesSelectExists} options=${domAfter.optionCount} realOptions=${domAfter.realOptionCount} hiddenSelectListInputs=${domAfter.hiddenSelectListInputCount} wrapperHtmlLen=${domAfter.addressDropdownInnerHTMLLength}`,
-      );
-      attempts.push({ label, ok, domAfter });
-      return ok;
-    } finally {
-      const afterVal = ((await page.locator('#Address_Postcode').inputValue().catch(() => '')) || '').trim();
-      logStep(`address lookup attempt ${attemptNum} postcode after attempt: "${afterVal}"`);
     }
   };
 
-  /** Minimal triggers only — avoid Enter / postcode re-clicks that can clear the field. */
-  const sequence = [
-    [
-      'attempt 1: normal click #find-address',
-      async () => {
-        await findAddr.click({ timeout: 15000 });
-      },
-    ],
-    [
-      'attempt 2: forced click #find-address',
-      async () => {
-        await findAddr.click({ force: true, timeout: 15000 });
-      },
-    ],
-  ];
+  await ensureCookieBannerDismissed(page, 'attempt-1');
+  await ensurePostcodeReadyForLookup(page, expectedPostcode, 1);
+
+  const postcodeBefore = ((await page.locator('#Address_Postcode').inputValue().catch(() => '')) || '').trim();
+  const baselineMetrics = await getAddressDropdownMetrics(page);
+  const baselineHtmlLength = baselineMetrics.wrapperHtmlLength;
+  logStep(
+    `address lookup baseline metrics: ${JSON.stringify({
+      postcodeCurrent: postcodeBefore,
+      wrapperHtmlLength: baselineMetrics.wrapperHtmlLength,
+      selectExists: baselineMetrics.selectExists,
+      optionCount: baselineMetrics.optionCount,
+      realOptionCount: baselineMetrics.realOptionCount,
+    })}`,
+  );
 
   let success = false;
-  let attemptIndex = 0;
-  for (const [label, fn] of sequence) {
-    attemptIndex += 1;
-    await ensureCookieBannerDismissed(page, `attempt-${attemptIndex}`);
-    await ensurePostcodeReadyForLookup(page, expectedPostcode, attemptIndex);
-    if (await runAttempt(attemptIndex, label, fn)) {
+  /** @type {'already_populated'|'after_normal_click'|'after_forced_click'|null} */
+  let successPath = null;
+
+  if (await addressLookupIsReady(page)) {
+    success = true;
+    successPath = 'already_populated';
+    logStep('address lookup success path: already populated before click');
+    attempts.push({
+      phase: 'skip_find_address',
+      ok: true,
+      metricsBefore: baselineMetrics,
+      metricsAfter: baselineMetrics,
+      pickAddressFired: false,
+    });
+  } else {
+    const metricsNormalBefore = await getAddressDropdownMetrics(page);
+    const reqBeforeNormal = seenRequests.length;
+    logStep(`address lookup before normal click: ${JSON.stringify(metricsNormalBefore)}`);
+    await runClickWithInterceptRetry(() => findAddr.click({ timeout: 15000 }), 'normal');
+
+    const okNormal = await waitForAddressLookupPopulation(page, baselineHtmlLength, ADDRESS_LOOKUP_POPULATE_WAIT_MS);
+    const metricsNormalAfter = await getAddressDropdownMetrics(page);
+    const pickNormal = pickAddressFiredSince(reqBeforeNormal);
+    logStep(`address lookup after normal click: ${JSON.stringify(metricsNormalAfter)}`);
+    logStep(
+      `address lookup normal click summary: wrapperHtmlLen before=${metricsNormalBefore.wrapperHtmlLength} after=${metricsNormalAfter.wrapperHtmlLength} selectExists=${metricsNormalAfter.selectExists} realOptionCount=${metricsNormalAfter.realOptionCount} pickAddressFired=${pickNormal}`,
+    );
+    attempts.push({
+      phase: 'normal_click',
+      ok: okNormal,
+      metricsBefore: metricsNormalBefore,
+      metricsAfter: metricsNormalAfter,
+      pickAddressFired: pickNormal,
+    });
+
+    if (okNormal) {
       success = true;
-      break;
+      successPath = 'after_normal_click';
+      logStep('address lookup success path: populated after normal click');
+    } else {
+      await ensurePostcodeReadyForLookup(page, expectedPostcode, 2);
+      const baselineForForced = baselineHtmlLength;
+      const metricsForcedBefore = await getAddressDropdownMetrics(page);
+      const reqBeforeForced = seenRequests.length;
+      logStep(`address lookup before forced click: ${JSON.stringify(metricsForcedBefore)}`);
+
+      await runClickWithInterceptRetry(() => findAddr.click({ force: true, timeout: 15000 }), 'forced');
+
+      const okForced = await waitForAddressLookupPopulation(page, baselineForForced, ADDRESS_LOOKUP_POPULATE_WAIT_MS);
+      const metricsForcedAfter = await getAddressDropdownMetrics(page);
+      const pickForced = pickAddressFiredSince(reqBeforeForced);
+      logStep(`address lookup after forced click: ${JSON.stringify(metricsForcedAfter)}`);
+      logStep(
+        `address lookup forced click summary: wrapperHtmlLen before=${metricsForcedBefore.wrapperHtmlLength} after=${metricsForcedAfter.wrapperHtmlLength} selectExists=${metricsForcedAfter.selectExists} realOptionCount=${metricsForcedAfter.realOptionCount} pickAddressFired=${pickForced}`,
+      );
+      attempts.push({
+        phase: 'forced_click',
+        ok: okForced,
+        metricsBefore: metricsForcedBefore,
+        metricsAfter: metricsForcedAfter,
+        pickAddressFired: pickForced,
+      });
+
+      if (okForced) {
+        success = true;
+        successPath = 'after_forced_click';
+        logStep('address lookup success path: populated after forced click');
+      }
     }
   }
 
@@ -1465,11 +1565,20 @@ async function tryTriggerAddressLookup(page, expectedPostcode) {
 
   const finalDom = await gatherAddressLookupDomDebug(page);
   if (!success) {
-    success = await possibleAddressesSelectHasRealOptions(page);
+    success =
+      (await addressLookupIsReady(page)) ||
+      addressWrapperGrewMaterially(
+        { wrapperHtmlLength: finalDom.addressDropdownInnerHTMLLength },
+        baselineHtmlLength,
+      );
+    if (success) {
+      logStep('address lookup resolved: success=true path=final_dom_fallback');
+    }
   }
 
   return {
     success,
+    successPath,
     possibleAddressesSelectExists: finalDom.possibleAddressesSelectExists,
     realOptionCount: finalDom.realOptionCount,
     attempts,
