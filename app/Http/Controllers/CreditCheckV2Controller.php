@@ -171,6 +171,11 @@ class CreditCheckV2Controller extends Controller
         $ok = self::computeRunOk($process, $parsedEvents);
         $httpStatus = self::httpStatusForRun($process, $failedEvent);
 
+        $userMessage = null;
+        if ($failedEvent !== null) {
+            $userMessage = (string) ($failedEvent['message'] ?? self::identityVerificationFailedMessage());
+        }
+
         return response()->json([
             'ok' => $ok,
             'exit_code' => $process->getExitCode(),
@@ -183,6 +188,7 @@ class CreditCheckV2Controller extends Controller
             'security_questions' => $securityQuestionsEvent,
             'security_questions_events' => self::filterSecurityQuestionsEvents($parsedEvents),
             'failed' => $failedEvent,
+            'message' => $userMessage,
             'stdout' => $stdout,
             'stderr' => $process->getErrorOutput(),
         ], $httpStatus);
@@ -369,5 +375,14 @@ class CreditCheckV2Controller extends Controller
         return array_values(array_filter($events, function ($event) {
             return ($event['status'] ?? null) === 'security_questions';
         }));
+    }
+
+    /**
+     * User-facing copy when {@see lastFailedEvent()} reports identity verification failure.
+     * Wording is mirrored in {@see scripts/credit-check-v2.mjs} (IDENTITY_FAILURE_USER_MESSAGE).
+     */
+    private static function identityVerificationFailedMessage(): string
+    {
+        return 'TransUnion was unable to verify your identity automatically. You can try again later or request by post.';
     }
 }

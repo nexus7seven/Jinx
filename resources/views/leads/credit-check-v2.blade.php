@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Credit Check v2 - Lead {{ $lead->id }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <style>
+        @keyframes ccv2-spin {
+            to { transform: rotate(360deg); }
+        }
+        .ccv2-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(134, 239, 172, 0.25);
+            border-top-color: #86efac;
+            border-radius: 50%;
+            animation: ccv2-spin 0.7s linear infinite;
+            vertical-align: middle;
+        }
+    </style>
 </head>
 <body style="margin:0; font-family:Arial,sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 
@@ -14,6 +29,8 @@
 @endphp
 
 <div style="max-width:920px; margin:0 auto; padding:16px; box-sizing:border-box;">
+
+    <div id="ccv2ResultBanner" role="status" aria-live="polite" style="display:none; margin-bottom:16px; border-radius:12px; padding:14px 16px; font-size:14px; line-height:1.5; border:1px solid transparent;"></div>
 
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:18px; box-sizing:border-box; margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
@@ -46,7 +63,7 @@
             If the run pauses on security questions, the HTTP stream blocks until <code style="color:#e5e7eb;">answers.json</code> is supplied (POST to answers URL or write the file). Use another tab or curl to submit answers while this page waits; the modal shows the questions parsed from the stream.
         </div>
 
-        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
             <button
                 type="button"
                 id="runCreditCheckV2Btn"
@@ -55,6 +72,14 @@
                 style="background:#5b21b6; color:#ffffff; border:0; border-radius:8px; padding:12px 18px; font-size:14px; cursor:pointer;"
             >
                 Run automated credit check
+            </button>
+            <button
+                type="button"
+                id="cancelCreditCheckV2Btn"
+                disabled
+                style="background:#374151; color:#9ca3af; border:1px solid #4b5563; border-radius:8px; padding:12px 18px; font-size:14px; cursor:not-allowed;"
+            >
+                Cancel
             </button>
         </div>
     </div>
@@ -68,15 +93,23 @@
 
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:16px; margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-            <div style="font-size:14px; font-weight:700;">Live log</div>
-            <button type="button" id="clearLiveLogBtn" style="background:#1f2937; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:8px 12px; font-size:12px; cursor:pointer;">
-                Clear log
-            </button>
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="font-size:14px; font-weight:700;">Live log</div>
+                <div id="streamSpinnerWrap" style="display:none; align-items:center; gap:8px;" aria-hidden="true">
+                    <span class="ccv2-spinner"></span>
+                    <span style="font-size:13px; color:#86efac; font-weight:600;">Running…</span>
+                </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" id="clearLiveLogBtn" style="background:#1f2937; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:8px 12px; font-size:12px; cursor:pointer;">
+                    Clear log
+                </button>
+            </div>
         </div>
         <div style="font-size:11px; color:#6b7280; margin-bottom:8px; line-height:1.4;">
             Streamed <code style="color:#9ca3af;">stdout</code>/<code style="color:#9ca3af;">stderr</code> from the Playwright script (terminal style). Lines prefixed with <code style="color:#86efac;">[credit-check-v2]</code> include progress and machine-readable JSON events.
         </div>
-        <pre id="creditCheckLiveLog" style="margin:0; padding:12px 14px; min-height:180px; max-height:340px; overflow:auto; box-sizing:border-box; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; line-height:1.45; white-space:pre-wrap; word-break:break-word; background:#050505; color:#bbf7d0; border:1px solid #14532d; border-radius:10px; box-shadow:inset 0 0 0 1px #022c22;">—</pre>
+        <pre id="creditCheckLiveLog" style="margin:0; padding:12px 14px; height:280px; min-height:280px; max-height:280px; overflow-x:hidden; overflow-y:auto; box-sizing:border-box; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; line-height:1.45; white-space:pre-wrap; word-break:break-word; background:#030303; color:#86efac; border:1px solid #14532d; border-radius:10px; box-shadow:inset 0 0 0 1px #022c22;">—</pre>
     </div>
 
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:16px;">
@@ -105,17 +138,24 @@
 </div>
 
 <script>
+    const IDENTITY_FAILED_HINT = 'TransUnion was unable to verify your identity automatically. You can try again later or request by post.';
+
     const runnerStatus = document.getElementById('runnerStatus');
     const runnerOutput = document.getElementById('runnerOutput');
     const creditCheckLiveLog = document.getElementById('creditCheckLiveLog');
     const clearLiveLogBtn = document.getElementById('clearLiveLogBtn');
     const sessionMeta = document.getElementById('sessionMeta');
     const runBtn = document.getElementById('runCreditCheckV2Btn');
+    const cancelBtn = document.getElementById('cancelCreditCheckV2Btn');
+    const streamSpinnerWrap = document.getElementById('streamSpinnerWrap');
+    const resultBanner = document.getElementById('ccv2ResultBanner');
     const securityModal = document.getElementById('securityQuestionsModal');
     const securityQuestionsList = document.getElementById('securityQuestionsList');
     const closeSecurityModal = document.getElementById('closeSecurityModal');
     const answersJsonDraft = document.getElementById('answersJsonDraft');
     const copyAnswersDraftBtn = document.getElementById('copyAnswersDraftBtn');
+
+    let streamAbortController = null;
 
     function csrfToken() {
         const m = document.querySelector('meta[name="csrf-token"]');
@@ -133,6 +173,41 @@
         return d.innerHTML;
     }
 
+    function setStreamingUi(active) {
+        streamSpinnerWrap.style.display = active ? 'flex' : 'none';
+        cancelBtn.disabled = !active;
+        cancelBtn.style.cursor = active ? 'pointer' : 'not-allowed';
+        cancelBtn.style.color = active ? '#f9fafb' : '#9ca3af';
+        cancelBtn.style.background = active ? '#b91c1c' : '#374151';
+        cancelBtn.style.borderColor = active ? '#ef4444' : '#4b5563';
+    }
+
+    /**
+     * @param {'success'|'failed'|'security'|'cancelled'|'error'} kind
+     */
+    function showResultBanner(kind, title, detail) {
+        const styles = {
+            success: { bg: '#052e16', border: '#166534', color: '#bbf7d0' },
+            failed: { bg: '#450a0a', border: '#991b1b', color: '#fecaca' },
+            security: { bg: '#422006', border: '#a16207', color: '#fde68a' },
+            cancelled: { bg: '#1e293b', border: '#475569', color: '#e2e8f0' },
+            error: { bg: '#450a0a', border: '#991b1b', color: '#fecaca' },
+        };
+        const s = styles[kind] || styles.error;
+        resultBanner.style.display = 'block';
+        resultBanner.style.background = s.bg;
+        resultBanner.style.borderColor = s.border;
+        resultBanner.style.color = s.color;
+        resultBanner.innerHTML =
+            '<strong>' + escapeHtml(title) + '</strong>' +
+            (detail ? '<div style="margin-top:6px;font-size:13px;opacity:0.95;">' + escapeHtml(detail) + '</div>' : '');
+    }
+
+    function hideResultBanner() {
+        resultBanner.style.display = 'none';
+        resultBanner.innerHTML = '';
+    }
+
     function appendLiveLog(chunk) {
         if (creditCheckLiveLog.textContent === '—' && chunk.length) {
             creditCheckLiveLog.textContent = '';
@@ -143,6 +218,12 @@
 
     clearLiveLogBtn.addEventListener('click', function () {
         creditCheckLiveLog.textContent = '';
+    });
+
+    cancelBtn.addEventListener('click', function () {
+        if (streamAbortController) {
+            streamAbortController.abort();
+        }
     });
 
     function parseCreditCheckJsonLines(stdout) {
@@ -232,13 +313,22 @@
         const ok = !failed && success;
 
         if (failed && failed.reason === 'identity_verification_failed') {
-            setStatus('Failed: identity verification failed', '#ef4444');
+            const detail = (failed.message && String(failed.message).trim()) ? String(failed.message) : IDENTITY_FAILED_HINT;
+            setStatus('Identity verification failed', '#ef4444');
+            showResultBanner('failed', 'Identity verification failed', detail);
         } else if (success) {
             setStatus('Finished', '#10b981');
+            showResultBanner('success', 'Credit check completed', 'The statutory report PDF was saved successfully.');
         } else if (!failed && sq && sq.status === 'security_questions') {
             setStatus('Waiting for security answers…', '#fbbf24');
+            showResultBanner(
+                'security',
+                'Security questions required',
+                'Submit answers using the modal below or POST JSON to the answers URL. This page will continue automatically once answers are received.'
+            );
         } else {
             setStatus('Failed or incomplete', '#ef4444');
+            showResultBanner('error', 'Run did not complete', 'Check the live log and parsed result for details.');
         }
 
         const successEv = events.find(function (e) { return e.success === true; });
@@ -253,6 +343,7 @@
             security_questions: sq,
             security_questions_events: events.filter(function (e) { return e.status === 'security_questions'; }),
             failed: failed,
+            message: failed && failed.message ? failed.message : null,
         };
         runnerOutput.textContent = JSON.stringify(summary, null, 2);
 
@@ -263,12 +354,15 @@
 
     runBtn.addEventListener('click', async function () {
         runBtn.disabled = true;
+        hideResultBanner();
+        setStreamingUi(true);
         setStatus('Running Playwright…', '#fbbf24');
         creditCheckLiveLog.textContent = '';
         appendLiveLog('Starting streamed run…\n');
         sessionMeta.textContent = 'Connecting…';
         runnerOutput.textContent = '…';
 
+        streamAbortController = new AbortController();
         const streamUrl = runBtn.getAttribute('data-stream-url') || (runBtn.dataset.url + '?stream=1');
 
         try {
@@ -281,6 +375,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                 },
                 body: JSON.stringify({}),
+                signal: streamAbortController.signal,
             });
 
             const sessionId = response.headers.get('X-Credit-Check-Session-Id') || '';
@@ -300,10 +395,12 @@
             if (!response.ok) {
                 const ct = response.headers.get('Content-Type') || '';
                 let errText = 'HTTP ' + response.status;
+                let apiMessage = '';
                 if (ct.indexOf('application/json') !== -1) {
                     try {
                         const j = await response.json();
-                        errText = j.message || JSON.stringify(j);
+                        apiMessage = j.message ? String(j.message) : '';
+                        errText = apiMessage || JSON.stringify(j);
                     } catch (e) {
                         errText = await response.text();
                     }
@@ -313,6 +410,7 @@
                 appendLiveLog('\n--- error ---\n' + errText + '\n');
                 runnerOutput.textContent = errText;
                 setStatus('Request failed', '#ef4444');
+                showResultBanner('error', 'Request failed', apiMessage || errText);
                 return;
             }
 
@@ -339,11 +437,22 @@
 
             applyResultFromBuffer(buffer, { email: email, sessionId: sessionId, answersUrl: answersUrl });
         } catch (e) {
-            const msg = String(e);
-            appendLiveLog('\n--- exception ---\n' + msg + '\n');
-            runnerOutput.textContent = msg;
-            setStatus('Request failed', '#ef4444');
+            const name = e && e.name ? e.name : '';
+            if (name === 'AbortError') {
+                appendLiveLog('\n--- cancelled ---\nRequest aborted by user.\n');
+                setStatus('Cancelled', '#94a3b8');
+                showResultBanner('cancelled', 'Run cancelled', 'The browser stopped waiting for the server stream. If the Playwright process was still running on the server, it may continue until it finishes or times out.');
+                runnerOutput.textContent = '{"cancelled":true}';
+            } else {
+                const msg = String(e);
+                appendLiveLog('\n--- exception ---\n' + msg + '\n');
+                runnerOutput.textContent = msg;
+                setStatus('Request failed', '#ef4444');
+                showResultBanner('error', 'Request error', msg);
+            }
         } finally {
+            setStreamingUi(false);
+            streamAbortController = null;
             runBtn.disabled = false;
         }
     });

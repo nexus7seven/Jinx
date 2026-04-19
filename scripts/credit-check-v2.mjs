@@ -54,10 +54,14 @@ function logStep(description) {
   process.stdout.write(`[credit-check-v2] ${new Date().toISOString()} ${description}\n`);
 }
 
+/** Shown in CRM / API; keep in sync with CreditCheckV2Controller::identityVerificationFailedMessage(). */
+const IDENTITY_FAILURE_USER_MESSAGE =
+  'TransUnion was unable to verify your identity automatically. You can try again later or request by post.';
+
 const IDENTITY_FAILURE_PAYLOAD = {
   status: 'failed',
   reason: 'identity_verification_failed',
-  message: 'TransUnion could not verify identity automatically',
+  message: IDENTITY_FAILURE_USER_MESSAGE,
 };
 
 /**
@@ -89,9 +93,10 @@ async function exitIfNegativeFailure(page) {
   if (!(await isNegativeIdVerificationPage(page))) {
     return false;
   }
-  logProgress('Failed: identity verification failed');
+  logProgress('Failed: identity could not be verified online');
   logStep('negative-id: TransUnion negative ID verification / sorry page detected');
   emitJson(IDENTITY_FAILURE_PAYLOAD);
+  logStep(`negative-id: ${IDENTITY_FAILURE_USER_MESSAGE}`);
   return true;
 }
 
@@ -921,6 +926,10 @@ async function run() {
     logProgress('Filling personal details…');
     logStep('stage: About You form (exact field IDs)');
     await fillAboutYouForm(page, personalData, tempEmail);
+    await sleep(4000);
+    if (await exitIfNegativeFailure(page)) {
+      return;
+    }
 
     logProgress('Waiting for verification email…');
     logStep('stage: poll temp-mail for verification link');
@@ -1034,8 +1043,11 @@ async function run() {
       const answersPayload = await waitForAnswersFile(sessionDir, answerTimeout);
       await applyKbaRadioAnswers(page, answersPayload.answers || [], extracted);
       await clickKbaContinue(page);
-      await sleep(4000);
-
+      await sleep(2000);
+      if (await exitIfNegativeFailure(page)) {
+        return;
+      }
+      await sleep(2000);
       if (await exitIfNegativeFailure(page)) {
         return;
       }
