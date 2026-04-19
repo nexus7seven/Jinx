@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use App\Models\Lead;
 use App\Models\Debt;
 use App\Models\Creditor;
@@ -136,6 +138,7 @@ Route::middleware('auth')->group(function () {
         $lead = Lead::findOrFail($id);
 
         $allowedFields = [
+            'title',
             'first_name',
             'last_name',
             'dob',
@@ -154,6 +157,14 @@ Route::middleware('auth')->group(function () {
                 'success' => false,
                 'message' => 'Invalid field',
             ], 422);
+        }
+
+        if ($field === 'title') {
+            $value = ($value === '' || $value === null) ? null : $value;
+            Validator::make(
+                ['value' => $value],
+                ['value' => ['nullable', 'string', 'max:10', Rule::in(Lead::TITLES)]]
+            )->validate();
         }
 
         $lead->{$field} = $value;

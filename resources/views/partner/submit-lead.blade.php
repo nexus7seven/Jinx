@@ -28,6 +28,17 @@
         <form method="POST" action="{{ route('partner.lead.store', ['token' => $partner->token]) }}">
             @csrf
 
+            <div style="margin-bottom:14px;">
+                <label style="display:block; margin-bottom:6px; font-size:14px;">Title</label>
+                <select name="title"
+                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc; font-size:14px;">
+                    <option value="" @selected(old('title', '') === '')>Select title</option>
+                    @foreach (\App\Models\Lead::TITLES as $t)
+                        <option value="{{ $t }}" @selected(old('title') === $t)>{{ $t }}</option>
+                    @endforeach
+                </select>
+            </div>
+
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
                 <div>
                     <label style="display:block; margin-bottom:6px; font-size:14px;">First name</label>

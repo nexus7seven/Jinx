@@ -72,6 +72,13 @@
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
         <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
 
+        @php($leadDisplayName = $lead->formattedName())
+        @if($leadDisplayName !== '')
+            <div style="margin:-8px 0 18px 0; font-size:20px; line-height:1.3; font-weight:600; color:#e5e7eb;">
+                {{ $leadDisplayName }}
+            </div>
+        @endif
+
         <div id="saveStatus" style="margin-bottom:22px; font-size:14px; color:#9ca3af;">
             Ready
         </div>
@@ -137,6 +144,20 @@
                     disabled
                     style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#6b7280; margin:0;"
                 >
+            </div>
+
+            @php($titleField = old('title', $lead->title))
+            <div>
+                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Title</label>
+                <select
+                    data-field="title"
+                    style="display:block; width:100%; max-width:420px; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px;"
+                >
+                    <option value="" @selected($titleField === null || $titleField === '')>Select title</option>
+                    @foreach (\App\Models\Lead::TITLES as $t)
+                        <option value="{{ $t }}" @selected($titleField === $t)>{{ $t }}</option>
+                    @endforeach
+                </select>
             </div>
 
             <div>
@@ -917,13 +938,13 @@
         window.addEventListener('resize', updateCaseNotesSpacer);
     }
 
-    const leadInputs = document.querySelectorAll('input[data-field]');
+    const leadFields = document.querySelectorAll('input[data-field], select[data-field]');
     const originalLeadValues = {};
 
-    leadInputs.forEach(input => {
-        originalLeadValues[input.dataset.field] = input.value;
+    leadFields.forEach(fieldEl => {
+        originalLeadValues[fieldEl.dataset.field] = fieldEl.value;
 
-        input.addEventListener('blur', async function () {
+        const persist = async function () {
             const field = this.dataset.field;
             const value = this.value;
 
@@ -954,7 +975,13 @@
                 saveStatus.textContent = 'Save failed';
                 saveStatus.style.color = '#ef4444';
             }
-        });
+        };
+
+        if (fieldEl.tagName === 'SELECT') {
+            fieldEl.addEventListener('change', persist);
+        } else {
+            fieldEl.addEventListener('blur', persist);
+        }
     });
 
     const tempMailStatus = document.getElementById('tempMailStatus');

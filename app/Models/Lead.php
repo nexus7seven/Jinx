@@ -44,9 +44,19 @@ class Lead extends Model
         'DEAD',
     ];
 
+    public const TITLES = [
+        'Mr',
+        'Mrs',
+        'Miss',
+        'Ms',
+        'Mx',
+        'Dr',
+    ];
+
     protected $fillable = [
         'vicidial_lead_id',
         'phone_number',
+        'title',
         'first_name',
         'last_name',
         'dob',
@@ -136,5 +146,20 @@ class Lead extends Model
     public function actionPoints()
     {
         return $this->hasMany(\App\Models\LeadActionPoint::class)->latest();
+    }
+
+    /**
+     * First and last name with optional title (no leading/trailing space when title is empty).
+     */
+    public function formattedName(): string
+    {
+        $name = trim(($this->first_name ?? '') . ' ' . ($this->last_name ?? ''));
+        if ($name === '') {
+            return '';
+        }
+
+        $t = trim((string) ($this->title ?? ''));
+
+        return $t !== '' ? $t . ' ' . $name : $name;
     }
 }

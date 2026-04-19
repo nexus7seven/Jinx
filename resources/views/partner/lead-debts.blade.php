@@ -13,7 +13,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 16px 0;">
         <div>
             <div style="font-size:13px; color:#94a3b8; margin-bottom:6px;">Partner submission</div>
-            <h1 style="margin:0; font-size:28px; line-height:1.2;">{{ $lead->first_name }} {{ $lead->last_name }}</h1>
+            <h1 style="margin:0; font-size:28px; line-height:1.2;">{{ $lead->formattedName() }}</h1>
         </div>
 
         <a

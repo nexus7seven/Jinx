@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PartnerLeadController extends Controller
@@ -41,7 +42,12 @@ class PartnerLeadController extends Controller
             ->where('active', true)
             ->firstOrFail();
 
+        $request->merge([
+            'title' => $request->filled('title') ? $request->input('title') : null,
+        ]);
+
         $validated = $request->validate([
+            'title'      => ['nullable', 'string', 'max:10', Rule::in(Lead::TITLES)],
             'first_name' => ['required', 'string', 'max:100'],
             'last_name'  => ['required', 'string', 'max:100'],
             'phone'      => ['required', 'string', 'max:30'],
@@ -53,6 +59,8 @@ class PartnerLeadController extends Controller
         ]);
 
         $normalisedPhone = preg_replace('/\D+/', '', $validated['phone']);
+
+        $title = $validated['title'] ?? null;
 
         $existing = Lead::query()
             ->whereRaw("REGEXP_REPLACE(phone_number, '[^0-9]', '') = ?", [$normalisedPhone])
@@ -69,6 +77,7 @@ class PartnerLeadController extends Controller
 
         try {
             $lead = Lead::create([
+                'title'            => $title,
                 'first_name'       => $validated['first_name'],
                 'last_name'        => $validated['last_name'],
                 'phone_number'     => $validated['phone'],
