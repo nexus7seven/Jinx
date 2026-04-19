@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Services\TempMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
@@ -40,10 +41,16 @@ class CreditCheckV2Controller extends Controller
                 'temp_mail_last_body_text' => null,
             ]);
 
-            $dob = $lead->dob;
-            $dobParts = is_string($dob) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $dob, $m)
-                ? ['year' => (int) $m[1], 'month' => (int) $m[2], 'day' => (int) $m[3]]
-                : null;
+            // JINX MAPPING: Lead fields → Node personalData → TransUnion #IndividualDetails_* / #Address_*
+            // DOB: Jinx stores human-readable date; Node prefers "DD/MM/YYYY". Normalize ISO rows for the script.
+            $dobForPayload = $lead->dob;
+            if (is_string($dobForPayload) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobForPayload)) {
+                try {
+                    $dobForPayload = Carbon::parse($dobForPayload)->format('d/m/Y');
+                } catch (\Throwable) {
+                    // leave as-is
+                }
+            }
 
             $sessionId = (string) Str::uuid();
             $sessionDir = storage_path('app/credit-check-v2/sessions/'.$sessionId);
@@ -67,17 +74,30 @@ class CreditCheckV2Controller extends Controller
                 'reportPath' => $reportPath,
                 'creditCheckUrl' => 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
                 'personalData' => [
+                    // title → #IndividualDetails_Title
+                    'title' => $lead->title ?: 'Mr',
+                    // first_name → #IndividualDetails_Forename
                     'firstName' => $lead->first_name,
+                    // last_name → #IndividualDetails_Surname
                     'lastName' => $lead->last_name,
-                    'dob' => $dob,
-                    'dobParts' => $dobParts,
+                    // middle_name → #IndividualDetails_MiddleNames (aliases for Node)
+                    'middleName' => $lead->middle_name,
+                    'middle_names' => $lead->middle_name,
+                    'middleNames' => $lead->middle_name,
+                    // dob → split to Day/Month/Year (DD/MM/YYYY string from Jinx)
+                    'dob' => $dobForPayload,
+                    // phone_number → #IndividualDetails_PhoneNumber (Node ensures leading 0)
+                    'phone_number' => $lead->phone_number,
                     'phone' => $lead->phone_number,
-                    'houseNumber' => $lead->house_number,
-                    'buildingName' => null,
-                    'addressLine1' => $lead->address_line_1,
-                    'addressLine2' => null,
-                    'town' => null,
+                    // postcode → #Address_Postcode
                     'postcode' => $lead->postcode,
+                    // house / building hints → address dropdown matcher
+                    'house_number' => $lead->house_number,
+                    'house_name' => $lead->house_name,
+                    'building_number' => $lead->building_number,
+                    'houseNumber' => $lead->house_number,
+                    'address_line_1' => $lead->address_line_1,
+                    'addressLine1' => $lead->address_line_1,
                 ],
                 'tempMail' => $email,
                 'tempEmail' => $email,

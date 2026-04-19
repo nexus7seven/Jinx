@@ -1,6 +1,15 @@
 /**
  * TransUnion statutory credit check — Playwright automation (server-side).
  *
+ * JINX MAPPING (Lead → personalData → TransUnion):
+ *   title            → #IndividualDetails_Title (select)
+ *   first_name       → #IndividualDetails_Forename
+ *   middle_name(s)   → #IndividualDetails_MiddleNames
+ *   last_name        → #IndividualDetails_Surname
+ *   dob (DD/MM/YYYY or YYYY-MM-DD) → #IndividualDetails_DateOfBirth_{Day,Month,Year}
+ *   phone_number     → #IndividualDetails_PhoneNumber (UK leading 0 normalisation)
+ *   postcode         → #Address_Postcode → #find-address → #address-dropdown (match house/building)
+ *
  * Usage: node scripts/credit-check-v2.mjs <payload.json>
  *
  * Machine-readable stdout (one line each):
@@ -243,14 +252,10 @@ async function fillIfPresent(page, label, filler) {
   }
 }
 
-function parseDobParts(dobIso) {
-  if (!dobIso || typeof dobIso !== 'string') return null;
-  const m = dobIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  return { year: parseInt(m[1], 10), month: parseInt(m[2], 10), day: parseInt(m[3], 10) };
-}
-
-function resolveDobParts(personalData) {
+/**
+ * JINX MAPPING: `dob` from Lead is typically "DD/MM/YYYY"; also accept ISO "YYYY-MM-DD".
+ */
+function resolveDobPartsFromJinx(personalData) {
   if (personalData.dobDay != null && personalData.dobMonth != null && personalData.dobYear != null) {
     return {
       day: Number(personalData.dobDay),
@@ -264,32 +269,184 @@ function resolveDobParts(personalData) {
       return { day: Number(d.day), month: Number(d.month), year: Number(d.year) };
     }
   }
-  return parseDobParts(personalData.dob);
+  const raw = personalData.dob;
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  const uk = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (uk) {
+    return {
+      day: parseInt(uk[1], 10),
+      month: parseInt(uk[2], 10),
+      year: parseInt(uk[3], 10),
+    };
+  }
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return {
+      year: parseInt(iso[1], 10),
+      month: parseInt(iso[2], 10),
+      day: parseInt(iso[3], 10),
+    };
+  }
+  return null;
 }
 
-// --- About You: exact TransUnion field IDs (TUNE if ASP.NET ids change) ---
+/**
+ * JINX MAPPING: phone_number → UK-style leading 0 for TransUnion (#IndividualDetails_PhoneNumber).
+ * Prepend 0 when the national number starts with 7 or 1 (mobile / some landline) without a leading 0.
+ */
+function normalizeUkPhoneForTransUnion(personalData) {
+  let p = String(personalData.phone_number || personalData.phone || '')
+    .replace(/\s+/g, '')
+    .trim();
+  if (!p) return '';
+  if (p.startsWith('+44')) {
+    p = '0' + p.slice(3);
+  } else if (p.startsWith('0044')) {
+    p = '0' + p.slice(4);
+  }
+  if (p.startsWith('0')) {
+    return p;
+  }
+  const first = p.charAt(0);
+  if (first === '7' || first === '1') {
+    return '0' + p;
+  }
+  return p;
+}
+
+/**
+ * JINX MAPPING: house_number / house_name / building_number → pick best row in #address-dropdown.
+ * TUNE: scoring if PAF labels differ.
+ */
+function scoreAddressOptionText(text, hints) {
+  const t = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t || /select|choose|please|enter postcode/i.test(t)) return -1;
+
+  let score = 0;
+  const hn = hints.house_number ? String(hints.house_number).toLowerCase().trim() : '';
+  const hname = hints.house_name ? String(hints.house_name).toLowerCase().trim() : '';
+  const bn = hints.building_number ? String(hints.building_number).toLowerCase().trim() : '';
+  const line1 = hints.address_line_1 ? String(hints.address_line_1).toLowerCase().trim() : '';
+
+  if (hn && t.includes(hn)) {
+    score += 25;
+    if (t.startsWith(hn) || new RegExp(`\\b${hn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)) {
+      score += 15;
+    }
+  }
+  if (hname && hname.length > 1 && t.includes(hname)) score += 12;
+  if (bn && bn.length > 0 && t.includes(bn)) score += 12;
+  if (line1 && line1.length > 3) {
+    const words = line1.split(/\s+/).filter((w) => w.length > 2);
+    for (const w of words.slice(0, 4)) {
+      if (t.includes(w)) score += 3;
+    }
+  }
+
+  return score;
+}
+
+async function selectAddressDropdownMatchingJinx(page, personalData) {
+  const hints = {
+    house_number: personalData.house_number ?? personalData.houseNumber ?? '',
+    house_name: personalData.house_name ?? '',
+    building_number: personalData.building_number ?? '',
+    address_line_1: personalData.address_line_1 ?? personalData.addressLine1 ?? '',
+  };
+
+  logStep(`address: matching dropdown to Jinx house="${hints.house_number}" house_name="${hints.house_name}" building="${hints.building_number}"`);
+
+  const dd = page.locator('#address-dropdown');
+  await dd.waitFor({ state: 'visible', timeout: 20000 });
+
+  const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
+
+  if (tag === 'select') {
+    const opts = dd.locator('option');
+    const n = await opts.count();
+    let bestIdx = -1;
+    let bestScore = -1;
+
+    for (let i = 0; i < n; i++) {
+      const t = (await opts.nth(i).innerText()).trim();
+      const sc = scoreAddressOptionText(t, hints);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx >= 0 && bestScore >= 0) {
+      await dd.selectOption({ index: bestIdx });
+      logStep(`address: selected option index ${bestIdx} (score ${bestScore})`);
+      return;
+    }
+
+    for (let i = 0; i < n; i++) {
+      const t = (await opts.nth(i).innerText()).trim();
+      if (t.length > 0 && !/select|choose|please/i.test(t)) {
+        await dd.selectOption({ index: i });
+        logStep(`address: fallback first non-placeholder option index ${i}`);
+        return;
+      }
+    }
+    await dd.selectOption({ index: 0 });
+    logStep('address: fallback index 0');
+    return;
+  }
+
+  const items = dd.locator('[role="option"], li, a, div[role="option"]');
+  const count = await items.count();
+  let bestIdx = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < count; i++) {
+    const t = (await items.nth(i).innerText()).trim();
+    const sc = scoreAddressOptionText(t, hints);
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestIdx = i;
+    }
+  }
+
+  await items.nth(bestIdx).click({ timeout: 10000 });
+  logStep(`address: clicked list item ${bestIdx} (score ${bestScore})`);
+}
+
+// --- About You: TransUnion field IDs (TUNE if ASP.NET ids change) — fed by Jinx Lead → personalData ---
 
 async function fillAboutYouForm(page, personalData, tempEmail) {
-  const dobParts = resolveDobParts(personalData);
-  logStep(`about-you: DOB parts ${dobParts ? JSON.stringify(dobParts) : 'none'}`);
+  const dobParts = resolveDobPartsFromJinx(personalData);
+  logStep(`about-you: Jinx DOB → parts ${dobParts ? JSON.stringify(dobParts) : 'none'}`);
 
+  const title = String(personalData.title || 'Mr').trim() || 'Mr';
+  // JINX MAPPING: title → #IndividualDetails_Title
   await fillIfPresent(page, 'Title #IndividualDetails_Title', async () => {
-    await page.locator('#IndividualDetails_Title').selectOption({ label: 'Mr' });
+    await page.locator('#IndividualDetails_Title').selectOption({ label: title });
   });
 
+  // JINX MAPPING: first_name → #IndividualDetails_Forename
   await fillIfPresent(page, 'Forename #IndividualDetails_Forename', async () => {
-    await page.locator('#IndividualDetails_Forename').fill(String(personalData.firstName || ''));
+    await page.locator('#IndividualDetails_Forename').fill(String(personalData.firstName || personalData.first_name || ''));
   });
 
+  // JINX MAPPING: middle_name | middle_names → #IndividualDetails_MiddleNames
+  const middle = personalData.middle_names ?? personalData.middleNames ?? personalData.middleName ?? personalData.middle_name ?? '';
   await fillIfPresent(page, 'Middle names #IndividualDetails_MiddleNames', async () => {
-    await page.locator('#IndividualDetails_MiddleNames').fill(String(personalData.middleNames || personalData.middleName || ''));
+    await page.locator('#IndividualDetails_MiddleNames').fill(String(middle));
   });
 
+  // JINX MAPPING: last_name → #IndividualDetails_Surname
   await fillIfPresent(page, 'Surname #IndividualDetails_Surname', async () => {
-    await page.locator('#IndividualDetails_Surname').fill(String(personalData.lastName || ''));
+    await page.locator('#IndividualDetails_Surname').fill(String(personalData.lastName || personalData.last_name || ''));
   });
 
   if (dobParts) {
+    // JINX MAPPING: dob → #IndividualDetails_DateOfBirth_Day|Month|Year
     await fillIfPresent(page, 'DOB Day #IndividualDetails_DateOfBirth_Day', async () => {
       await page.locator('#IndividualDetails_DateOfBirth_Day').fill(String(dobParts.day));
     });
@@ -305,10 +462,14 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
     await page.locator('#IndividualDetails_Email').fill(String(tempEmail));
   });
 
+  const phoneNorm = normalizeUkPhoneForTransUnion(personalData);
+  logStep(`about-you: Jinx phone → normalized "${phoneNorm}"`);
+  // JINX MAPPING: phone_number → #IndividualDetails_PhoneNumber
   await fillIfPresent(page, 'Phone #IndividualDetails_PhoneNumber', async () => {
-    await page.locator('#IndividualDetails_PhoneNumber').fill(String(personalData.phone || ''));
+    await page.locator('#IndividualDetails_PhoneNumber').fill(phoneNorm);
   });
 
+  // JINX MAPPING: postcode → #Address_Postcode
   await fillIfPresent(page, 'Postcode #Address_Postcode', async () => {
     await page.locator('#Address_Postcode').fill(String(personalData.postcode || '').trim());
   });
@@ -319,25 +480,8 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
 
   await sleep(2000);
 
-  // TUNE: #address-dropdown may be <select> or listbox — pick first real option
-  await fillIfPresent(page, 'First address #address-dropdown', async () => {
-    const dd = page.locator('#address-dropdown');
-    await dd.waitFor({ state: 'visible', timeout: 15000 });
-    const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
-    if (tag === 'select') {
-      const opts = dd.locator('option');
-      const n = await opts.count();
-      for (let i = 0; i < n; i++) {
-        const t = (await opts.nth(i).innerText()).trim();
-        if (t.length > 0 && !/select|choose|please/i.test(t)) {
-          await dd.selectOption({ index: i });
-          return;
-        }
-      }
-      await dd.selectOption({ index: 0 });
-      return;
-    }
-    await dd.locator('[role="option"], li, a, div[role="option"]').first().click({ timeout: 10000 });
+  await fillIfPresent(page, 'Address #address-dropdown (match house/building)', async () => {
+    await selectAddressDropdownMatchingJinx(page, personalData);
   });
 
   await fillIfPresent(page, 'Terms #TermsOfUseAndPrivacyNoticeAccepted', async () => {

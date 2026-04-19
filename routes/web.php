@@ -140,11 +140,14 @@ Route::middleware('auth')->group(function () {
         $allowedFields = [
             'title',
             'first_name',
+            'middle_name',
             'last_name',
             'dob',
             'phone_number',
             'email',
             'house_number',
+            'house_name',
+            'building_number',
             'postcode',
             'address_line_1',
         ];
