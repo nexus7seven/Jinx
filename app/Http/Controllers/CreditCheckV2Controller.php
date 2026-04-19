@@ -80,6 +80,7 @@ class CreditCheckV2Controller extends Controller
                     'postcode' => $lead->postcode,
                 ],
                 'tempMail' => $email,
+                'tempEmail' => $email,
                 'tempMailApi' => [
                     'baseUrl' => rtrim((string) config('services.temp_mail.base_url'), '/'),
                     'apiKey' => (string) config('services.temp_mail.key'),
@@ -109,6 +110,10 @@ class CreditCheckV2Controller extends Controller
 
             @unlink($payloadPath);
 
+            $stdout = $process->getOutput();
+            $parsedEvents = self::parseCreditCheckJsonLines($stdout);
+            $securityQuestionsEvent = self::lastSecurityQuestionsEvent($parsedEvents);
+
             return response()->json([
                 'ok' => $process->isSuccessful(),
                 'exit_code' => $process->getExitCode(),
@@ -117,7 +122,10 @@ class CreditCheckV2Controller extends Controller
                 'sessionDir' => $sessionDir,
                 'reportPath' => $reportPath,
                 'answersUrl' => route('leads.credit-check-v2.answers', ['lead' => $lead, 'sessionId' => $sessionId]),
-                'stdout' => $process->getOutput(),
+                'events' => $parsedEvents,
+                'security_questions' => $securityQuestionsEvent,
+                'security_questions_events' => self::filterSecurityQuestionsEvents($parsedEvents),
+                'stdout' => $stdout,
                 'stderr' => $process->getErrorOutput(),
             ], $process->isSuccessful() ? 200 : 500);
         } catch (Throwable $e) {
@@ -133,6 +141,8 @@ class CreditCheckV2Controller extends Controller
         $validated = $request->validate([
             'answers' => 'required|array|min:1',
             'answers.*.id' => 'nullable|string',
+            'answers.*.index' => 'nullable|integer|min:0',
+            'answers.*.name' => 'nullable|string',
             'answers.*.text' => 'nullable|string',
             'answers.*.value' => 'required|string',
         ]);
@@ -162,5 +172,52 @@ class CreditCheckV2Controller extends Controller
         return response()->json([
             'ok' => true,
         ]);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private static function parseCreditCheckJsonLines(string $stdout): array
+    {
+        $events = [];
+        if (preg_match_all('/^CREDIT_CHECK_V2_JSON:(.+)$/m', $stdout, $matches)) {
+            foreach ($matches[1] as $json) {
+                $decoded = json_decode($json, true);
+                if (is_array($decoded)) {
+                    $events[] = $decoded;
+                }
+            }
+        }
+
+        return $events;
+    }
+
+    /**
+     * Prefer the last security_questions event (e.g. second attempt after wrong answers).
+     *
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<string, mixed>|null
+     */
+    private static function lastSecurityQuestionsEvent(array $events): ?array
+    {
+        $last = null;
+        foreach ($events as $event) {
+            if (($event['status'] ?? null) === 'security_questions') {
+                $last = $event;
+            }
+        }
+
+        return $last;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<int, array<string, mixed>>
+     */
+    private static function filterSecurityQuestionsEvents(array $events): array
+    {
+        return array_values(array_filter($events, function ($event) {
+            return ($event['status'] ?? null) === 'security_questions';
+        }));
     }
 }

@@ -1,35 +1,47 @@
 /**
  * TransUnion statutory credit check — Playwright automation (server-side).
+ *
  * Usage: node scripts/credit-check-v2.mjs <payload.json>
  *
- * Emits machine-readable lines: CREDIT_CHECK_V2_JSON:{...}
+ * Machine-readable stdout (one line each):
+ *   CREDIT_CHECK_V2_JSON:{"status":"security_questions","sessionId":"...","questions":[{"id":"...","text":"..."},...]}
+ *   CREDIT_CHECK_V2_JSON:{"success":true,"reportPath":"..."}
+ *
+ * answers.json format:
+ *   { "answers": [ { "id": "<hidden Questions_*__Id value>", "value": "<exact or partial radio label text>" }, { "index": 0, "value": "..." } ] }
+ *
  * Prerequisite: npx playwright install chromium
  */
 
 import { chromium } from 'playwright';
 import { existsSync } from 'fs';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import { randomUUID } from 'crypto';
 
 const ABOUT_URL = 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou';
 
-/** Chrome on Windows — keep in sync with current stable line (~2026). */
+/** TUNE: bump Chrome minor as stable moves (2026). */
 const STEALTH_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+
+const POLL_MS_MIN = 4000;
+const POLL_MS_MAX = 6000;
+
+const MAX_KBA_ATTEMPTS = 2;
+
+function randomPollDelayMs() {
+  return POLL_MS_MIN + Math.floor(Math.random() * (POLL_MS_MAX - POLL_MS_MIN + 1));
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function logStep(message) {
-  process.stdout.write(`[credit-check-v2] ${new Date().toISOString()} ${message}\n`);
+function logStep(description) {
+  process.stdout.write(`[credit-check-v2] ${new Date().toISOString()} ${description}\n`);
 }
 
-/**
- * Single-line JSON for orchestrators (PHP, CI, etc.).
- * @param {Record<string, unknown>} obj
- */
 function emitJson(obj) {
   process.stdout.write(`CREDIT_CHECK_V2_JSON:${JSON.stringify(obj)}\n`);
 }
@@ -37,6 +49,23 @@ function emitJson(obj) {
 function stripHtml(html) {
   if (!html || typeof html !== 'string') return '';
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function extractOtpFromText(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const patterns = [
+    /\*+\s*([0-9]{4,10})\s*\*+/,
+    /(?:code|passcode|pin|otp)\s*(?:is|:)?\s*\*?\s*([0-9]{4,10})\s*\*?/i,
+    /\b([0-9]{4,8})\b/,
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m && (m[1] || m[0])) {
+      return String(m[1] || m[0]).replace(/\*/g, '').trim();
+    }
+  }
+  return null;
 }
 
 function extractUrlsFromContent(html, text) {
@@ -51,13 +80,12 @@ function extractUrlsFromContent(html, text) {
   return out;
 }
 
-/** Prefer TransUnion / verification style links. */
 function pickVerificationLinks(urls) {
   const scored = urls.map((u) => {
     let score = 0;
     if (/transunion/i.test(u)) score += 5;
-    if (/statreport|creditreport|verify|confirmation|email/i.test(u)) score += 3;
-    if (/temp-mail|unsubscribe|facebook\.com|twitter\.com/i.test(u)) score -= 10;
+    if (/statreport|creditreport|verify|confirmation|email|activate/i.test(u)) score += 3;
+    if (/temp-mail|unsubscribe|facebook\.com|twitter\.com|linkedin\.com/i.test(u)) score -= 10;
     return { u, score };
   });
   scored.sort((a, b) => b.score - a.score);
@@ -67,30 +95,31 @@ function pickVerificationLinks(urls) {
   return fallback ? [fallback] : [];
 }
 
+function isLikelyTransUnionVerification(blob, subj, from) {
+  const header = `${subj} ${from}`.toLowerCase();
+  if (/transunion|noreply|statutory|stat report|credit report|email verification|confirm your email/i.test(header)) {
+    return true;
+  }
+  return /transunion|statreport|trans union|verify your email|confirm your email address/i.test(blob);
+}
+
 async function apiGetJson(url, apiKey) {
   const r = await fetch(url, {
-    headers: {
-      'X-API-Key': apiKey,
-      Accept: 'application/json',
-    },
+    headers: { 'X-API-Key': apiKey, Accept: 'application/json' },
   });
-
   if (!r.ok) {
     const t = await r.text();
     throw new Error(`Temp-mail GET ${url} failed: ${r.status} ${t}`);
   }
-
   return r.json();
 }
 
-/**
- * Poll inbox until a likely TransUnion verification email appears; return best verification URL.
- */
-async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 90, delayMs = 4000 }) {
+async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 90 }) {
   const enc = encodeURIComponent(email);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    logStep(`temp-mail: polling inbox for verification email (${attempt}/${maxAttempts})`);
+    const delayMs = randomPollDelayMs();
+    logStep(`temp-mail: verification link poll ${attempt}/${maxAttempts} (sleep ${delayMs}ms)`);
 
     const list = await apiGetJson(`${baseUrl}/v1/emails/${enc}/messages`, apiKey);
     const raw = list.messages ?? list;
@@ -107,11 +136,16 @@ async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 9
       if (!mid) continue;
 
       const subj = String(msg.subject || '');
+      const from = String(msg.from || '');
 
       const full = await apiGetJson(`${baseUrl}/v1/messages/${encodeURIComponent(mid)}`, apiKey);
       const bodyText = String(full.body_text || '');
       const bodyHtml = String(full.body_html || '');
       const blob = `${subj}\n${bodyText}\n${bodyHtml}`;
+
+      if (!isLikelyTransUnionVerification(blob, subj, from)) {
+        continue;
+      }
 
       const urls = extractUrlsFromContent(bodyHtml, bodyText);
       let candidates = pickVerificationLinks(urls);
@@ -122,16 +156,53 @@ async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 9
       }
 
       if (candidates.length > 0) {
-        logStep(`temp-mail: using verification link from message id=${mid} (subject=${subj || '—'})`);
+        logStep(`temp-mail: verification URL from message id=${mid}`);
         return {
           url: candidates[0],
-          allUrls: candidates,
           messageId: mid,
           subject: full.subject || subj,
         };
       }
+    }
 
-      logStep(`temp-mail: message ${mid} had no usable link; trying next / next poll`);
+    await sleep(delayMs);
+  }
+
+  return null;
+}
+
+/** Poll inbox for OTP / code after email-auth step. */
+async function waitForOtpInEmail({ baseUrl, apiKey, email, maxAttempts = 45 }) {
+  const enc = encodeURIComponent(email);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const delayMs = randomPollDelayMs();
+    logStep(`temp-mail: OTP/code poll ${attempt}/${maxAttempts} (sleep ${delayMs}ms)`);
+
+    const list = await apiGetJson(`${baseUrl}/v1/emails/${enc}/messages`, apiKey);
+    const raw = list.messages ?? list;
+    const messages = Array.isArray(raw) ? raw : [];
+
+    messages.sort((a, b) => {
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      return tb - ta;
+    });
+
+    for (const msg of messages) {
+      const mid = msg.id ?? msg.message_id;
+      if (!mid) continue;
+
+      const full = await apiGetJson(`${baseUrl}/v1/messages/${encodeURIComponent(mid)}`, apiKey);
+      const bodyText = String(full.body_text || '');
+      const bodyHtml = String(full.body_html || '');
+      const blob = `${bodyText}\n${stripHtml(bodyHtml)}`;
+
+      const code = extractOtpFromText(blob);
+      if (code && code.length >= 4) {
+        logStep(`temp-mail: extracted OTP/code from message ${mid}`);
+        return { code, messageId: mid };
+      }
     }
 
     await sleep(delayMs);
@@ -141,26 +212,26 @@ async function waitForVerificationLink({ baseUrl, apiKey, email, maxAttempts = 9
 }
 
 async function dismissCookieBanner(page) {
-  logStep('ui: attempting to dismiss cookie / consent banner');
+  logStep('cookies: dismiss banner (TUNE: OneTrust / vendor widgets)');
   const candidates = [
-    page.getByRole('button', { name: /accept all|i agree|accept|agree/i }),
+    page.getByRole('button', { name: /accept all|allow all|i agree|accept cookies|accept|agree/i }),
+    page.locator('#onetrust-accept-btn-handler'),
     page.locator('button:has-text("Accept")'),
-    page.locator('[aria-label*="accept" i]'),
   ];
 
   for (const loc of candidates) {
     try {
       const first = loc.first();
-      await first.waitFor({ state: 'visible', timeout: 4000 });
-      await first.click({ timeout: 3000 });
-      logStep('ui: dismissed cookie/consent control');
+      await first.waitFor({ state: 'visible', timeout: 5000 });
+      await first.click({ timeout: 4000 });
+      logStep('cookies: dismissed');
       await sleep(600);
       return;
     } catch {
       /* next */
     }
   }
-  logStep('ui: no cookie banner clicked (may be absent)');
+  logStep('cookies: none found');
 }
 
 async function fillIfPresent(page, label, filler) {
@@ -179,187 +250,359 @@ function parseDobParts(dobIso) {
   return { year: parseInt(m[1], 10), month: parseInt(m[2], 10), day: parseInt(m[3], 10) };
 }
 
-async function tryPostcodeLookup(page, postcode) {
-  if (!postcode) return;
-  logStep(`address: trying postcode lookup for "${postcode}"`);
+function resolveDobParts(personalData) {
+  if (personalData.dobDay != null && personalData.dobMonth != null && personalData.dobYear != null) {
+    return {
+      day: Number(personalData.dobDay),
+      month: Number(personalData.dobMonth),
+      year: Number(personalData.dobYear),
+    };
+  }
+  if (personalData.dobParts && typeof personalData.dobParts === 'object') {
+    const d = personalData.dobParts;
+    if (d.day != null && d.month != null && d.year != null) {
+      return { day: Number(d.day), month: Number(d.month), year: Number(d.year) };
+    }
+  }
+  return parseDobParts(personalData.dob);
+}
 
-  await fillIfPresent(page, 'postcode (lookup)', async () => {
-    const pc = page.getByLabel(/postcode|post code/i).first();
-    await pc.fill(String(postcode));
+// --- About You: exact TransUnion field IDs (TUNE if ASP.NET ids change) ---
+
+async function fillAboutYouForm(page, personalData, tempEmail) {
+  const dobParts = resolveDobParts(personalData);
+  logStep(`about-you: DOB parts ${dobParts ? JSON.stringify(dobParts) : 'none'}`);
+
+  await fillIfPresent(page, 'Title #IndividualDetails_Title', async () => {
+    await page.locator('#IndividualDetails_Title').selectOption({ label: 'Mr' });
   });
 
-  await fillIfPresent(page, 'click Find address / lookup', async () => {
-    const btn = page.getByRole('button', { name: /find address|look up|search address|find/i }).first();
-    await btn.click({ timeout: 8000 });
+  await fillIfPresent(page, 'Forename #IndividualDetails_Forename', async () => {
+    await page.locator('#IndividualDetails_Forename').fill(String(personalData.firstName || ''));
   });
 
-  await sleep(1500);
+  await fillIfPresent(page, 'Middle names #IndividualDetails_MiddleNames', async () => {
+    await page.locator('#IndividualDetails_MiddleNames').fill(String(personalData.middleNames || personalData.middleName || ''));
+  });
 
-  await fillIfPresent(page, 'select first address from list', async () => {
-    const opt = page.locator('[role="option"], option, li[data-address], .address-result').first();
-    await opt.click({ timeout: 6000 });
+  await fillIfPresent(page, 'Surname #IndividualDetails_Surname', async () => {
+    await page.locator('#IndividualDetails_Surname').fill(String(personalData.lastName || ''));
+  });
+
+  if (dobParts) {
+    await fillIfPresent(page, 'DOB Day #IndividualDetails_DateOfBirth_Day', async () => {
+      await page.locator('#IndividualDetails_DateOfBirth_Day').fill(String(dobParts.day));
+    });
+    await fillIfPresent(page, 'DOB Month #IndividualDetails_DateOfBirth_Month', async () => {
+      await page.locator('#IndividualDetails_DateOfBirth_Month').fill(String(dobParts.month));
+    });
+    await fillIfPresent(page, 'DOB Year #IndividualDetails_DateOfBirth_Year', async () => {
+      await page.locator('#IndividualDetails_DateOfBirth_Year').fill(String(dobParts.year));
+    });
+  }
+
+  await fillIfPresent(page, 'Email #IndividualDetails_Email', async () => {
+    await page.locator('#IndividualDetails_Email').fill(String(tempEmail));
+  });
+
+  await fillIfPresent(page, 'Phone #IndividualDetails_PhoneNumber', async () => {
+    await page.locator('#IndividualDetails_PhoneNumber').fill(String(personalData.phone || ''));
+  });
+
+  await fillIfPresent(page, 'Postcode #Address_Postcode', async () => {
+    await page.locator('#Address_Postcode').fill(String(personalData.postcode || '').trim());
+  });
+
+  await fillIfPresent(page, 'Find address #find-address', async () => {
+    await page.locator('#find-address').click({ timeout: 15000 });
+  });
+
+  await sleep(2000);
+
+  // TUNE: #address-dropdown may be <select> or listbox — pick first real option
+  await fillIfPresent(page, 'First address #address-dropdown', async () => {
+    const dd = page.locator('#address-dropdown');
+    await dd.waitFor({ state: 'visible', timeout: 15000 });
+    const tag = await dd.evaluate((el) => el.tagName.toLowerCase());
+    if (tag === 'select') {
+      const opts = dd.locator('option');
+      const n = await opts.count();
+      for (let i = 0; i < n; i++) {
+        const t = (await opts.nth(i).innerText()).trim();
+        if (t.length > 0 && !/select|choose|please/i.test(t)) {
+          await dd.selectOption({ index: i });
+          return;
+        }
+      }
+      await dd.selectOption({ index: 0 });
+      return;
+    }
+    await dd.locator('[role="option"], li, a, div[role="option"]').first().click({ timeout: 10000 });
+  });
+
+  await fillIfPresent(page, 'Terms #TermsOfUseAndPrivacyNoticeAccepted', async () => {
+    await page.locator('#TermsOfUseAndPrivacyNoticeAccepted').check({ force: true });
+  });
+
+  await fillIfPresent(page, 'Submit #submit', async () => {
+    const sub = page.locator('#submit');
+    if (await sub.count()) {
+      await sub.first().click({ timeout: 15000 });
+    } else {
+      await page.locator('input[name="submit"]').first().click({ timeout: 15000 });
+    }
   });
 }
 
-const SECURITY_KEYWORDS =
-  /security|question|mother'?s maiden|maiden name|first school|memorable|pet'?s name|born in|town you/i;
+async function isEmailAuthenticationPage(page) {
+  const hasInputCode = await page.locator('#InputCode').isVisible().catch(() => false);
+  const title = (await page.locator('body').innerText().catch(() => '')).slice(0, 8000);
+  const textHit = /Email Authentication Required|email authentication/i.test(title);
+  return hasInputCode || textHit;
+}
 
-async function collectQuestionFields(page) {
-  const questions = [];
-  const inputs = page.locator('input:visible, textarea:visible');
-  const n = await inputs.count();
+async function handleEmailAuthenticationPage(page, baseUrl, apiKey, email) {
+  logStep('email-auth: detected code entry (#InputCode or "Email Authentication Required")');
+  await sleep(3000);
 
-  for (let i = 0; i < n; i++) {
-    const input = inputs.nth(i);
-    const type = (await input.getAttribute('type')) || 'text';
-    if (type === 'submit' || type === 'button' || type === 'checkbox' || type === 'radio' || type === 'hidden') {
+  const otp = await waitForOtpInEmail({ baseUrl, apiKey, email });
+  if (!otp?.code) {
+    throw new Error('No OTP/code received from temp-mail for email authentication step');
+  }
+
+  await fillIfPresent(page, 'OTP #InputCode', async () => {
+    await page.locator('#InputCode').fill(otp.code);
+  });
+
+  await fillIfPresent(page, 'email-auth submit (#submit or button)', async () => {
+    const sub = page.locator('#submit');
+    if (await sub.count()) {
+      await sub.first().click({ timeout: 20000 });
+    } else {
+      await page.getByRole('button', { name: /continue|submit|verify|next/i }).first().click({ timeout: 20000 });
+    }
+  });
+}
+
+async function isKbaWizardPage(page) {
+  const kba = await page.locator('#wizard-page[data-ga-event="kba"]').isVisible().catch(() => false);
+  const h1 = await page.locator('h1').first().innerText().catch(() => '');
+  const idv = /ID Verification/i.test(h1);
+  const list = await page.locator('#questionList').isVisible().catch(() => false);
+  return kba || idv || list;
+}
+
+/**
+ * Extract KBA questions: hidden Id value + label.question text per block.
+ * TUNE: #questionList structure / wrappers.
+ */
+async function extractKbaQuestions(page) {
+  const data = await page.evaluate(() => {
+    const list = document.querySelector('#questionList');
+    if (!list) return [];
+
+    const hiddens = list.querySelectorAll('input[id^="Questions_"][name$="Id"]');
+    const out = [];
+
+    hiddens.forEach((hid, index) => {
+      const idVal = (hid.value || '').trim() || hid.getAttribute('id') || '';
+      let container = hid.closest('div, fieldset, li, section, article') || list;
+      let labelEl = container.querySelector('label.question');
+      if (!labelEl) {
+        labelEl = hid.parentElement?.querySelector('label.question');
+      }
+      if (!labelEl) {
+        let n = hid.parentElement;
+        for (let d = 0; d < 8 && n; d++) {
+          const l = n.querySelector('label.question');
+          if (l) {
+            labelEl = l;
+            break;
+          }
+          n = n.parentElement;
+        }
+      }
+      const text = (labelEl?.innerText || '').replace(/\s+/g, ' ').trim();
+      out.push({ id: idVal, text: text || `Question ${index + 1}`, index });
+    });
+
+    return out;
+  });
+
+  return data;
+}
+
+/**
+ * Select radio under #questionList matching question id or index; value = option label text.
+ */
+async function applyKbaRadioAnswers(page, answers, extractedQuestions) {
+  if (!Array.isArray(answers)) {
+    throw new Error('answers.json must contain answers[]');
+  }
+
+  logStep(`kba: applying ${answers.length} radio answer(s)`);
+
+  for (const ans of answers) {
+    const value = ans.value ?? ans.answer ?? '';
+    if (!value) continue;
+
+    let qIndex = -1;
+    if (ans.index != null && ans.index !== '') {
+      qIndex = Number(ans.index);
+    } else if (ans.id != null && ans.id !== '') {
+      const idStr = String(ans.id);
+      qIndex = extractedQuestions.findIndex((q) => q.id === idStr || q.id === ans.id);
+    }
+
+    if (qIndex < 0 || qIndex >= extractedQuestions.length) {
+      logStep(`kba: could not resolve question for answer id=${ans.id} index=${ans.index} — skip`);
       continue;
     }
 
-    const idAttr = await input.getAttribute('id');
-    let labelText = '';
+    const matched = await page.evaluate(
+      ({ qIndex, value: want }) => {
+        const list = document.querySelector('#questionList');
+        if (!list) return { ok: false, reason: 'no questionList' };
 
-    if (idAttr) {
-      const lab = page.locator(`label[for="${cssEscapeForSelector(idAttr)}"]`);
-      if ((await lab.count()) > 0) {
-        labelText = (await lab.first().innerText()).trim();
-      }
-    }
+        const hiddens = list.querySelectorAll('input[id^="Questions_"][name$="Id"]');
+        const hid = hiddens[qIndex];
+        if (!hid) return { ok: false, reason: 'no hidden id at index' };
 
-    if (!labelText) {
-      labelText = await input.evaluate((el) => {
-        let n = el.parentElement;
-        for (let d = 0; d < 6 && n; d++) {
-          const t = n.querySelector('label, legend, .label, span');
-          if (t?.innerText?.trim()) return t.innerText.trim();
-          n = n.parentElement;
+        let block = hid.closest('div, fieldset, li, section') || list;
+        const radios = block.querySelectorAll('label.checkboxContainer input[type="radio"], .checkboxContainer input[type="radio"]');
+
+        const wantNorm = String(want).toLowerCase().trim();
+
+        for (const radio of radios) {
+          let lab = radio.closest('label');
+          if (!lab) {
+            lab = radio.parentElement?.querySelector('label') || null;
+          }
+          const t = (lab?.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (!t) continue;
+          if (t === wantNorm || t.includes(wantNorm) || wantNorm.includes(t)) {
+            radio.checked = true;
+            radio.dispatchEvent(new Event('input', { bubbles: true }));
+            radio.dispatchEvent(new Event('change', { bubbles: true }));
+            radio.click();
+            return { ok: true, matched: t };
+          }
         }
-        return '';
-      });
-    }
 
-    const hay = `${labelText} ${(await input.getAttribute('name')) || ''} ${(await input.getAttribute('placeholder')) || ''}`;
-    if (SECURITY_KEYWORDS.test(hay) || (/\?/.test(labelText) && labelText.length > 5)) {
-      const fid = idAttr || `sq-field-${i}`;
-      questions.push({ id: fid, text: labelText.slice(0, 800) || `Field ${i}` });
+        return { ok: false, reason: 'no radio label match', radios: radios.length };
+      },
+      { qIndex, value: String(value) },
+    );
+
+    if (matched.ok) {
+      logStep(`kba: question ${qIndex} selected option matching "${value}" (${matched.matched || ''})`);
+    } else {
+      logStep(`kba: question ${qIndex} failed to match radio for "${value}" — ${JSON.stringify(matched)}`);
     }
   }
-
-  return questions;
 }
 
-function cssEscapeForSelector(id) {
-  return id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+async function clickKbaContinue(page) {
+  await fillIfPresent(page, 'KBA continue/submit (#submit or role=button)', async () => {
+    const sub = page.locator('#submit');
+    if (await sub.count()) {
+      await sub.first().click({ timeout: 25000 });
+    } else {
+      await page.getByRole('button', { name: /continue|submit|next|confirm/i }).first().click({ timeout: 25000 });
+    }
+  });
 }
 
-async function detectSecurityQuestionsScreen(page) {
-  logStep('security: scanning page for knowledge-based questions');
-  const bodyText = (await page.locator('body').innerText()).slice(0, 12000);
-  const heading = (await page.locator('h1, h2, legend').first().innerText().catch(() => '')) || '';
-  const keywordHit =
-    SECURITY_KEYWORDS.test(bodyText) && /question|answer|verify your identity|knowledge/i.test(bodyText);
-
-  const fields = await collectQuestionFields(page);
-  let questions = fields.length ? fields : [];
-
-  if (keywordHit && questions.length === 0) {
-    questions = [{ id: 'manual-review', text: heading || "Security questions (use answers.json with matching id or text)" }];
-  }
-
-  const detected =
-    keywordHit || fields.length > 0 || /security questions|knowledge.?based/i.test(bodyText + heading);
-
-  if (detected && questions.length === 0) {
-    questions = [{ id: 'manual-review', text: heading || 'Security step (inspect page)' }];
-  }
-
-  return { detected, questions };
+async function isWrongKbaAnswersPage(page) {
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 12000);
+  return (
+    /one or more answers.*incorrect|answers?.*incorrect|not match|try again|incorrect answer/i.test(body) ||
+    /unable to verify|could not verify/i.test(body)
+  );
 }
 
 async function waitForAnswersFile(sessionDir, timeoutMs) {
   const answersPath = join(sessionDir, 'answers.json');
   const start = Date.now();
-  logStep(`security: waiting for answers file: ${answersPath} (timeout ${Math.round(timeoutMs / 1000)}s)`);
+  logStep(`handoff: waiting for ${answersPath} (timeout ${Math.round(timeoutMs / 1000)}s)`);
 
   while (Date.now() - start < timeoutMs) {
     if (existsSync(answersPath)) {
       const raw = await readFile(answersPath, 'utf8');
-      logStep('security: received answers.json');
+      logStep('handoff: answers.json read');
       return JSON.parse(raw);
     }
     await sleep(2000);
   }
 
-  throw new Error(`Timeout waiting for answers at ${answersPath}`);
+  throw new Error(`Timeout waiting for ${answersPath}`);
 }
 
-async function applySecurityAnswers(page, payload) {
-  const answers = payload.answers;
-  if (!Array.isArray(answers)) {
-    throw new Error('answers.json must contain an "answers" array');
-  }
-
-  for (const a of answers) {
-    const value = a.value ?? a.answer ?? '';
-    if (a.id && String(a.id).length && a.id !== 'manual-review') {
-      const id = String(a.id);
-      await fillIfPresent(page, `security answer by id "${id}"`, async () => {
-        const loc = page.locator(`[id="${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
-        await loc.first().fill(String(value), { timeout: 15000 });
-      });
-    } else if (a.text) {
-      const snippet = String(a.text).slice(0, 80);
-      await fillIfPresent(page, `security answer by label containing "${snippet}"`, async () => {
-        await page.getByLabel(new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).fill(String(value), {
-          timeout: 15000,
-        });
-      });
-    }
-  }
-}
-
-async function tryDownloadWithClick(page, clickFn, label) {
+async function removeAnswersFile(sessionDir) {
+  const answersPath = join(sessionDir, 'answers.json');
   try {
-    logStep(`pdf: ${label} — waiting for download`);
-    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), clickFn()]);
-    return download;
+    if (existsSync(answersPath)) {
+      await unlink(answersPath);
+      logStep(`handoff: removed ${answersPath} for retry`);
+    }
   } catch (e) {
-    logStep(`pdf: ${label} — no download (${e?.message || e})`);
-    return null;
+    logStep(`handoff: could not remove answers.json (${e?.message || e})`);
   }
 }
 
-async function tryDownloadReportPdf(page, reportPath) {
-  logStep('pdf: preparing report output directory');
+async function downloadReportPdf(page, reportPath) {
+  logStep(`pdf: saving to ${reportPath}`);
   await mkdir(dirname(reportPath), { recursive: true });
 
+  const tryClick = async (locatorFn, label) => {
+    try {
+      logStep(`pdf: ${label} — wait for download`);
+      const [download] = await Promise.all([page.waitForEvent('download', { timeout: 240000 }), locatorFn()]);
+      return download;
+    } catch (e) {
+      logStep(`pdf: ${label} failed (${e?.message || e})`);
+      return null;
+    }
+  };
+
   let download =
-    (await tryDownloadWithClick(
-      page,
-      () => page.getByRole('button', { name: /download.*pdf|save.*pdf|download report|download credit|export pdf/i }).first().click({ timeout: 20000 }),
-      'primary download button',
+    (await tryClick(() => page.locator('#SaveAsPdf').first().click({ timeout: 20000 }), '#SaveAsPdf')) ||
+    (await tryClick(
+      () => page.getByRole('button', { name: /save as pdf|download.*pdf/i }).first().click({ timeout: 20000 }),
+      'Save as PDF button',
     )) ||
-    (await tryDownloadWithClick(
-      page,
-      () => page.getByRole('link', { name: /download|\.pdf|credit report/i }).first().click({ timeout: 20000 }),
-      'download link',
+    (await tryClick(
+      () => page.getByRole('link', { name: /save as pdf|download.*pdf/i }).first().click({ timeout: 20000 }),
+      'Save as PDF link',
+    )) ||
+    (await tryClick(
+      () => page.locator('[data-url*="download-pdf" i], a[href*="download-pdf" i]').first().click({ timeout: 20000 }),
+      '[data-url/href*="download-pdf"]',
     ));
 
   if (download) {
     await download.saveAs(reportPath);
-    logStep(`pdf: saved download to ${reportPath}`);
+    logStep(`pdf: download saved → ${reportPath}`);
     return true;
   }
 
-  logStep('pdf: no download event; trying page.pdf() print fallback');
-  try {
-    await page.pdf({ path: reportPath, format: 'A4', printBackground: true });
-    logStep(`pdf: wrote print snapshot to ${reportPath}`);
-    return true;
-  } catch (e) {
-    logStep(`pdf: print fallback failed (${e?.message || e})`);
-    return false;
+  if (process.env.CREDIT_CHECK_V2_ALLOW_PRINT_PDF === '1') {
+    logStep('pdf: CREDIT_CHECK_V2_ALLOW_PRINT_PDF=1 print fallback');
+    try {
+      await page.pdf({ path: reportPath, format: 'A4', printBackground: true });
+      return true;
+    } catch (e) {
+      logStep(`pdf: print failed (${e?.message || e})`);
+    }
   }
+
+  return false;
+}
+
+async function isPdfOfferVisible(page) {
+  const save = await page.locator('#SaveAsPdf').isVisible().catch(() => false);
+  const link = await page.getByRole('link', { name: /save as pdf/i }).first().isVisible().catch(() => false);
+  return save || link;
 }
 
 async function run() {
@@ -374,30 +617,28 @@ async function run() {
 
   const creditCheckUrl = payload.creditCheckUrl || ABOUT_URL;
   const personalData = payload.personalData || {};
-  const tempMail = payload.tempMail;
+  const tempEmail = payload.tempEmail || payload.tempMail;
   const tempMailApi = payload.tempMailApi || {};
   const baseUrl = tempMailApi.baseUrl;
   const apiKey = tempMailApi.apiKey;
 
   const sessionId = payload.sessionId || randomUUID();
-  const sessionDir = payload.sessionDir || join(process.cwd(), 'storage', 'app', 'credit-check-v2', 'sessions', sessionId);
+  const sessionDir =
+    payload.sessionDir || join(process.cwd(), 'storage', 'app', 'credit-check-v2', 'sessions', sessionId);
   const reportPath = payload.reportPath;
 
-  if (!tempMail || !baseUrl || !apiKey || !reportPath) {
-    console.error('Invalid payload: need tempMail, tempMailApi, reportPath');
+  if (!tempEmail || !baseUrl || !apiKey || !reportPath) {
+    logStep('fatal: missing tempEmail, tempMailApi, or reportPath');
     process.exit(1);
   }
 
   await mkdir(sessionDir, { recursive: true });
 
   const headless = process.env.PLAYWRIGHT_HEADLESS !== '0';
-
-  logStep(`launch: Chromium headless=${headless}, viewport=1920x1080, stealth args enabled`);
-  logStep(`launch: userAgent=${STEALTH_USER_AGENT}`);
+  logStep(`launch: headless=${headless}, stealth Chromium, 1920×1080, en-GB, Europe/London`);
 
   const browser = await chromium.launch({
     headless,
-    channel: undefined,
     ignoreDefaultArgs: ['--enable-automation'],
     args: [
       '--no-sandbox',
@@ -418,9 +659,7 @@ async function run() {
     locale: 'en-GB',
     timezoneId: 'Europe/London',
     colorScheme: 'light',
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-GB,en;q=0.9',
-    },
+    extraHTTPHeaders: { 'Accept-Language': 'en-GB,en;q=0.9' },
   });
 
   await context.addInitScript(() => {
@@ -434,131 +673,126 @@ async function run() {
   try {
     logStep(`navigate: ${creditCheckUrl}`);
     await page.goto(creditCheckUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-
     await dismissCookieBanner(page);
 
-    const dobParts = personalData.dobParts || parseDobParts(personalData.dob);
+    logStep('stage: About You form (exact field IDs)');
+    await fillAboutYouForm(page, personalData, tempEmail);
 
-    await fillIfPresent(page, 'title Mr', async () => {
-      await page.getByLabel(/title/i).first().selectOption({ label: 'Mr' });
-    });
-
-    await fillIfPresent(page, 'forename', async () => {
-      await page.getByRole('textbox', { name: /forename|first name/i }).first().fill(String(personalData.firstName || ''));
-    });
-
-    await fillIfPresent(page, 'surname', async () => {
-      await page.getByRole('textbox', { name: /surname|last name/i }).first().fill(String(personalData.lastName || ''));
-    });
-
-    if (dobParts) {
-      await fillIfPresent(page, 'DOB day', async () => {
-        await page.getByLabel(/^day$/i).first().fill(String(dobParts.day));
-      });
-      await fillIfPresent(page, 'DOB month', async () => {
-        await page.getByLabel(/^month$/i).first().fill(String(dobParts.month));
-      });
-      await fillIfPresent(page, 'DOB year', async () => {
-        await page.getByLabel(/year/i).first().fill(String(dobParts.year));
-      });
-    }
-
-    await fillIfPresent(page, 'email', async () => {
-      await page.getByLabel(/email/i).first().fill(String(tempMail));
-    });
-
-    await fillIfPresent(page, 'phone', async () => {
-      await page.getByLabel(/mobile|phone|telephone/i).first().fill(String(personalData.phone || ''));
-    });
-
-    await fillIfPresent(page, 'building / house number', async () => {
-      await page.getByLabel(/building number|house number|abode number/i).first().fill(String(personalData.houseNumber || ''));
-    });
-
-    if (personalData.buildingName) {
-      await fillIfPresent(page, 'building name', async () => {
-        await page.getByLabel(/building name/i).first().fill(String(personalData.buildingName));
-      });
-    }
-
-    await tryPostcodeLookup(page, personalData.postcode);
-
-    await fillIfPresent(page, 'address line 1', async () => {
-      await page.getByLabel(/address line 1|address 1/i).first().fill(String(personalData.addressLine1 || ''));
-    });
-
-    if (personalData.addressLine2) {
-      await fillIfPresent(page, 'address line 2', async () => {
-        await page.getByLabel(/address line 2|address 2/i).first().fill(String(personalData.addressLine2));
-      });
-    }
-
-    if (personalData.town) {
-      await fillIfPresent(page, 'town / city', async () => {
-        await page.getByLabel(/town|city/i).first().fill(String(personalData.town));
-      });
-    }
-
-    await fillIfPresent(page, 'terms checkbox', async () => {
-      const cb = page.getByRole('checkbox', { name: /terms|privacy|agree/i }).first();
-      await cb.check({ force: true });
-    });
-
-    logStep('submit: triggering email verification (continue / submit)');
-    await fillIfPresent(page, 'continue', async () => {
-      await page.getByRole('button', { name: /continue|next|submit|proceed/i }).first().click();
-    });
-
-    logStep('email: polling temp-mail.io for TransUnion verification message');
-    const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempMail });
-
+    logStep('stage: poll temp-mail for verification link');
+    const verification = await waitForVerificationLink({ baseUrl, apiKey, email: tempEmail });
     if (!verification?.url) {
       emitJson({ success: false, error: 'verification_link_not_found' });
-      throw new Error('No verification link received from temp-mail within timeout');
+      throw new Error('Verification link not found');
     }
 
-    logStep(`email: opening verification URL in same browser context`);
+    logStep('stage: open verification link');
     await page.goto(verification.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await sleep(2000);
+    await sleep(2500);
 
-    const sec = await detectSecurityQuestionsScreen(page);
+    if (await isEmailAuthenticationPage(page)) {
+      logStep('stage: email authentication / OTP page');
+      await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
+      await sleep(3000);
+    }
 
-    if (sec.detected) {
-      const out = {
-        status: 'security_questions',
-        sessionId,
-        questions: sec.questions,
-      };
+    const answerTimeout = Number(process.env.CREDIT_CHECK_V2_ANSWER_TIMEOUT_MS) || 45 * 60 * 1000;
+
+    // Wait up to ~60s for KBA or PDF after verification / OTP
+    for (let w = 0; w < 20; w++) {
+      if (await isPdfOfferVisible(page)) {
+        logStep('flow: PDF controls already visible');
+        break;
+      }
+      if (await isKbaWizardPage(page)) {
+        logStep('flow: KBA wizard detected');
+        break;
+      }
+      if (await isEmailAuthenticationPage(page)) {
+        await handleEmailAuthenticationPage(page, baseUrl, apiKey, tempEmail);
+      }
+      await sleep(3000);
+    }
+
+    for (let attempt = 1; attempt <= MAX_KBA_ATTEMPTS; attempt++) {
+      if (await isPdfOfferVisible(page)) {
+        logStep('flow: skipping KBA — PDF ready');
+        break;
+      }
+
+      if (!(await isKbaWizardPage(page))) {
+        logStep('flow: KBA wizard not visible — retrying (TUNE: intermediate step)');
+        let seen = false;
+        for (let r = 0; r < 5; r++) {
+          await sleep(3000);
+          if (await isPdfOfferVisible(page)) {
+            seen = true;
+            break;
+          }
+          if (await isKbaWizardPage(page)) {
+            seen = true;
+            break;
+          }
+        }
+        if (await isPdfOfferVisible(page)) {
+          break;
+        }
+        if (!seen) {
+          throw new Error('Expected KBA (#wizard-page[data-ga-event="kba"] / #questionList) or PDF controls');
+        }
+      }
+
+      logStep(`stage: KBA / ID Verification (round ${attempt}/${MAX_KBA_ATTEMPTS})`);
+      const extracted = await extractKbaQuestions(page);
+      if (extracted.length === 0) {
+        logStep('kba: no questions extracted — check #questionList (TUNE)');
+      }
+
+      const questionsForEmit = extracted.map((q) => ({ id: String(q.id), text: String(q.text) }));
+      const out = { status: 'security_questions', sessionId, questions: questionsForEmit };
 
       await writeFile(join(sessionDir, 'security-questions.json'), JSON.stringify(out, null, 2), 'utf8');
+      await writeFile(
+        join(sessionDir, 'session-status.json'),
+        JSON.stringify({ phase: 'awaiting_answers', sessionId, attempt, at: new Date().toISOString() }, null, 2),
+        'utf8',
+      );
+
       emitJson(out);
-      logStep(`security: paused automation — wrote ${join(sessionDir, 'security-questions.json')}`);
-      logStep('security: supply answers via POST /leads/{lead}/credit-check-v2/sessions/{sessionId}/answers or drop answers.json into sessionDir');
+      logStep(`handoff: CREDIT_CHECK_V2_JSON security_questions (${questionsForEmit.length} question(s))`);
 
-      const waitMs = Number(process.env.CREDIT_CHECK_V2_ANSWER_TIMEOUT_MS) || 45 * 60 * 1000;
-      const answersPayload = await waitForAnswersFile(sessionDir, waitMs);
+      if (attempt > 1) {
+        await removeAnswersFile(sessionDir);
+      }
 
-      await applySecurityAnswers(page, answersPayload);
+      const answersPayload = await waitForAnswersFile(sessionDir, answerTimeout);
+      await applyKbaRadioAnswers(page, answersPayload.answers || [], extracted);
+      await clickKbaContinue(page);
+      await sleep(4000);
 
-      await fillIfPresent(page, 'post-security continue', async () => {
-        await page.getByRole('button', { name: /continue|next|submit|confirm/i }).first().click();
-      });
-    } else {
-      logStep('security: no knowledge-based step detected by heuristics; continuing');
+      if (await isWrongKbaAnswersPage(page)) {
+        logStep(`kba: incorrect answers message detected (round ${attempt})`);
+        if (attempt >= MAX_KBA_ATTEMPTS) {
+          throw new Error('KBA: incorrect answers after maximum attempts');
+        }
+        await removeAnswersFile(sessionDir);
+        continue;
+      }
+
+      logStep('kba: no incorrect-message banner — assuming proceed to report');
+      break;
     }
 
     await sleep(2000);
-
-    const pdfOk = await tryDownloadReportPdf(page, reportPath);
-
-    if (!pdfOk) {
+    logStep('stage: download PDF report');
+    const ok = await downloadReportPdf(page, reportPath);
+    if (!ok) {
       emitJson({ success: false, error: 'pdf_not_saved', reportPath });
-      throw new Error('Could not save PDF');
+      throw new Error('PDF download failed');
     }
 
     const final = { success: true, reportPath };
     emitJson(final);
-    logStep(`done: ${JSON.stringify(final)}`);
+    logStep(`complete: ${JSON.stringify(final)}`);
   } finally {
     await browser.close();
     logStep('browser: closed');
