@@ -825,9 +825,59 @@ function safeSerializeTriggerResult(result) {
 }
 
 /**
- * Prove whether `#find-address` caused network activity and `#PossibleAddresses_SelectedItemValue` to populate.
+ * Ensure `#Address_Postcode` matches Jinx before each find-address trigger (value can be cleared by focus/navigation).
+ * @param {string} expectedPostcode trimmed Jinx postcode
+ * @param {number} attemptNum 1-based attempt index (for logs)
+ * @returns {Promise<{ expectedPostcode: string, valueBefore: string, valueAfter: string, repaired: boolean }>}
  */
-async function tryTriggerAddressLookup(page) {
+async function ensurePostcodeReadyForLookup(page, expectedPostcode, attemptNum) {
+  const expected = String(expectedPostcode || '').trim();
+  const pcLoc = page.locator('#Address_Postcode');
+  const valueBefore = ((await pcLoc.inputValue().catch(() => '')) || '').trim();
+  logStep(`address lookup attempt ${attemptNum} current postcode before repair: "${valueBefore}"`);
+
+  let repaired = false;
+  if (!valueBefore || valueBefore !== expected) {
+    await pcLoc.fill(expected);
+    repaired = true;
+  }
+
+  await pcLoc.evaluate((el) => {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  let valueAfter = ((await pcLoc.inputValue().catch(() => '')) || '').trim();
+  if (valueAfter !== expected) {
+    await pcLoc.fill(expected);
+    await pcLoc.evaluate((el) => {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    valueAfter = ((await pcLoc.inputValue().catch(() => '')) || '').trim();
+    repaired = true;
+  }
+
+  logStep(`address lookup attempt ${attemptNum} postcode after repair: "${valueAfter}"`);
+  const debug = {
+    expectedPostcode: expected,
+    valueBefore,
+    valueAfter,
+    repaired,
+  };
+  logStep(`address lookup attempt ${attemptNum} postcode ensure: ${JSON.stringify(debug)}`);
+
+  await pcLoc.blur().catch(() => {});
+  await sleep(200);
+
+  return debug;
+}
+
+/**
+ * Prove whether `#find-address` caused network activity and `#PossibleAddresses_SelectedItemValue` to populate.
+ * @param {string} expectedPostcode Jinx postcode — re-applied before each attempt
+ */
+async function tryTriggerAddressLookup(page, expectedPostcode) {
   const seenRequests = [];
   const seenResponses = [];
   const maxNet = 60;
@@ -855,7 +905,6 @@ async function tryTriggerAddressLookup(page) {
   page.on('request', onRequest);
   page.on('response', onResponse);
 
-  const pcLoc = page.locator('#Address_Postcode');
   const findAddr = page.locator('#find-address');
   const attempts = [];
 
@@ -870,75 +919,66 @@ async function tryTriggerAddressLookup(page) {
     return false;
   };
 
-  const runAttempt = async (label, action) => {
+  const runAttempt = async (attemptNum, label, action) => {
     logStep(`address lookup ${label}`);
-    const execAction = async () => {
-      await action();
-    };
     try {
-      await execAction();
-    } catch (e) {
-      const msg = String(e?.message || e);
-      const intercept =
-        /intercepts pointer|CookieBanner|cookie|modal|overlay/i.test(msg) ||
-        /subtree intercepts pointer/i.test(msg);
-      if (intercept) {
-        logStep(`address lookup: click intercepted (cookie/modal likely) — ${msg.slice(0, 240)}`);
-        await ensureCookieBannerDismissed(page, 'after-pointer-intercept');
-        const stillBlocking = await isCookieBannerBlockingInteractions(page);
-        logStep(`cookie banner: blocking after dismiss = ${stillBlocking}`);
-        try {
-          await execAction();
-        } catch (e2) {
+      const execAction = async () => {
+        await action();
+      };
+      try {
+        await execAction();
+      } catch (e) {
+        const msg = String(e?.message || e);
+        const intercept =
+          /intercepts pointer|CookieBanner|cookie|modal|overlay/i.test(msg) ||
+          /subtree intercepts pointer/i.test(msg);
+        if (intercept) {
+          logStep(`address lookup: click intercepted (cookie/modal likely) — ${msg.slice(0, 240)}`);
+          await ensureCookieBannerDismissed(page, 'after-pointer-intercept');
+          const stillBlocking = await isCookieBannerBlockingInteractions(page);
+          logStep(`cookie banner: blocking after dismiss = ${stillBlocking}`);
+          try {
+            await execAction();
+          } catch (e2) {
+            const domAfter = await gatherAddressLookupDomDebug(page);
+            attempts.push({
+              label,
+              error: String(e2?.message || e2),
+              domAfter,
+              retriedAfterCookieDismiss: true,
+            });
+            return false;
+          }
+        } else {
           const domAfter = await gatherAddressLookupDomDebug(page);
-          attempts.push({
-            label,
-            error: String(e2?.message || e2),
-            domAfter,
-            retriedAfterCookieDismiss: true,
-          });
+          attempts.push({ label, error: msg, domAfter });
           return false;
         }
-      } else {
-        const domAfter = await gatherAddressLookupDomDebug(page);
-        attempts.push({ label, error: msg, domAfter });
-        return false;
       }
+      await sleep(400);
+      const ok = await pollForPopulatedSelect();
+      const domAfter = await gatherAddressLookupDomDebug(page);
+      logStep(
+        `address lookup dom after ${label}: select=${domAfter.possibleAddressesSelectExists} options=${domAfter.optionCount} realOptions=${domAfter.realOptionCount} hiddenSelectListInputs=${domAfter.hiddenSelectListInputCount} wrapperHtmlLen=${domAfter.addressDropdownInnerHTMLLength}`,
+      );
+      attempts.push({ label, ok, domAfter });
+      return ok;
+    } finally {
+      const afterVal = ((await page.locator('#Address_Postcode').inputValue().catch(() => '')) || '').trim();
+      logStep(`address lookup attempt ${attemptNum} postcode after attempt: "${afterVal}"`);
     }
-    await sleep(400);
-    const ok = await pollForPopulatedSelect();
-    const domAfter = await gatherAddressLookupDomDebug(page);
-    logStep(
-      `address lookup dom after ${label}: select=${domAfter.possibleAddressesSelectExists} options=${domAfter.optionCount} realOptions=${domAfter.realOptionCount} hiddenSelectListInputs=${domAfter.hiddenSelectListInputCount} wrapperHtmlLen=${domAfter.addressDropdownInnerHTMLLength}`,
-    );
-    attempts.push({ label, ok, domAfter });
-    return ok;
   };
 
+  /** Minimal triggers only — avoid Enter / postcode re-clicks that can clear the field. */
   const sequence = [
     [
-      'attempt 1: normal click',
+      'attempt 1: normal click #find-address',
       async () => {
         await findAddr.click({ timeout: 15000 });
       },
     ],
     [
-      'attempt 2: focus postcode + Enter',
-      async () => {
-        await pcLoc.focus();
-        await page.keyboard.press('Enter');
-      },
-    ],
-    [
-      'attempt 3: refocus postcode + normal click find-address',
-      async () => {
-        await pcLoc.click({ timeout: 10000 });
-        await sleep(200);
-        await findAddr.click({ timeout: 15000 });
-      },
-    ],
-    [
-      'attempt 4: forced click find-address',
+      'attempt 2: forced click #find-address',
       async () => {
         await findAddr.click({ force: true, timeout: 15000 });
       },
@@ -950,7 +990,8 @@ async function tryTriggerAddressLookup(page) {
   for (const [label, fn] of sequence) {
     attemptIndex += 1;
     await ensureCookieBannerDismissed(page, `attempt-${attemptIndex}`);
-    if (await runAttempt(label, fn)) {
+    await ensurePostcodeReadyForLookup(page, expectedPostcode, attemptIndex);
+    if (await runAttempt(attemptIndex, label, fn)) {
       success = true;
       break;
     }
@@ -1512,14 +1553,7 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
 
   await logAddressLookupDiagnostics(page, 'before find-address click');
 
-  const pcLoc = page.locator('#Address_Postcode');
-  await pcLoc.evaluate((el) => el.dispatchEvent(new Event('input', { bubbles: true })));
-  await pcLoc.evaluate((el) => el.dispatchEvent(new Event('change', { bubbles: true })));
-  await pcLoc.blur().catch(() => {});
-  await pcLoc.press('Tab').catch(() => {});
-  await sleep(300);
-
-  const triggerResult = await tryTriggerAddressLookup(page);
+  const triggerResult = await tryTriggerAddressLookup(page, postcodeVal);
   logStep(`address lookup trigger result: ${JSON.stringify(safeSerializeTriggerResult(triggerResult))}`);
 
   if (!triggerResult.success) {
