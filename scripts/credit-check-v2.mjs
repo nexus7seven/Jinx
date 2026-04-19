@@ -42,6 +42,8 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+const pad2 = (v) => String(v ?? '').trim().padStart(2, '0');
+
 /** Human-facing progress line for CRM terminal (no timestamp). */
 function logProgress(userMessage) {
   process.stdout.write(`[credit-check-v2] • ${userMessage}\n`);
@@ -376,14 +378,26 @@ async function collectAboutYouValidationSnapshot(page) {
  */
 function collectJinxInputDebug(personalData, tempEmail) {
   const dobParts = resolveDobPartsFromJinx(personalData);
+  let dobDay = null;
+  let dobMonth = null;
+  let dobYear = null;
+  if (dobParts) {
+    dobDay = pad2(dobParts.day);
+    dobMonth = pad2(dobParts.month);
+    dobYear = String(dobParts.year ?? '').trim();
+  } else {
+    if (personalData.dobDay != null) dobDay = pad2(personalData.dobDay);
+    if (personalData.dobMonth != null) dobMonth = pad2(personalData.dobMonth);
+    if (personalData.dobYear != null) dobYear = String(personalData.dobYear ?? '').trim();
+  }
   return {
     title: String(personalData.title ?? '').trim() || null,
     first_name: personalData.first_name ?? null,
     middle_name: personalData.middle_name ?? null,
     last_name: personalData.last_name ?? null,
-    dobDay: dobParts?.day ?? personalData.dobDay ?? null,
-    dobMonth: dobParts?.month ?? personalData.dobMonth ?? null,
-    dobYear: dobParts?.year ?? personalData.dobYear ?? null,
+    dobDay,
+    dobMonth,
+    dobYear,
     dobRaw: personalData.dob ?? null,
     dobPartsResolved: dobParts ?? null,
     email: tempEmail ?? null,
@@ -522,6 +536,203 @@ async function collectAddressFieldStateAfterSubmit(page) {
       validationMessagesForAddressFields: [],
       addressInputsWithValidationErrorClass: [],
     }));
+}
+
+const SUBMIT_CAPTURE_MAX = 50;
+/** @type {{ method: string, url: string }[]} */
+const submitCaptureRequests = [];
+/** @type {{ status: number, url: string }[]} */
+const submitCaptureResponses = [];
+/** @type {null | (() => void)} */
+let detachSubmitTransportListeners = null;
+
+function submitTransportUrlMatches(url) {
+  return /AboutYou|CreditReport|Verification|Authentication|Knowledge|Question|PDF/i.test(String(url || ''));
+}
+
+function pushSubmitCapture(arr, entry, max) {
+  arr.push(entry);
+  while (arr.length > max) arr.shift();
+}
+
+function attachSubmitTransportListeners(page) {
+  if (detachSubmitTransportListeners) {
+    detachSubmitTransportListeners();
+  }
+  submitCaptureRequests.length = 0;
+  submitCaptureResponses.length = 0;
+  const onReq = (req) => {
+    try {
+      const url = req.url();
+      if (!submitTransportUrlMatches(url)) return;
+      pushSubmitCapture(submitCaptureRequests, { method: req.method(), url: url.slice(0, 1200) }, SUBMIT_CAPTURE_MAX);
+    } catch {
+      /* ignore */
+    }
+  };
+  const onResp = (res) => {
+    try {
+      const url = res.url();
+      if (!submitTransportUrlMatches(url)) return;
+      pushSubmitCapture(
+        submitCaptureResponses,
+        { status: res.status(), url: url.slice(0, 1200) },
+        SUBMIT_CAPTURE_MAX,
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+  page.on('request', onReq);
+  page.on('response', onResp);
+  detachSubmitTransportListeners = () => {
+    page.off('request', onReq);
+    page.off('response', onResp);
+    detachSubmitTransportListeners = null;
+  };
+}
+
+/**
+ * Deep DOM/transport snapshot after submit (paired with submit capture arrays).
+ */
+async function collectPostSubmitTransportSnapshot(page) {
+  const url = page.url();
+  const snap = await page.evaluate(() => {
+    const forms = [...document.querySelectorAll('form')].map((f, i) => ({
+      index: i,
+      action: f.getAttribute('action') || f.action || '',
+      method: (f.getAttribute('method') || f.method || 'get').toUpperCase(),
+      id: f.id || null,
+      className: f.className || null,
+    }));
+    const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+    const submit = document.querySelector('#submit');
+    const submitExists = !!submit;
+    const submitDisabled = submit ? !!submit.disabled : null;
+    const gv = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { exists: false };
+      return { exists: true, value: el.value != null ? String(el.value) : '' };
+    };
+    const hiddenPa = document.querySelector('input[type="hidden"]#PossibleAddresses_SelectedItemValue');
+    return {
+      documentReadyState: document.readyState,
+      title: document.title || '',
+      bodyInnerTextFirst1500: bodyText,
+      forms,
+      submitExists,
+      submitDisabled,
+      dobDay: gv('#IndividualDetails_DateOfBirth_Day'),
+      dobMonth: gv('#IndividualDetails_DateOfBirth_Month'),
+      dobYear: gv('#IndividualDetails_DateOfBirth_Year'),
+      hiddenPossibleAddressesSelected: hiddenPa
+        ? { exists: true, value: hiddenPa.value != null ? String(hiddenPa.value) : '' }
+        : { exists: false },
+    };
+  });
+  const full = { url, ...snap };
+  logStep(`post-submit transport snapshot: ${JSON.stringify(full)}`);
+  return full;
+}
+
+async function performAboutYouSubmitWithDiagnostics(page) {
+  let tid;
+  attachSubmitTransportListeners(page);
+
+  const preFields = await page.evaluate(() => {
+    const val = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { selector: sel, exists: false };
+      if (el.type === 'checkbox') {
+        return { selector: sel, exists: true, checked: el.checked };
+      }
+      return { selector: sel, exists: true, value: el.value != null ? String(el.value) : '' };
+    };
+    return {
+      IndividualDetails_DateOfBirth_Day: val('#IndividualDetails_DateOfBirth_Day'),
+      IndividualDetails_DateOfBirth_Month: val('#IndividualDetails_DateOfBirth_Month'),
+      IndividualDetails_DateOfBirth_Year: val('#IndividualDetails_DateOfBirth_Year'),
+      IndividualDetails_Email: val('#IndividualDetails_Email'),
+      IndividualDetails_PhoneNumber: val('#IndividualDetails_PhoneNumber'),
+      Address_BuildingNumber: val('#Address_BuildingNumber'),
+      Address_Address1: val('#Address_Address1'),
+      Address_AddressLine1: val('#Address_AddressLine1'),
+      Address_Town: val('#Address_Town'),
+      Address_Postcode: val('#Address_Postcode'),
+      PossibleAddresses_SelectedItemValue_hidden: val('input[type="hidden"]#PossibleAddresses_SelectedItemValue'),
+      TermsOfUseAndPrivacyNoticeAccepted: val('#TermsOfUseAndPrivacyNoticeAccepted'),
+    };
+  });
+
+  const btnMeta = await page.evaluate(() => {
+    const submit = document.querySelector('#submit');
+    const form = submit && submit.closest('form');
+    return {
+      submitOuterHTML: submit ? submit.outerHTML.slice(0, 6000) : null,
+      submitDisabled: submit ? !!submit.disabled : null,
+      formAction: form ? form.getAttribute('action') || form.action || '' : null,
+      formMethod: form ? (form.getAttribute('method') || form.method || 'get').toUpperCase() : null,
+    };
+  });
+
+  logStep(`submit pre-diagnostics: ${JSON.stringify({ button: btnMeta, fields: preFields })}`);
+
+  const sub = page.locator('#submit').first();
+  const altSubmit = page.locator('input[name="submit"]').first();
+
+  let settled = false;
+  /** @type {((v: string) => void) | undefined} */
+  let outcomeResolve;
+  const outcomePromise = new Promise((resolve) => {
+    outcomeResolve = resolve;
+  });
+
+  const finish = (v) => {
+    if (settled) return;
+    settled = true;
+    if (tid !== undefined) clearTimeout(tid);
+    page.off('framenavigated', hNav);
+    page.off('response', hResp);
+    outcomeResolve?.(v);
+  };
+
+  const hNav = (frame) => {
+    if (frame === page.mainFrame()) finish('navigation');
+  };
+  const hResp = (res) => {
+    try {
+      if (submitTransportUrlMatches(res.url())) finish('response only');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  page.on('framenavigated', hNav);
+  page.on('response', hResp);
+
+  try {
+    if (await page.locator('#submit').count()) {
+      await sub.click({ timeout: 15000 });
+    } else {
+      await altSubmit.click({ timeout: 15000 });
+    }
+  } catch (e) {
+    if (!settled) finish('neither');
+    throw e;
+  }
+
+  if (!settled) {
+    tid = setTimeout(() => finish('neither'), 5000);
+  }
+
+  const submitOutcome = await outcomePromise;
+  const outcomeLabel =
+    submitOutcome === 'navigation'
+      ? 'navigation'
+      : submitOutcome === 'response only'
+        ? 'response only'
+        : 'neither';
+  logStep(`submit outcome: ${outcomeLabel}`);
 }
 
 /** Terminal failure: `Negative Id Verification` (title) or negative DOM — emit payload and stop. */
@@ -1771,15 +1982,18 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   });
 
   if (dobParts) {
-    // JINX MAPPING: dob → #IndividualDetails_DateOfBirth_Day|Month|Year
+    const dobDayStr = pad2(dobParts.day);
+    const dobMonthStr = pad2(dobParts.month);
+    const dobYearStr = String(dobParts.year ?? '').trim();
+    // JINX MAPPING: dob → #IndividualDetails_DateOfBirth_Day|Month|Year (zero-padded day/month strings)
     await fillIfPresent(page, 'DOB Day #IndividualDetails_DateOfBirth_Day', async () => {
-      await page.locator('#IndividualDetails_DateOfBirth_Day').fill(String(dobParts.day));
+      await page.locator('#IndividualDetails_DateOfBirth_Day').fill(dobDayStr);
     });
     await fillIfPresent(page, 'DOB Month #IndividualDetails_DateOfBirth_Month', async () => {
-      await page.locator('#IndividualDetails_DateOfBirth_Month').fill(String(dobParts.month));
+      await page.locator('#IndividualDetails_DateOfBirth_Month').fill(dobMonthStr);
     });
     await fillIfPresent(page, 'DOB Year #IndividualDetails_DateOfBirth_Year', async () => {
-      await page.locator('#IndividualDetails_DateOfBirth_Year').fill(String(dobParts.year));
+      await page.locator('#IndividualDetails_DateOfBirth_Year').fill(dobYearStr);
     });
   }
 
@@ -1847,14 +2061,7 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   logProgress('Agreed to Terms of Use');
   logStep('form: Terms #TermsOfUseAndPrivacyNoticeAccepted — checked');
 
-  await fillIfPresent(page, 'Submit #submit', async () => {
-    const sub = page.locator('#submit');
-    if (await sub.count()) {
-      await sub.first().click({ timeout: 15000 });
-    } else {
-      await page.locator('input[name="submit"]').first().click({ timeout: 15000 });
-    }
-  });
+  await performAboutYouSubmitWithDiagnostics(page);
 }
 
 async function isEmailAuthenticationPage(page) {
@@ -2176,11 +2383,25 @@ async function waitForPostSubmitJourneyState(page) {
   const t0 = Date.now();
   let lastLoggedState = null;
   let lastThrottleLog = 0;
+  let aboutYouSinceMs = null;
+  let heavySubmitDiagLogged = false;
   const maxWaitMs = POST_SUBMIT_WATCH_FAST_MS + POST_SUBMIT_WATCH_SLOW_MS;
 
   while (Date.now() - t0 < maxWaitMs) {
     const state = await classifyPostSubmitJourneyState(page);
     const elapsedMs = Date.now() - t0;
+
+    if (state === 'about_you') {
+      if (aboutYouSinceMs == null) aboutYouSinceMs = Date.now();
+      if (!heavySubmitDiagLogged && Date.now() - aboutYouSinceMs > 3000) {
+        heavySubmitDiagLogged = true;
+        await collectPostSubmitTransportSnapshot(page);
+        logStep(`submit capture last requests: ${JSON.stringify(submitCaptureRequests.slice(-10))}`);
+        logStep(`submit capture last responses: ${JSON.stringify(submitCaptureResponses.slice(-10))}`);
+      }
+    } else {
+      aboutYouSinceMs = null;
+    }
 
     if (state !== lastLoggedState) {
       logStep(`post-submit watcher: state=${state} elapsedMs=${elapsedMs}`);
@@ -2287,9 +2508,15 @@ async function run() {
 
     logProgress('Filling personal details…');
     logStep('stage: About You form (exact field IDs)');
-    await fillAboutYouForm(page, personalData, tempEmail);
-
-    const journey = await waitForPostSubmitJourneyState(page);
+    let journey;
+    try {
+      await fillAboutYouForm(page, personalData, tempEmail);
+      journey = await waitForPostSubmitJourneyState(page);
+    } finally {
+      if (detachSubmitTransportListeners) {
+        detachSubmitTransportListeners();
+      }
+    }
     if (journey.state === 'negative') {
       if (await exitIfNegativeFailure(page)) {
         return;
