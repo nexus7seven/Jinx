@@ -1858,6 +1858,106 @@ async function isPdfOfferVisible(page) {
   return save || link;
 }
 
+/** Fast post-submit polling: first 10s @ 500ms, next 10s @ 1s (wall clock ~20s max). */
+const POST_SUBMIT_WATCH_FAST_MS = 10000;
+const POST_SUBMIT_WATCH_SLOW_MS = 10000;
+const POST_SUBMIT_POLL_FAST_MS = 500;
+const POST_SUBMIT_POLL_SLOW_MS = 1000;
+const POST_SUBMIT_INCONCLUSIVE_THROTTLE_MS = 2000;
+
+/**
+ * Classify page after About You submit — order tuned for fast negative-ID detection vs email / KBA / PDF.
+ * @returns {'negative'|'email_auth'|'kba_first'|'kba_second'|'pdf'|'about_you'|'unknown'}
+ */
+async function classifyPostSubmitJourneyState(page) {
+  const docTitle = (await page.title().catch(() => '')).trim();
+  const titleNorm = normalizeJourneyText(docTitle);
+
+  if (titleNorm.includes('negative id verification')) {
+    return 'negative';
+  }
+  if (await isNegativeIdVerificationDom(page)) {
+    return 'negative';
+  }
+
+  if (await isEmailAuthenticationPage(page)) {
+    return 'email_auth';
+  }
+
+  const wizardText = (await page.locator('#wizard-step').first().innerText().catch(() => '')).slice(0, 24000);
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 64000);
+  const blob = normalizeJourneyText(`${docTitle}\n${wizardText}\n${body}`);
+  if (blob.includes(KBA_SECOND_MARKER_NORM)) {
+    return 'kba_second';
+  }
+  if (blob.includes(KBA_FIRST_MARKER_NORM)) {
+    return 'kba_first';
+  }
+
+  if (await isPdfOfferVisible(page)) {
+    return 'pdf';
+  }
+
+  if (await isAboutYouPageStill(page)) {
+    return 'about_you';
+  }
+
+  return 'unknown';
+}
+
+function postSubmitStateIsDecisive(state) {
+  return (
+    state === 'negative' ||
+    state === 'email_auth' ||
+    state === 'kba_first' ||
+    state === 'kba_second' ||
+    state === 'pdf'
+  );
+}
+
+/**
+ * Responsive post-submit polling until a decisive state or timeout (then last snapshot).
+ * @returns {Promise<{ state: string, elapsedMs: number }>}
+ */
+async function waitForPostSubmitJourneyState(page) {
+  const t0 = Date.now();
+  let lastLoggedState = null;
+  let lastThrottleLog = 0;
+  const maxWaitMs = POST_SUBMIT_WATCH_FAST_MS + POST_SUBMIT_WATCH_SLOW_MS;
+
+  while (Date.now() - t0 < maxWaitMs) {
+    const state = await classifyPostSubmitJourneyState(page);
+    const elapsedMs = Date.now() - t0;
+
+    if (state !== lastLoggedState) {
+      logStep(`post-submit watcher: state=${state} elapsedMs=${elapsedMs}`);
+      lastLoggedState = state;
+    } else if (
+      !postSubmitStateIsDecisive(state) &&
+      elapsedMs - lastThrottleLog >= POST_SUBMIT_INCONCLUSIVE_THROTTLE_MS
+    ) {
+      logStep(`post-submit watcher: state=${state} elapsedMs=${elapsedMs}`);
+      lastThrottleLog = elapsedMs;
+    }
+
+    if (postSubmitStateIsDecisive(state)) {
+      const result = { state, elapsedMs };
+      logStep(`post-submit watcher resolved: ${JSON.stringify(result)}`);
+      return result;
+    }
+
+    const inFastWindow = elapsedMs < POST_SUBMIT_WATCH_FAST_MS;
+    await sleep(inFastWindow ? POST_SUBMIT_POLL_FAST_MS : POST_SUBMIT_POLL_SLOW_MS);
+  }
+
+  const state = await classifyPostSubmitJourneyState(page);
+  const elapsedMs = Date.now() - t0;
+  const result = { state, elapsedMs };
+  logStep(`post-submit watcher: state=${state} elapsedMs=${elapsedMs}`);
+  logStep(`post-submit watcher resolved: ${JSON.stringify(result)}`);
+  return result;
+}
+
 async function run() {
   const payloadPath = process.argv[2];
   if (!payloadPath) {
@@ -1936,33 +2036,46 @@ async function run() {
     logStep('stage: About You form (exact field IDs)');
     await fillAboutYouForm(page, personalData, tempEmail);
 
-    logStep('post-submit: settle loop (5×3s) — detectJourneyState (no temp-mail until Email Authentication Required)');
-    for (let i = 0; i < 5; i++) {
-      const st = await detectJourneyState(page);
-      logStep(`state: ${st}`);
-      if (st === 'unknown') {
-        const snapshot = await collectJourneyDebugSnapshot(page);
-        logStep(`post-submit unknown snapshot: ${JSON.stringify(snapshot)}`);
-        if (await isAboutYouPageStill(page)) {
-          logStep('post-submit still on about-you form');
-          const aboutSnap = await collectAboutYouValidationSnapshot(page);
-          logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
-        }
-      }
-      if (st === 'negative') {
-        if (await exitIfNegativeFailure(page)) {
-          return;
-        }
-      }
-      if (st === 'email_auth' || st === 'kba_first' || st === 'kba_second' || st === 'pdf') {
-        break;
-      }
-      if (i < 4) {
-        await sleep(3000);
+    const journey = await waitForPostSubmitJourneyState(page);
+    if (journey.state === 'negative') {
+      if (await exitIfNegativeFailure(page)) {
+        return;
       }
     }
 
-    const stPost = await detectJourneyState(page);
+    let stPost = journey.state;
+    if (stPost === 'about_you' || stPost === 'unknown') {
+      logStep(
+        'post-submit: coarse fallback (5×3s) after fast watcher — detectJourneyState (no temp-mail until Email Authentication Required)',
+      );
+      for (let i = 0; i < 5; i++) {
+        const st = await detectJourneyState(page);
+        logStep(`state: ${st}`);
+        if (st === 'unknown') {
+          const snapshot = await collectJourneyDebugSnapshot(page);
+          logStep(`post-submit unknown snapshot: ${JSON.stringify(snapshot)}`);
+          if (await isAboutYouPageStill(page)) {
+            logStep('post-submit still on about-you form');
+            const aboutSnap = await collectAboutYouValidationSnapshot(page);
+            logStep(`post-submit about-you validation snapshot: ${JSON.stringify(aboutSnap)}`);
+          }
+        }
+        if (st === 'negative') {
+          if (await exitIfNegativeFailure(page)) {
+            return;
+          }
+        }
+        if (st === 'email_auth' || st === 'kba_first' || st === 'kba_second' || st === 'pdf') {
+          stPost = st;
+          break;
+        }
+        if (i < 4) {
+          await sleep(3000);
+        }
+      }
+    }
+
+    stPost = await detectJourneyState(page);
     logStep(`post-submit resolved state: ${stPost}`);
     if (stPost === 'negative') {
       if (await exitIfNegativeFailure(page)) {
