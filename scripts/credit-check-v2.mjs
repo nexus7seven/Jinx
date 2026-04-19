@@ -708,6 +708,128 @@ async function collectAddressDropdownSnapshot(page) {
   };
 }
 
+function normalizeAddressCandidateText(s) {
+  return String(s || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Leading house/door number at start of line (e.g. `1 Carolan…` → `1`, `12 Carolan…` → `12`). */
+function firstNumericTokenFromAddressLine(text) {
+  const t = normalizeAddressCandidateText(text);
+  const m = t.match(/^(\d+)/);
+  return m ? m[1] : '';
+}
+
+/**
+ * Debug: everything the page may expose for PAF address lines (wrapper, select, hidden SelectList).
+ */
+async function collectRawAddressCandidates(page) {
+  const wrap = page.locator('#address-dropdown');
+  const addressDropdownExists = (await wrap.count().catch(() => 0)) > 0;
+  let addressDropdownInnerHTML = '';
+  let addressDropdownInnerText = '';
+  if (addressDropdownExists) {
+    addressDropdownInnerHTML = (await wrap.first().innerHTML().catch(() => '')).slice(0, 5000);
+    addressDropdownInnerText = (await wrap.first().innerText().catch(() => '')).slice(0, 5000);
+  }
+
+  const sel = page.locator(POSSIBLE_ADDRESSES_SELECT);
+  const possibleAddressesSelectExists = (await sel.count().catch(() => 0)) > 0;
+  const selectOptions = [];
+  if (possibleAddressesSelectExists) {
+    const opts = sel.locator('option');
+    const n = await opts.count().catch(() => 0);
+    for (let i = 0; i < n; i++) {
+      const value = (await opts.nth(i).getAttribute('value').catch(() => '')) || '';
+      const text = (await opts.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+      selectOptions.push({ value, text });
+    }
+  }
+
+  const hiddenSelectListPairs = await page.evaluate(() => {
+    const pairs = [];
+    const textEls = Array.from(
+      document.querySelectorAll('input[id^="PossibleAddresses_SelectList_"][id$="__Text"]'),
+    );
+    for (const tEl of textEls) {
+      const base = tEl.id.replace(/__Text$/i, '');
+      const vEl = document.getElementById(`${base}__Value`);
+      const text = (tEl.value || '').trim();
+      const value = vEl ? (vEl.value || '').trim() : '';
+      pairs.push({
+        text,
+        value,
+        textId: tEl.id,
+        valueId: vEl ? vEl.id : null,
+      });
+    }
+    return pairs;
+  });
+
+  const fromEvaluate = await page.evaluate(() => {
+    const out = [];
+    const add = (s) => {
+      const t = (s || '').replace(/\s+/g, ' ').trim();
+      if (t.length > 3) out.push(t);
+    };
+    document.querySelectorAll('input[id^="PossibleAddresses_SelectList_"][id$="__Text"]').forEach((el) =>
+      add(el.value),
+    );
+    document.querySelectorAll('input[id^="PossibleAddresses_SelectList_"][id$="__Value"]').forEach((el) =>
+      add(el.value),
+    );
+    const root = document.querySelector('#address-dropdown');
+    if (root) {
+      root.querySelectorAll('li, button, a, [role="option"], label, option').forEach((el) => {
+        const t = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (t.length > 5 && t.length < 400) add(t);
+      });
+    }
+    return [...new Set(out)];
+  });
+
+  const allCandidateStrings = [];
+  const pushUnique = (s) => {
+    const n = normalizeAddressCandidateText(s);
+    if (!n) return;
+    if (!allCandidateStrings.includes(n)) allCandidateStrings.push(n);
+  };
+  for (const o of selectOptions) {
+    pushUnique(o.text);
+  }
+  for (const p of hiddenSelectListPairs) {
+    pushUnique(p.text);
+  }
+  for (const t of fromEvaluate) {
+    pushUnique(t);
+  }
+
+  const candidatesWithMeta = [];
+  const seen = new Set();
+  for (const raw of allCandidateStrings) {
+    const normalized = normalizeAddressCandidateText(raw);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    candidatesWithMeta.push({
+      raw,
+      normalized,
+      firstNumber: firstNumericTokenFromAddressLine(raw),
+    });
+  }
+
+  return {
+    addressDropdownExists,
+    addressDropdownInnerHTML,
+    addressDropdownInnerText,
+    possibleAddressesSelectExists,
+    selectOptions,
+    hiddenSelectListPairs,
+    allCandidateStrings,
+    candidatesWithMeta,
+  };
+}
+
 /**
  * Rich logging for postcode / find-address debugging (before and after click).
  */
@@ -1054,6 +1176,7 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
     await page.locator('#Address_Postcode').fill(postcodeVal);
   });
   logStep(`address: postcode value before find-address: "${postcodeVal}"`);
+  logStep(`address target house_number from Jinx: "${String(personalData.house_number ?? '').trim()}"`);
 
   await logAddressLookupDiagnostics(page, 'before find-address click');
 
@@ -1118,6 +1241,11 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   }
 
   if (!addressResolved) {
+    const rawDump = await collectRawAddressCandidates(page);
+    for (const c of rawDump.candidatesWithMeta) {
+      logStep(`address raw candidate: text="${c.normalized}" firstNumber="${c.firstNumber}"`);
+    }
+    logStep(`address raw dump: ${JSON.stringify(rawDump)}`);
     throw new Error('address_not_resolved_before_submit');
   }
 
