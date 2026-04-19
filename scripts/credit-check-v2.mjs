@@ -632,8 +632,12 @@ const ADDRESS_DROPDOWN_WAIT_MS = 12000;
 const ADDRESS_LOOKUP_MAX_MS = 22000;
 const ADDRESS_LOOKUP_POLL_MS = 450;
 
-/** TransUnion wraps PAF results in #address-dropdown but the real control is this native &lt;select&gt;. */
-const POSSIBLE_ADDRESSES_SELECT = '#PossibleAddresses_SelectedItemValue';
+/**
+ * Real PAF control is the &lt;select&gt; only — plain `#PossibleAddresses_SelectedItemValue` also matches a hidden &lt;input&gt; with the same id.
+ */
+const POSSIBLE_ADDRESSES_SELECT = 'select#PossibleAddresses_SelectedItemValue';
+/** Duplicate id: hidden field that may need to mirror the select value for ASP.NET. */
+const POSSIBLE_ADDRESSES_HIDDEN_INPUT = 'input[type="hidden"]#PossibleAddresses_SelectedItemValue';
 
 function isPlaceholderAddressOption(value, text) {
   const v = String(value || '').trim();
@@ -1257,7 +1261,38 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
   await sel.selectOption({ value: bestValue });
 
   const valueAfter = (await sel.inputValue().catch(() => '')) || '';
-  logStep(`address: PossibleAddresses selected value after selectOption: "${valueAfter}"`);
+  logStep(`address select value after selection: "${valueAfter}"`);
+
+  let selectedOptionText = bestText;
+  try {
+    const checked = sel.locator('option:checked');
+    if ((await checked.count()) > 0) {
+      selectedOptionText = (await checked.first().innerText()).replace(/\s+/g, ' ').trim();
+    }
+  } catch {
+    /* keep bestText */
+  }
+  logStep(`address select option text after selection: "${selectedOptionText}"`);
+
+  const hidden = page.locator(POSSIBLE_ADDRESSES_HIDDEN_INPUT);
+  let hiddenVal = '';
+  if ((await hidden.count().catch(() => 0)) > 0) {
+    hiddenVal = (await hidden.inputValue().catch(() => '')) || '';
+    logStep(`address hidden input value after selection: "${hiddenVal}"`);
+    if (!hiddenVal || hiddenVal === 'NOT_SELECTED' || hiddenVal !== valueAfter) {
+      await hidden.evaluate(
+        (el, v) => {
+          el.value = v;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        },
+        valueAfter,
+      );
+      hiddenVal = (await hidden.inputValue().catch(() => '')) || '';
+      logStep(`address hidden input value after sync: "${hiddenVal}"`);
+    }
+  }
+
   if (!valueAfter || valueAfter === 'NOT_SELECTED') {
     const snap = await collectAddressDropdownSnapshot(page);
     logStep(`address-dropdown snapshot: ${JSON.stringify(snap)}`);
@@ -1265,8 +1300,8 @@ async function selectAddressDropdownMatchingJinx(page, personalData) {
     return { resolved: false };
   }
 
-  logStep(`address selected candidate: "${bestText}" value="${bestValue}"`);
-  logProgress(`Address selected: ${bestText.slice(0, 120)}`);
+  logStep(`address selected candidate: "${selectedOptionText}" value="${bestValue}"`);
+  logProgress(`Address selected: ${selectedOptionText.slice(0, 120)}`);
   return { resolved: true };
 }
 
