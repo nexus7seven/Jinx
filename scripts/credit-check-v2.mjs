@@ -475,27 +475,98 @@ async function waitForOtpInEmail({ baseUrl, apiKey, email, maxAttempts = TEMP_MA
   return null;
 }
 
-async function dismissCookieBanner(page) {
-  logStep('cookies: dismiss banner (TUNE: OneTrust / vendor widgets)');
-  const candidates = [
+/** True when TransUnion / OneTrust cookie UI is likely blocking clicks (banner visible, .show, or dark overlay). */
+async function isCookieBannerBlockingInteractions(page) {
+  const banner = page.locator('#CookieBanner');
+  if ((await banner.count().catch(() => 0)) === 0) {
+    return false;
+  }
+  const first = banner.first();
+  const visible = await first.isVisible().catch(() => false);
+  const hasShow = await first.evaluate((el) => el.classList.contains('show')).catch(() => false);
+  const intercepting = await first
+    .evaluate((el) => {
+      const s = window.getComputedStyle(el);
+      const pe = s.pointerEvents !== 'none';
+      const disp = s.display !== 'none';
+      const op = parseFloat(s.opacity || '1');
+      return pe && disp && op > 0.05 && el.offsetParent !== null;
+    })
+    .catch(() => false);
+  const backdrop = page.locator('.modal-backdrop, .onetrust-pc-dark-filter, #onetrust-consent-sdk').first();
+  const backVis = (await backdrop.count().catch(() => 0)) > 0 && (await backdrop.isVisible().catch(() => false));
+  return visible || hasShow || (intercepting && visible) || backVis;
+}
+
+/**
+ * Dismiss TransUnion cookie banner / overlays so #find-address is not covered.
+ * @param {string} [reason] — 'initial' | 'before-address-lookup' | 'attempt-N' | 'after-pointer-intercept'
+ */
+async function ensureCookieBannerDismissed(page, reason) {
+  if (reason === 'before-address-lookup') {
+    const v = await isCookieBannerBlockingInteractions(page);
+    logStep(`cookie banner: visible before address lookup = ${v}`);
+  } else if (reason && /^attempt-\d+$/.test(reason)) {
+    const n = reason.replace('attempt-', '');
+    logStep(`cookie banner: dismissed before address lookup attempt ${n}`);
+  } else if (reason === 'after-pointer-intercept') {
+    logStep('cookie banner: dismiss after pointer intercept');
+  } else if (reason === 'initial') {
+    logStep('cookie banner: ensure dismissed (initial navigation)');
+  }
+
+  const clickers = [
+    page.locator('#btnCookieBannerAgree'),
+    page.locator('#btnCookieBannerReject'),
+    page.locator('#btnCloseCookieSettings'),
     page.getByRole('button', { name: /accept all|allow all|i agree|accept cookies|accept|agree/i }),
     page.locator('#onetrust-accept-btn-handler'),
     page.locator('button:has-text("Accept")'),
   ];
 
-  for (const loc of candidates) {
+  for (const loc of clickers) {
     try {
-      const first = loc.first();
-      await first.waitFor({ state: 'visible', timeout: 5000 });
-      await first.click({ timeout: 4000 });
-      logStep('cookies: dismissed');
-      await sleep(600);
-      return;
+      if ((await loc.count().catch(() => 0)) === 0) continue;
+      const btn = loc.first();
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click({ timeout: 5000 });
+        await sleep(500);
+      }
     } catch {
       /* next */
     }
   }
-  logStep('cookies: none found');
+
+  if (await isCookieBannerBlockingInteractions(page)) {
+    await page
+      .evaluate(() => {
+        const el = document.querySelector('#CookieBanner');
+        if (el) {
+          el.classList.remove('show');
+          el.setAttribute('aria-hidden', 'true');
+          el.style.display = 'none';
+          el.style.pointerEvents = 'none';
+        }
+        document.querySelectorAll('.modal-backdrop, .onetrust-pc-dark-filter').forEach((b) => {
+          try {
+            b.remove();
+          } catch {
+            /* ignore */
+          }
+        });
+      })
+      .catch(() => {});
+    logStep('cookie banner: fallback hide applied');
+    await sleep(200);
+  }
+
+  const finalBlocking = await isCookieBannerBlockingInteractions(page);
+  logStep(`cookie banner: final visible state = ${finalBlocking}`);
+  return !finalBlocking;
+}
+
+async function dismissCookieBanner(page) {
+  await ensureCookieBannerDismissed(page, 'initial');
 }
 
 async function fillIfPresent(page, label, filler) {
@@ -801,12 +872,38 @@ async function tryTriggerAddressLookup(page) {
 
   const runAttempt = async (label, action) => {
     logStep(`address lookup ${label}`);
-    try {
+    const execAction = async () => {
       await action();
+    };
+    try {
+      await execAction();
     } catch (e) {
-      const domAfter = await gatherAddressLookupDomDebug(page);
-      attempts.push({ label, error: String(e?.message || e), domAfter });
-      return false;
+      const msg = String(e?.message || e);
+      const intercept =
+        /intercepts pointer|CookieBanner|cookie|modal|overlay/i.test(msg) ||
+        /subtree intercepts pointer/i.test(msg);
+      if (intercept) {
+        logStep(`address lookup: click intercepted (cookie/modal likely) — ${msg.slice(0, 240)}`);
+        await ensureCookieBannerDismissed(page, 'after-pointer-intercept');
+        const stillBlocking = await isCookieBannerBlockingInteractions(page);
+        logStep(`cookie banner: blocking after dismiss = ${stillBlocking}`);
+        try {
+          await execAction();
+        } catch (e2) {
+          const domAfter = await gatherAddressLookupDomDebug(page);
+          attempts.push({
+            label,
+            error: String(e2?.message || e2),
+            domAfter,
+            retriedAfterCookieDismiss: true,
+          });
+          return false;
+        }
+      } else {
+        const domAfter = await gatherAddressLookupDomDebug(page);
+        attempts.push({ label, error: msg, domAfter });
+        return false;
+      }
     }
     await sleep(400);
     const ok = await pollForPopulatedSelect();
@@ -849,7 +946,10 @@ async function tryTriggerAddressLookup(page) {
   ];
 
   let success = false;
+  let attemptIndex = 0;
   for (const [label, fn] of sequence) {
+    attemptIndex += 1;
+    await ensureCookieBannerDismissed(page, `attempt-${attemptIndex}`);
     if (await runAttempt(label, fn)) {
       success = true;
       break;
@@ -1399,6 +1499,8 @@ async function fillAboutYouForm(page, personalData, tempEmail) {
   await fillIfPresent(page, 'Phone #IndividualDetails_PhoneNumber', async () => {
     await page.locator('#IndividualDetails_PhoneNumber').fill(phoneNorm);
   });
+
+  await ensureCookieBannerDismissed(page, 'before-address-lookup');
 
   // JINX MAPPING: postcode → #Address_Postcode
   const postcodeVal = String(personalData.postcode || '').trim();
