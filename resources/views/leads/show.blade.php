@@ -1860,13 +1860,21 @@
         try {
             const res = await fetch('/credit-check-worker/' + jobId + '/questions');
             const data = await res.json();
+            const resolvedQuestions = Array.isArray(data?.questions)
+                ? data.questions
+                : (Array.isArray(data?.questions?.questions) ? data.questions.questions : []);
 
-            if (!res.ok || !data.questions) {
+            if (!res.ok) {
                 alert('Failed to load questions');
                 return;
             }
 
-            renderQuestions(data.questions);
+            if (!resolvedQuestions.length) {
+                alert('Security questions are not available yet.');
+                return;
+            }
+
+            renderQuestions(resolvedQuestions);
             document.getElementById('ccv2QuestionsModal').style.display = 'flex';
         } catch (e) {
             alert('Error loading questions');
@@ -1881,6 +1889,7 @@
             const wrapper = document.createElement('div');
             wrapper.style.marginBottom = '12px';
             wrapper.dataset.questionBlock = '1';
+            wrapper.dataset.questionId = q.id ? String(q.id) : '';
 
             const label = document.createElement('div');
             label.textContent = q.question || ('Question ' + (index + 1));
@@ -1891,10 +1900,12 @@
             (q.answers || []).forEach((ans) => {
                 const option = document.createElement('label');
                 option.style.display = 'block';
+                const answerLabel = ans && typeof ans === 'object' ? (ans.label ?? ans.value ?? '') : String(ans ?? '');
+                const answerValue = ans && typeof ans === 'object' ? (ans.value ?? ans.label ?? '') : String(ans ?? '');
 
                 option.innerHTML = `
-                    <input type="radio" name="q_${index}" value="${ans}">
-                    ${ans}
+                    <input type="radio" name="q_${index}" value="${answerValue}">
+                    ${answerLabel}
                 `;
 
                 wrapper.appendChild(option);
@@ -1911,8 +1922,12 @@
         const questionBlocks = form.querySelectorAll('[data-question-block="1"]');
 
         questionBlocks.forEach((block) => {
+            const id = block.dataset.questionId || '';
             const selected = block.querySelector('input[type="radio"]:checked');
-            answers.push(selected ? selected.value : null);
+            answers.push({
+                id,
+                value: selected ? selected.value : null,
+            });
         });
 
         try {
