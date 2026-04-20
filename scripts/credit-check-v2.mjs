@@ -2654,7 +2654,6 @@ async function run() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
       '--disable-infobars',
       '--window-size=1920,1080',
       '--lang=en-GB',
