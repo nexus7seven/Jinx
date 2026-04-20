@@ -139,6 +139,8 @@ Route::middleware('auth')->group(function () {
         ->name('credit-check-worker.start');
     Route::get('/credit-check-worker/{jobId}/status', [CreditCheckWorkerController::class, 'status'])
         ->name('credit-check-worker.status');
+    Route::get('/credit-check-worker/{jobId}/questions', [CreditCheckWorkerController::class, 'questions']);
+    Route::post('/credit-check-worker/{jobId}/answers', [CreditCheckWorkerController::class, 'submitAnswers']);
 
     Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         $lead = Lead::findOrFail($id);

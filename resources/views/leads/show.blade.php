@@ -673,6 +673,16 @@
     </form>
 </div>
 
+<div id="ccv2QuestionsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#020617; padding:20px; border-radius:10px; width:90%; max-width:500px;">
+    <h3 style="margin-bottom:15px;">Security Questions</h3>
+    <form id="ccv2QuestionsForm"></form>
+    <button id="ccv2SubmitAnswers" style="margin-top:15px; padding:10px 14px; background:#2563eb; color:#fff; border:0; border-radius:6px;">
+      Submit Answers
+    </button>
+  </div>
+</div>
+
 <script>
     const creditors = @json(
         $creditors->map(fn($creditor) => [
@@ -1130,7 +1140,7 @@
             if (status === 'awaiting_answers') {
                 stopCreditCheckWorkerPolling();
                 setCreditCheckWorkerStatus('Credit check status: awaiting_answers', '#10b981');
-                alert('Security questions are ready.');
+                await openSecurityQuestionsModal(creditCheckWorkerJobId);
                 return;
             }
 
@@ -1843,6 +1853,93 @@
             }
         });
     })();
+</script>
+
+<script>
+    async function openSecurityQuestionsModal(jobId) {
+        try {
+            const res = await fetch('/credit-check-worker/' + jobId + '/questions');
+            const data = await res.json();
+
+            if (!res.ok || !data.questions) {
+                alert('Failed to load questions');
+                return;
+            }
+
+            renderQuestions(data.questions);
+            document.getElementById('ccv2QuestionsModal').style.display = 'flex';
+        } catch (e) {
+            alert('Error loading questions');
+        }
+    }
+
+    function renderQuestions(questions) {
+        const form = document.getElementById('ccv2QuestionsForm');
+        form.innerHTML = '';
+
+        questions.forEach((q, index) => {
+            const wrapper = document.createElement('div');
+            wrapper.style.marginBottom = '12px';
+            wrapper.dataset.questionBlock = '1';
+
+            const label = document.createElement('div');
+            label.textContent = q.question || ('Question ' + (index + 1));
+            label.style.marginBottom = '6px';
+
+            wrapper.appendChild(label);
+
+            (q.answers || []).forEach((ans) => {
+                const option = document.createElement('label');
+                option.style.display = 'block';
+
+                option.innerHTML = `
+                    <input type="radio" name="q_${index}" value="${ans}">
+                    ${ans}
+                `;
+
+                wrapper.appendChild(option);
+            });
+
+            form.appendChild(wrapper);
+        });
+    }
+
+    document.getElementById('ccv2SubmitAnswers').addEventListener('click', async function () {
+        const form = document.getElementById('ccv2QuestionsForm');
+        const answers = [];
+
+        const questionBlocks = form.querySelectorAll('[data-question-block="1"]');
+
+        questionBlocks.forEach((block) => {
+            const selected = block.querySelector('input[type="radio"]:checked');
+            answers.push(selected ? selected.value : null);
+        });
+
+        try {
+            const res = await fetch('/credit-check-worker/' + creditCheckWorkerJobId + '/answers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({ answers })
+            });
+
+            if (!res.ok) {
+                throw new Error();
+            }
+
+            document.getElementById('ccv2QuestionsModal').style.display = 'none';
+            setCreditCheckWorkerStatus('Answers submitted. Continuing...', '#10b981');
+
+            stopCreditCheckWorkerPolling();
+            creditCheckWorkerPollTimer = setInterval(function () {
+                pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
+            }, 3000);
+        } catch (e) {
+            alert('Failed to submit answers');
+        }
+    });
 </script>
 
 @include('partials.financial-statement-init', [

@@ -70,4 +70,51 @@ class CreditCheckWorkerController extends Controller
             ], 500);
         }
     }
+
+    public function questions(string $jobId): JsonResponse
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'x-worker-token' => (string) config('services.credit_check_worker.token'),
+                ])
+                ->get(
+                    rtrim((string) config('services.credit_check_worker.base_url'), '/').'/jobs/'.$jobId.'/questions'
+                );
+
+            return response()->json($response->json(), $response->status());
+        } catch (Throwable) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Unable to contact credit check worker.',
+            ], 500);
+        }
+    }
+
+    public function submitAnswers(Request $request, string $jobId): JsonResponse
+    {
+        $validated = $request->validate([
+            'answers' => ['required', 'array'],
+        ]);
+
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'x-worker-token' => (string) config('services.credit_check_worker.token'),
+                ])
+                ->post(
+                    rtrim((string) config('services.credit_check_worker.base_url'), '/').'/jobs/'.$jobId.'/answers',
+                    [
+                        'answers' => $validated['answers'],
+                    ]
+                );
+
+            return response()->json($response->json(), $response->status());
+        } catch (Throwable) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Unable to contact credit check worker.',
+            ], 500);
+        }
+    }
 }
