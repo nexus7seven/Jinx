@@ -1070,6 +1070,7 @@
     const creditCheckWorkerStatus = document.getElementById('creditCheckWorkerStatus');
     let creditCheckWorkerPollTimer = null;
     let creditCheckWorkerJobId = null;
+    let creditCheckWorkerAnswersSubmitted = false;
 
     function setCreditCheckWorkerStatus(message, color = '#9ca3af') {
         if (!creditCheckWorkerStatus) return;
@@ -1140,7 +1141,9 @@
             if (status === 'awaiting_answers') {
                 stopCreditCheckWorkerPolling();
                 setCreditCheckWorkerStatus('Credit check status: awaiting_answers', '#10b981');
-                await openSecurityQuestionsModal(creditCheckWorkerJobId);
+                if (creditCheckWorkerAnswersSubmitted === false) {
+                    await openSecurityQuestionsModal(creditCheckWorkerJobId);
+                }
                 return;
             }
 
@@ -1206,6 +1209,7 @@
                 if (!creditCheckWorkerJobId) {
                     throw new Error('Worker did not return a job ID');
                 }
+                creditCheckWorkerAnswersSubmitted = false;
 
                 setCreditCheckWorkerStatus('Job started: ' + creditCheckWorkerJobId, '#10b981');
 
@@ -1956,6 +1960,7 @@
             }
 
             document.getElementById('ccv2QuestionsModal').style.display = 'none';
+            creditCheckWorkerAnswersSubmitted = true;
             setCreditCheckWorkerStatus('Answers submitted. Continuing...', '#10b981');
 
             stopCreditCheckWorkerPolling();
