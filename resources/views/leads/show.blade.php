@@ -1154,8 +1154,19 @@
             if (status === 'failed') {
                 stopCreditCheckWorkerPolling();
                 const workerError = readWorkerError(payload);
-                setCreditCheckWorkerStatus('Credit check status: failed', '#ef4444');
-                alert(workerError || 'Credit check failed.');
+                const errorText = String(workerError || '').toLowerCase();
+                const isIdentityFailure = errorText.includes('identity')
+                    || errorText.includes('verify')
+                    || errorText.includes('failed identity check')
+                    || errorText.includes('transunion was unable to verify your identity automatically')
+                    || errorText.includes("sorry, we haven't been able to verify and validate your identity");
+                if (isIdentityFailure) {
+                    setCreditCheckWorkerStatus('Failed Identity Check', '#ef4444');
+                    alert('Failed Identity Check');
+                } else {
+                    setCreditCheckWorkerStatus('Credit check status: failed', '#ef4444');
+                    alert(workerError || 'Credit check failed.');
+                }
                 return;
             }
 
