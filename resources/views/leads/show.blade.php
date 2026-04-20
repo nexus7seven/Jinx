@@ -330,11 +330,15 @@
 
                 <button
                     type="button"
-                    onclick="window.open('/leads/{{ $lead->id }}/credit-check-v2', '_blank')"
+                    id="startCreditCheckWorkerBtn"
                     style="background:#5b21b6; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
                 >
                     Credit Check v2
                 </button>
+
+                <div id="creditCheckWorkerStatus" style="font-size:12px; color:#9ca3af;">
+                    Ready
+                </div>
 
                 <button
                     type="button"
@@ -1052,6 +1056,150 @@
     const acceptPercentValue = document.getElementById('acceptPercentValue');
     const rejectPercentValue = document.getElementById('rejectPercentValue');
     const dominantHouseValue = document.getElementById('dominantHouseValue');
+    const startCreditCheckWorkerBtn = document.getElementById('startCreditCheckWorkerBtn');
+    const creditCheckWorkerStatus = document.getElementById('creditCheckWorkerStatus');
+    let creditCheckWorkerPollTimer = null;
+    let creditCheckWorkerJobId = null;
+
+    function setCreditCheckWorkerStatus(message, color = '#9ca3af') {
+        if (!creditCheckWorkerStatus) return;
+        creditCheckWorkerStatus.textContent = message;
+        creditCheckWorkerStatus.style.color = color;
+    }
+
+    function stopCreditCheckWorkerPolling() {
+        if (!creditCheckWorkerPollTimer) return;
+        clearInterval(creditCheckWorkerPollTimer);
+        creditCheckWorkerPollTimer = null;
+    }
+
+    function readWorkerStatus(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+
+        if (typeof payload.status === 'string') return payload.status;
+        if (payload.job && typeof payload.job.status === 'string') return payload.job.status;
+        if (payload.data && typeof payload.data.status === 'string') return payload.data.status;
+
+        return '';
+    }
+
+    function readWorkerJobId(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+
+        if (typeof payload.job_id === 'string') return payload.job_id;
+        if (payload.job && typeof payload.job.id === 'string') return payload.job.id;
+        if (payload.data && typeof payload.data.job_id === 'string') return payload.data.job_id;
+
+        return '';
+    }
+
+    function readWorkerError(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+
+        if (typeof payload.error === 'string') return payload.error;
+        if (payload.job && typeof payload.job.error === 'string') return payload.job.error;
+        if (payload.data && typeof payload.data.error === 'string') return payload.data.error;
+
+        return '';
+    }
+
+    async function pollCreditCheckWorkerStatus(jobId) {
+        try {
+            const response = await fetch('/credit-check-worker/' + encodeURIComponent(jobId) + '/status', {
+                headers: {
+                    'Accept': 'application/json',
+                },
+            });
+            const payload = await response.json();
+
+            if (!response.ok) {
+                throw new Error(readWorkerError(payload) || 'Status request failed');
+            }
+
+            const status = readWorkerStatus(payload);
+            if (!status) {
+                setCreditCheckWorkerStatus('Worker status unavailable.', '#f59e0b');
+                return;
+            }
+
+            if (status === 'queued' || status === 'running') {
+                setCreditCheckWorkerStatus('Credit check status: ' + status, '#fbbf24');
+                return;
+            }
+
+            if (status === 'awaiting_answers') {
+                stopCreditCheckWorkerPolling();
+                setCreditCheckWorkerStatus('Credit check status: awaiting_answers', '#10b981');
+                alert('Security questions are ready.');
+                return;
+            }
+
+            if (status === 'completed') {
+                stopCreditCheckWorkerPolling();
+                setCreditCheckWorkerStatus('Credit check status: completed', '#10b981');
+                alert('Credit check completed.');
+                return;
+            }
+
+            if (status === 'failed') {
+                stopCreditCheckWorkerPolling();
+                const workerError = readWorkerError(payload);
+                setCreditCheckWorkerStatus('Credit check status: failed', '#ef4444');
+                alert(workerError || 'Credit check failed.');
+                return;
+            }
+
+            setCreditCheckWorkerStatus('Credit check status: ' + status, '#9ca3af');
+        } catch (error) {
+            stopCreditCheckWorkerPolling();
+            setCreditCheckWorkerStatus('Worker polling failed.', '#ef4444');
+            alert('Could not poll credit check worker status.');
+        }
+    }
+
+    if (startCreditCheckWorkerBtn) {
+        startCreditCheckWorkerBtn.addEventListener('click', async function () {
+            startCreditCheckWorkerBtn.disabled = true;
+            stopCreditCheckWorkerPolling();
+            setCreditCheckWorkerStatus('Starting credit check...', '#fbbf24');
+
+            try {
+                const response = await fetch('/credit-check-worker/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        lead_id: {{ $lead->id }},
+                    }),
+                });
+                const payload = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(readWorkerError(payload) || 'Start request failed');
+                }
+
+                creditCheckWorkerJobId = readWorkerJobId(payload);
+                if (!creditCheckWorkerJobId) {
+                    throw new Error('Worker did not return a job ID');
+                }
+
+                setCreditCheckWorkerStatus('Job started: ' + creditCheckWorkerJobId, '#10b981');
+
+                await pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
+                creditCheckWorkerPollTimer = setInterval(function () {
+                    pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
+                }, 3000);
+            } catch (error) {
+                setCreditCheckWorkerStatus('Failed to start worker credit check.', '#ef4444');
+                alert('Could not start credit check worker.');
+            } finally {
+                startCreditCheckWorkerBtn.disabled = false;
+            }
+        });
+    }
 
     function formatMoney(value) {
         return '£' + Number(value).toLocaleString('en-GB', {

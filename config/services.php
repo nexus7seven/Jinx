@@ -63,6 +63,11 @@ return [
     'remarketing_source' => env('REMARKETING_SOURCE', 'remarketing'),
 ],
 
+    'credit_check_worker' => [
+        'base_url' => env('CREDIT_CHECK_WORKER_BASE_URL'),
+        'token' => env('CREDIT_CHECK_WORKER_TOKEN'),
+    ],
+
     /*
     | Deckard callback_action.php — direct_dial and other actions (full URL to PHP endpoint).
     | Agent credentials stay on the Deckard server in callback_action.php / env there, not in Jinx.

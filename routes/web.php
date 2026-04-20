@@ -11,6 +11,7 @@ use App\Models\DebtDocument;
 use App\Models\VotingPractice;
 use App\Models\CreditReport;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CreditCheckWorkerController;
 use App\Http\Controllers\CreditCheckV2Controller;
 use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
@@ -133,6 +134,11 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/leads/{lead}/credit-check-v2/sessions/{sessionId}/answers', [CreditCheckV2Controller::class, 'submitAnswers'])
         ->name('leads.credit-check-v2.answers');
+
+    Route::post('/credit-check-worker/start', [CreditCheckWorkerController::class, 'start'])
+        ->name('credit-check-worker.start');
+    Route::get('/credit-check-worker/{jobId}/status', [CreditCheckWorkerController::class, 'status'])
+        ->name('credit-check-worker.status');
 
     Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         $lead = Lead::findOrFail($id);
