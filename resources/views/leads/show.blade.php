@@ -1071,6 +1071,10 @@
     let creditCheckWorkerPollTimer = null;
     let creditCheckWorkerJobId = null;
     let creditCheckWorkerAnswersSubmitted = false;
+    let creditCheckWorkerLastStatus = '';
+    let creditCheckWorkerQuestionRound = 0;
+    let creditCheckWorkerModalOpenedRound = 0;
+    let creditCheckWorkerLastSubmittedRound = 0;
 
     function setCreditCheckWorkerStatus(message, color = '#9ca3af') {
         if (!creditCheckWorkerStatus) return;
@@ -1135,15 +1139,28 @@
 
             if (status === 'queued' || status === 'running') {
                 setCreditCheckWorkerStatus('Credit check status: ' + status, '#fbbf24');
+                creditCheckWorkerLastStatus = status;
                 return;
             }
 
             if (status === 'awaiting_answers') {
                 stopCreditCheckWorkerPolling();
                 setCreditCheckWorkerStatus('Credit check status: awaiting_answers', '#10b981');
-                if (creditCheckWorkerAnswersSubmitted === false) {
-                    await openSecurityQuestionsModal(creditCheckWorkerJobId);
+                if (creditCheckWorkerLastStatus !== 'awaiting_answers') {
+                    creditCheckWorkerQuestionRound += 1;
+                    console.log('[credit-check-worker] question set received for round ' + creditCheckWorkerQuestionRound);
+                    if (
+                        creditCheckWorkerQuestionRound > 1 &&
+                        creditCheckWorkerLastSubmittedRound === creditCheckWorkerQuestionRound - 1
+                    ) {
+                        console.log('[credit-check-worker] round ' + (creditCheckWorkerQuestionRound - 1) + ' failed');
+                    }
                 }
+                if (creditCheckWorkerModalOpenedRound !== creditCheckWorkerQuestionRound) {
+                    await openSecurityQuestionsModal(creditCheckWorkerJobId);
+                    creditCheckWorkerModalOpenedRound = creditCheckWorkerQuestionRound;
+                }
+                creditCheckWorkerLastStatus = status;
                 return;
             }
 
@@ -1151,6 +1168,7 @@
                 stopCreditCheckWorkerPolling();
                 setCreditCheckWorkerStatus('Credit check status: completed', '#10b981');
                 alert('Credit check completed.');
+                creditCheckWorkerLastStatus = status;
                 return;
             }
 
@@ -1170,10 +1188,12 @@
                     setCreditCheckWorkerStatus('Credit check status: failed', '#ef4444');
                     alert(workerError || 'Credit check failed.');
                 }
+                creditCheckWorkerLastStatus = status;
                 return;
             }
 
             setCreditCheckWorkerStatus('Credit check status: ' + status, '#9ca3af');
+            creditCheckWorkerLastStatus = status;
         } catch (error) {
             stopCreditCheckWorkerPolling();
             setCreditCheckWorkerStatus('Worker polling failed.', '#ef4444');
@@ -1210,6 +1230,10 @@
                     throw new Error('Worker did not return a job ID');
                 }
                 creditCheckWorkerAnswersSubmitted = false;
+                creditCheckWorkerLastStatus = '';
+                creditCheckWorkerQuestionRound = 0;
+                creditCheckWorkerModalOpenedRound = 0;
+                creditCheckWorkerLastSubmittedRound = 0;
 
                 setCreditCheckWorkerStatus('Job started: ' + creditCheckWorkerJobId, '#10b981');
 
@@ -1961,6 +1985,8 @@
 
             document.getElementById('ccv2QuestionsModal').style.display = 'none';
             creditCheckWorkerAnswersSubmitted = true;
+            creditCheckWorkerLastSubmittedRound = creditCheckWorkerQuestionRound;
+            console.log('[credit-check-worker] round ' + creditCheckWorkerQuestionRound + ' forwarded to Jinx');
             setCreditCheckWorkerStatus('Answers submitted. Continuing...', '#10b981');
 
             stopCreditCheckWorkerPolling();
