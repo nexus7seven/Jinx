@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Models\Lead;
+use App\Http\Controllers\LocalWorkerJobController;
 
 Route::post('/vicidial/create-or-open-case', function (Request $request) {
 
@@ -54,3 +55,13 @@ Route::post('/vicidial/create-or-open-case', function (Request $request) {
         'url' => url('/lead/' . $lead->id)
     ]);
 });
+
+Route::prefix('local-worker')
+    ->middleware('local.worker.token')
+    ->group(function () {
+        Route::post('/jobs/claim', [LocalWorkerJobController::class, 'claim']);
+        Route::post('/jobs/{job}/heartbeat', [LocalWorkerJobController::class, 'heartbeat']);
+        Route::post('/jobs/{job}/log', [LocalWorkerJobController::class, 'log']);
+        Route::post('/jobs/{job}/complete', [LocalWorkerJobController::class, 'complete']);
+        Route::post('/jobs/{job}/fail', [LocalWorkerJobController::class, 'fail']);
+    });

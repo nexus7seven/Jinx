@@ -68,6 +68,10 @@ return [
         'token' => env('CREDIT_CHECK_WORKER_TOKEN'),
     ],
 
+    'local_worker' => [
+        'token' => env('LOCAL_WORKER_TOKEN'),
+    ],
+
     /*
     | Deckard callback_action.php — direct_dial and other actions (full URL to PHP endpoint).
     | Agent credentials stay on the Deckard server in callback_action.php / env there, not in Jinx.
