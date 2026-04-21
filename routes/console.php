@@ -22,3 +22,17 @@ Artisan::command('local-worker:dispatch-test {lead_id?}', function (?int $lead_i
 
     $this->info('Queued local browser job #'.$job->id);
 })->purpose('Create one queued local browser test job');
+
+Artisan::command('local-worker:dispatch-browser-smoke {url?}', function (?string $url = null) {
+    $job = LocalBrowserJob::create([
+        'job_type' => 'browser_smoke_test',
+        'status' => 'queued',
+        'payload_json' => [
+            'url' => $url ?: 'https://example.com',
+            'mode' => 'smoke',
+            'requested_at' => now()->toIso8601String(),
+        ],
+    ]);
+
+    $this->info('Queued browser smoke local job #'.$job->id);
+})->purpose('Create one queued browser smoke local worker job');

@@ -28,4 +28,9 @@ class LocalBrowserJob extends Model
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
     ];
+
+    public function artifacts()
+    {
+        return $this->hasMany(LocalBrowserJobArtifact::class)->latest();
+    }
 }

@@ -26,6 +26,7 @@ use App\Http\Controllers\WebsiteLeadController;
 use App\Services\FinancialStatementService;
 use App\Services\VicidialDialActivityService;
 use App\Http\Controllers\ClickToCallController;
+use App\Http\Controllers\LocalWorkerJobsPageController;
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -141,6 +142,11 @@ Route::middleware('auth')->group(function () {
         ->name('credit-check-worker.status');
     Route::get('/credit-check-worker/{jobId}/questions', [CreditCheckWorkerController::class, 'questions']);
     Route::post('/credit-check-worker/{jobId}/answers', [CreditCheckWorkerController::class, 'submitAnswers']);
+
+    Route::get('/local-worker/jobs', [LocalWorkerJobsPageController::class, 'index'])
+        ->name('local-worker.jobs.index');
+    Route::get('/local-worker/jobs/{job}', [LocalWorkerJobsPageController::class, 'show'])
+        ->name('local-worker.jobs.show');
 
     Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         $lead = Lead::findOrFail($id);

@@ -6,6 +6,7 @@ use App\Models\LocalBrowserJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class LocalWorkerJobController extends Controller
 {
@@ -123,6 +124,50 @@ class LocalWorkerJobController extends Controller
 
         return response()->json([
             'ok' => true,
+        ]);
+    }
+
+    public function artifact(Request $request, LocalBrowserJob $job): JsonResponse
+    {
+        $validated = $request->validate([
+            'file' => ['required', 'file'],
+            'type' => ['nullable', 'string', 'max:100'],
+            'meta_json' => ['nullable'],
+        ]);
+
+        $file = $request->file('file');
+        $type = (string) ($validated['type'] ?? 'file');
+        $relativePath = 'local-browser-jobs/'.$job->id;
+        $storedPath = $file->store($relativePath, 'public');
+
+        $meta = null;
+        if (array_key_exists('meta_json', $validated)) {
+            $meta = $validated['meta_json'];
+
+            if (is_string($meta) && $meta !== '') {
+                $decoded = json_decode($meta, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $meta = $decoded;
+                }
+            }
+        }
+
+        $artifact = $job->artifacts()->create([
+            'type' => $type,
+            'original_name' => $file->getClientOriginalName(),
+            'path' => $storedPath,
+            'mime_type' => $file->getClientMimeType(),
+            'size_bytes' => $file->getSize(),
+            'meta_json' => $meta,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'artifact' => [
+                'id' => $artifact->id,
+                'path' => $artifact->path,
+                'url' => Storage::disk('public')->url($artifact->path),
+            ],
         ]);
     }
 }
