@@ -8,14 +8,20 @@
         <a href="{{ route('local-worker.jobs.index') }}" style="color:#93c5fd;">Back to jobs</a>
     </div>
 
+    <h2 style="font-size:16px; margin:0 0 8px;">Status Summary</h2>
     <div style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; margin-bottom:14px;">
-        <div><strong>Lead ID:</strong> {{ $job->lead_id ?? '-' }}</div>
-        <div><strong>Job Type:</strong> {{ $job->job_type }}</div>
         <div><strong>Status:</strong> {{ $job->status }}</div>
         <div><strong>Current Step:</strong> {{ $job->current_step ?? '-' }}</div>
         <div><strong>Progress Message:</strong> {{ $job->progress_message ?? '-' }}</div>
         <div><strong>Awaiting Input Type:</strong> {{ $job->awaiting_input_type ?? '-' }}</div>
         <div><strong>Claimed By:</strong> {{ $job->claimed_by ?? '-' }}</div>
+        <div><strong>Updated At:</strong> {{ $job->updated_at }}</div>
+    </div>
+
+    <h2 style="font-size:16px; margin:0 0 8px;">Job Fields</h2>
+    <div style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; margin-bottom:14px;">
+        <div><strong>Lead ID:</strong> {{ $job->lead_id ?? '-' }}</div>
+        <div><strong>Job Type:</strong> {{ $job->job_type }}</div>
         <div><strong>Claimed At:</strong> {{ $job->claimed_at ?? '-' }}</div>
         <div><strong>Heartbeat At:</strong> {{ $job->heartbeat_at ?? '-' }}</div>
         <div><strong>Started At:</strong> {{ $job->started_at ?? '-' }}</div>
@@ -23,6 +29,8 @@
         <div><strong>Created At:</strong> {{ $job->created_at }}</div>
         <div><strong>Updated At:</strong> {{ $job->updated_at }}</div>
     </div>
+
+    @include('local-worker.jobs.partials.interaction-form', ['job' => $job])
 
     <h2 style="font-size:16px; margin:0 0 8px;">Payload JSON</h2>
     <pre style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; overflow:auto;">{{ json_encode($job->payload_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
@@ -38,13 +46,6 @@
 
     <h2 style="font-size:16px; margin:14px 0 8px;">Error Text</h2>
     <pre style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; overflow:auto;">{{ $job->error_text ?: '-' }}</pre>
-
-    <h2 style="font-size:16px; margin:14px 0 8px;">Provide Input</h2>
-    <form id="provide-input-form">
-        <textarea id="provided-input-json" style="width:100%; min-height:120px;">{"selected_option":"HSBC"}</textarea>
-        <button type="submit" style="margin-top:8px;">Submit Input</button>
-    </form>
-    <div id="provide-input-status" style="margin-top:8px;"></div>
 
     <h2 style="font-size:16px; margin:14px 0 8px;">Artifacts</h2>
     <div style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px;">
@@ -66,46 +67,4 @@
         @endforelse
     </div>
 
-    <script>
-        (function () {
-            const form = document.getElementById('provide-input-form');
-            const textarea = document.getElementById('provided-input-json');
-            const statusNode = document.getElementById('provide-input-status');
-
-            form.addEventListener('submit', async function (event) {
-                event.preventDefault();
-
-                let payload;
-                try {
-                    payload = JSON.parse(textarea.value || '{}');
-                } catch (error) {
-                    statusNode.textContent = 'Invalid JSON input.';
-                    return;
-                }
-
-                try {
-                    const response = await fetch('/api/local-worker/jobs/{{ $job->id }}/provide-input', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Local-Worker-Token': '{{ config('services.local_worker.token') }}',
-                        },
-                        body: JSON.stringify({
-                            provided_input_payload: payload,
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        const text = await response.text();
-                        statusNode.textContent = 'Failed: ' + text;
-                        return;
-                    }
-
-                    statusNode.textContent = 'Input submitted. Refresh to see updated state.';
-                } catch (error) {
-                    statusNode.textContent = 'Request failed: ' + error.message;
-                }
-            });
-        })();
-    </script>
 @endsection

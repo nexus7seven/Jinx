@@ -147,6 +147,8 @@ Route::middleware('auth')->group(function () {
         ->name('local-worker.jobs.index');
     Route::get('/local-worker/jobs/{job}', [LocalWorkerJobsPageController::class, 'show'])
         ->name('local-worker.jobs.show');
+    Route::post('/local-worker/jobs/{job}/provide-input', [LocalWorkerJobsPageController::class, 'submitInput'])
+        ->name('local-worker.jobs.provide-input');
 
     Route::post('/lead/{id}/autosave', function ($id, Request $request) {
         $lead = Lead::findOrFail($id);
