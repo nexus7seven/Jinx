@@ -36,3 +36,16 @@ Artisan::command('local-worker:dispatch-browser-smoke {url?}', function (?string
 
     $this->info('Queued browser smoke local job #'.$job->id);
 })->purpose('Create one queued browser smoke local worker job');
+
+Artisan::command('local-worker:dispatch-interactive-smoke', function () {
+    $job = LocalBrowserJob::create([
+        'job_type' => 'interactive_smoke_test',
+        'status' => 'queued',
+        'payload_json' => [
+            'mode' => 'interactive_smoke',
+            'requested_at' => now()->toIso8601String(),
+        ],
+    ]);
+
+    $this->info('Queued interactive smoke local job #'.$job->id);
+})->purpose('Create one queued interactive smoke local worker job');

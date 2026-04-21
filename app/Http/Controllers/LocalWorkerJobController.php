@@ -30,10 +30,15 @@ class LocalWorkerJobController extends Controller
             $now = now();
             $nextJob->fill([
                 'status' => 'claimed',
+                'awaiting_input_type' => null,
+                'awaiting_input_payload' => null,
+                'provided_input_payload' => null,
                 'claimed_by' => $validated['worker_id'],
                 'claimed_at' => $now,
                 'started_at' => $now,
                 'heartbeat_at' => $now,
+                'current_step' => 'claimed',
+                'progress_message' => 'Job claimed by worker',
             ]);
             $nextJob->save();
 
@@ -45,9 +50,23 @@ class LocalWorkerJobController extends Controller
         ]);
     }
 
-    public function heartbeat(LocalBrowserJob $job): JsonResponse
+    public function heartbeat(Request $request, LocalBrowserJob $job): JsonResponse
     {
+        $validated = $request->validate([
+            'current_step' => ['nullable', 'string', 'max:255'],
+            'progress_message' => ['nullable', 'string', 'max:255'],
+        ]);
+
         $job->heartbeat_at = now();
+        if ($job->status === 'claimed' || $job->status === 'running') {
+            $job->status = 'running';
+        }
+        if (array_key_exists('current_step', $validated)) {
+            $job->current_step = $validated['current_step'];
+        }
+        if (array_key_exists('progress_message', $validated)) {
+            $job->progress_message = $validated['progress_message'];
+        }
         $job->save();
 
         return response()->json([
@@ -59,6 +78,8 @@ class LocalWorkerJobController extends Controller
     {
         $validated = $request->validate([
             'message' => ['required', 'string'],
+            'current_step' => ['nullable', 'string', 'max:255'],
+            'progress_message' => ['nullable', 'string', 'max:255'],
         ]);
 
         $result = $job->result_json;
@@ -79,6 +100,15 @@ class LocalWorkerJobController extends Controller
         $result['logs'] = $logs;
         $job->result_json = $result;
         $job->heartbeat_at = now();
+        if (array_key_exists('current_step', $validated)) {
+            $job->current_step = $validated['current_step'];
+        }
+        if (array_key_exists('progress_message', $validated)) {
+            $job->progress_message = $validated['progress_message'];
+        }
+        if ($job->status === 'claimed') {
+            $job->status = 'running';
+        }
         $job->save();
 
         return response()->json([
@@ -90,6 +120,8 @@ class LocalWorkerJobController extends Controller
     {
         $validated = $request->validate([
             'result' => ['nullable', 'array'],
+            'current_step' => ['nullable', 'string', 'max:255'],
+            'progress_message' => ['nullable', 'string', 'max:255'],
         ]);
 
         $job->fill([
@@ -98,6 +130,10 @@ class LocalWorkerJobController extends Controller
             'finished_at' => now(),
             'heartbeat_at' => now(),
             'error_text' => null,
+            'current_step' => $validated['current_step'] ?? $job->current_step,
+            'progress_message' => $validated['progress_message'] ?? $job->progress_message,
+            'awaiting_input_type' => null,
+            'awaiting_input_payload' => null,
         ]);
         $job->save();
 
@@ -111,6 +147,8 @@ class LocalWorkerJobController extends Controller
         $validated = $request->validate([
             'error' => ['required', 'string'],
             'result' => ['nullable', 'array'],
+            'current_step' => ['nullable', 'string', 'max:255'],
+            'progress_message' => ['nullable', 'string', 'max:255'],
         ]);
 
         $job->fill([
@@ -119,6 +157,10 @@ class LocalWorkerJobController extends Controller
             'result_json' => $validated['result'] ?? null,
             'finished_at' => now(),
             'heartbeat_at' => now(),
+            'current_step' => $validated['current_step'] ?? $job->current_step,
+            'progress_message' => $validated['progress_message'] ?? $job->progress_message,
+            'awaiting_input_type' => null,
+            'awaiting_input_payload' => null,
         ]);
         $job->save();
 
@@ -168,6 +210,58 @@ class LocalWorkerJobController extends Controller
                 'path' => $artifact->path,
                 'url' => Storage::disk('public')->url($artifact->path),
             ],
+        ]);
+    }
+
+    public function awaitInput(Request $request, LocalBrowserJob $job): JsonResponse
+    {
+        $validated = $request->validate([
+            'awaiting_input_type' => ['required', 'string', 'max:100'],
+            'awaiting_input_payload' => ['nullable', 'array'],
+            'current_step' => ['nullable', 'string', 'max:255'],
+            'progress_message' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $job->fill([
+            'status' => 'awaiting_input',
+            'awaiting_input_type' => $validated['awaiting_input_type'],
+            'awaiting_input_payload' => $validated['awaiting_input_payload'] ?? null,
+            'heartbeat_at' => now(),
+            'current_step' => $validated['current_step'] ?? $job->current_step,
+            'progress_message' => $validated['progress_message'] ?? $job->progress_message,
+        ]);
+        $job->save();
+
+        return response()->json([
+            'ok' => true,
+        ]);
+    }
+
+    public function provideInput(Request $request, LocalBrowserJob $job): JsonResponse
+    {
+        $validated = $request->validate([
+            'provided_input_payload' => ['required', 'array'],
+        ]);
+
+        $job->fill([
+            'provided_input_payload' => $validated['provided_input_payload'],
+            'status' => 'running',
+            'awaiting_input_type' => null,
+            'awaiting_input_payload' => null,
+            'heartbeat_at' => now(),
+            'progress_message' => 'Input provided by operator',
+        ]);
+        $job->save();
+
+        return response()->json([
+            'ok' => true,
+        ]);
+    }
+
+    public function show(LocalBrowserJob $job): JsonResponse
+    {
+        return response()->json([
+            'job' => $job,
         ]);
     }
 }

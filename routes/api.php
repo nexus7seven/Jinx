@@ -65,4 +65,7 @@ Route::prefix('local-worker')
         Route::post('/jobs/{job}/complete', [LocalWorkerJobController::class, 'complete']);
         Route::post('/jobs/{job}/fail', [LocalWorkerJobController::class, 'fail']);
         Route::post('/jobs/{job}/artifact', [LocalWorkerJobController::class, 'artifact']);
+        Route::post('/jobs/{job}/await-input', [LocalWorkerJobController::class, 'awaitInput']);
+        Route::post('/jobs/{job}/provide-input', [LocalWorkerJobController::class, 'provideInput']);
+        Route::get('/jobs/{job}', [LocalWorkerJobController::class, 'show']);
     });
