@@ -102,3 +102,29 @@ Artisan::command('local-worker:dispatch-transunion-fill-probe {url?}', function 
 
     $this->info('Queued transunion fill probe local job #'.$job->id);
 })->purpose('Create one queued transunion fill probe local worker job');
+
+Artisan::command('local-worker:dispatch-transunion-submit-probe {url?}', function (?string $url = null) {
+    $job = LocalBrowserJob::create([
+        'job_type' => 'transunion_submit_probe',
+        'status' => 'queued',
+        'payload_json' => [
+            'url' => $url ?: 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
+            'mode' => 'transunion_submit_probe',
+            'agree_terms' => true,
+            'personalData' => [
+                'title' => 'Mr',
+                'first_name' => 'Test',
+                'middle_name' => '',
+                'last_name' => 'User',
+                'dob' => '01/01/1980',
+                'phone_number' => '07123456789',
+                'postcode' => 'SW1A 1AA',
+                'house_number' => '1',
+                'address_line_1' => '1 Test Street',
+            ],
+            'requested_at' => now()->toIso8601String(),
+        ],
+    ]);
+
+    $this->info('Queued transunion submit probe local job #'.$job->id);
+})->purpose('Create one queued transunion submit probe local worker job');
