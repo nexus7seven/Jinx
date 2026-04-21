@@ -68,4 +68,7 @@ Route::prefix('local-worker')
         Route::post('/jobs/{job}/await-input', [LocalWorkerJobController::class, 'awaitInput']);
         Route::post('/jobs/{job}/provide-input', [LocalWorkerJobController::class, 'provideInput']);
         Route::get('/jobs/{job}', [LocalWorkerJobController::class, 'show']);
+        Route::post('/jobs/{job}/temp-email/generate', [LocalWorkerJobController::class, 'generateTempEmail']);
+        Route::get('/jobs/{job}/temp-email', [LocalWorkerJobController::class, 'tempEmail']);
+        Route::get('/jobs/{job}/latest-code', [LocalWorkerJobController::class, 'latestCode']);
     });

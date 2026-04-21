@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\LocalBrowserJob;
+use App\Services\LocalWorkerTempMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,11 @@ use Illuminate\Support\Facades\Storage;
 
 class LocalWorkerJobController extends Controller
 {
+    public function __construct(
+        private LocalWorkerTempMailService $localWorkerTempMailService,
+    ) {
+    }
+
     public function claim(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -263,5 +269,38 @@ class LocalWorkerJobController extends Controller
         return response()->json([
             'job' => $job,
         ]);
+    }
+
+    public function generateTempEmail(LocalBrowserJob $job): JsonResponse
+    {
+        $result = $this->localWorkerTempMailService->generate($job);
+
+        return response()->json([
+            'ok' => true,
+            'email' => $result['email'],
+            'meta' => $result['meta'],
+        ]);
+    }
+
+    public function tempEmail(LocalBrowserJob $job): JsonResponse
+    {
+        return response()->json([
+            'ok' => true,
+            'email' => $job->temp_email_address,
+            'meta' => $job->temp_email_meta_json,
+            'latest_email_code' => $job->latest_email_code,
+        ]);
+    }
+
+    public function latestCode(Request $request, LocalBrowserJob $job): JsonResponse
+    {
+        $result = $this->localWorkerTempMailService->latestCode(
+            $job,
+            $request->query('pattern')
+        );
+
+        return response()->json(array_merge([
+            'ok' => true,
+        ], $result));
     }
 }

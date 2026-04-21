@@ -49,3 +49,16 @@ Artisan::command('local-worker:dispatch-interactive-smoke', function () {
 
     $this->info('Queued interactive smoke local job #'.$job->id);
 })->purpose('Create one queued interactive smoke local worker job');
+
+Artisan::command('local-worker:dispatch-email-code-smoke', function () {
+    $job = LocalBrowserJob::create([
+        'job_type' => 'email_code_smoke_test',
+        'status' => 'queued',
+        'payload_json' => [
+            'mode' => 'email_code_smoke',
+            'requested_at' => now()->toIso8601String(),
+        ],
+    ]);
+
+    $this->info('Queued email code smoke local job #'.$job->id);
+})->purpose('Create one queued email code smoke local worker job');

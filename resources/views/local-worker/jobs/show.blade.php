@@ -44,6 +44,14 @@
     <h2 style="font-size:16px; margin:14px 0 8px;">Provided Input Payload JSON</h2>
     <pre style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; overflow:auto;">{{ json_encode($job->provided_input_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
 
+    <h2 style="font-size:16px; margin:14px 0 8px;">Temp Email</h2>
+    <div style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px;">
+        <div><strong>Temp Email Address:</strong> {{ $job->temp_email_address ?? '-' }}</div>
+        <div><strong>Latest Email Code:</strong> {{ $job->latest_email_code ?? '-' }}</div>
+        <div><strong>Temp Email Meta JSON:</strong></div>
+        <pre style="margin-top:6px; padding:8px; border:1px solid rgba(51, 65, 85, 0.35); border-radius:6px; overflow:auto;">{{ json_encode($job->temp_email_meta_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+    </div>
+
     <h2 style="font-size:16px; margin:14px 0 8px;">Error Text</h2>
     <pre style="padding:12px; border:1px solid rgba(51, 65, 85, 0.55); border-radius:10px; overflow:auto;">{{ $job->error_text ?: '-' }}</pre>
 
