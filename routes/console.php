@@ -62,3 +62,17 @@ Artisan::command('local-worker:dispatch-email-code-smoke', function () {
 
     $this->info('Queued email code smoke local job #'.$job->id);
 })->purpose('Create one queued email code smoke local worker job');
+
+Artisan::command('local-worker:dispatch-transunion-probe {url?}', function (?string $url = null) {
+    $job = LocalBrowserJob::create([
+        'job_type' => 'transunion_page_probe',
+        'status' => 'queued',
+        'payload_json' => [
+            'url' => $url ?: 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
+            'mode' => 'transunion_page_probe',
+            'requested_at' => now()->toIso8601String(),
+        ],
+    ]);
+
+    $this->info('Queued transunion page probe local job #'.$job->id);
+})->purpose('Create one queued transunion page probe local worker job');
