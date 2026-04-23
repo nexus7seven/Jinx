@@ -68,6 +68,10 @@ return [
         'token' => env('CREDIT_CHECK_WORKER_TOKEN'),
     ],
 
+    'credit_check_v3_listener' => [
+        'base_url' => env('CREDIT_CHECK_V3_LISTENER_BASE_URL', 'http://127.0.0.1:17171'),
+    ],
+
     'local_worker' => [
         'token' => env('LOCAL_WORKER_TOKEN'),
     ],

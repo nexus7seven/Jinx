@@ -13,6 +13,7 @@ use App\Models\CreditReport;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CreditCheckWorkerController;
 use App\Http\Controllers\CreditCheckV2Controller;
+use App\Http\Controllers\CreditCheckV3Controller;
 use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
 use App\Http\Controllers\DebtController;
@@ -135,6 +136,15 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/leads/{lead}/credit-check-v2/sessions/{sessionId}/answers', [CreditCheckV2Controller::class, 'submitAnswers'])
         ->name('leads.credit-check-v2.answers');
+
+    Route::get('/leads/{lead}/credit-check-v3', [CreditCheckV3Controller::class, 'page'])
+        ->name('leads.credit-check-v3.page');
+    Route::post('/leads/{lead}/credit-check-v3/run', [CreditCheckV3Controller::class, 'run'])
+        ->name('leads.credit-check-v3.run');
+    Route::get('/leads/credit-check-v3/jobs/{jobId}/status', [CreditCheckV3Controller::class, 'status'])
+        ->name('leads.credit-check-v3.status');
+    Route::post('/leads/credit-check-v3/jobs/{jobId}/answers', [CreditCheckV3Controller::class, 'submitAnswers'])
+        ->name('leads.credit-check-v3.answers');
 
     Route::post('/credit-check-worker/start', [CreditCheckWorkerController::class, 'start'])
         ->name('credit-check-worker.start');

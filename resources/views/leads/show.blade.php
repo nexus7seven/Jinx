@@ -336,6 +336,14 @@
                     Credit Check v2
                 </button>
 
+                <button
+                    type="button"
+                    onclick="window.open('{{ route('leads.credit-check-v3.page', $lead) }}', '_blank')"
+                    style="background:#6d28d9; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
+                >
+                    Cred Check v3
+                </button>
+
                 <div id="creditCheckWorkerStatus" style="font-size:12px; color:#9ca3af;">
                     Ready
                 </div>
