@@ -102,7 +102,9 @@ function renderKbaQuestionsForm(questions) {
       const labelText = String(raw.label != null ? raw.label : '').trim();
       const fallback = String(raw.value != null ? raw.value : '').trim();
       const display = labelText || fallback;
-      radio.value = labelText || fallback;
+      // Send both machine radio value and human label so extension can match robustly.
+      radio.value = fallback || labelText;
+      radio.dataset.answerLabel = display;
       optLabel.appendChild(radio);
       optLabel.appendChild(document.createTextNode(' ' + display));
       wrapper.appendChild(optLabel);
@@ -140,10 +142,12 @@ function collectKbaAnswersFromForm() {
     const id = block.dataset.questionId || '';
     const selected = block.querySelector('input[type="radio"]:checked');
     const value = selected ? String(selected.value).trim() : '';
+    const label = selected ? String(selected.dataset.answerLabel || '').trim() : '';
     answers.push({
       id: id,
       index: idx,
       value: value || null,
+      label: label || null,
     });
     idx += 1;
   });
