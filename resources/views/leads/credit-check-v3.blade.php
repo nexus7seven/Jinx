@@ -47,6 +47,8 @@ const ccV3KbaClose = document.getElementById('ccV3KbaClose');
 let currentJobId = null;
 let pollTimer = null;
 let lastQuestionsFingerprint = null;
+/** Fingerprint for which question set we already POSTed answers for (stops modal reopening until a new set arrives). */
+let kbaSubmittedFingerprint = null;
 
 function csrf() {
   const m = document.querySelector('meta[name="csrf-token"]');
@@ -112,7 +114,13 @@ function renderKbaQuestionsForm(questions) {
 
 function openKbaModal(questions) {
   const fp = fingerprintQuestions(questions);
-  if (fp && fp === lastQuestionsFingerprint && ccV3KbaModal.style.display === 'flex') {
+  if (!fp || !Array.isArray(questions) || questions.length === 0) {
+    return;
+  }
+  if (fp === kbaSubmittedFingerprint) {
+    return;
+  }
+  if (fp === lastQuestionsFingerprint && ccV3KbaModal.style.display === 'flex') {
     return;
   }
   lastQuestionsFingerprint = fp;
@@ -159,12 +167,15 @@ async function pollStatus() {
 
   if (list.length > 0) {
     openKbaModal(list);
+  } else if (ccV3KbaModal.style.display === 'flex') {
+    closeKbaModal();
   }
 }
 
 runBtn.addEventListener('click', async function () {
   statusLine.textContent = 'Starting job...';
   lastQuestionsFingerprint = null;
+  kbaSubmittedFingerprint = null;
   const res = await fetch(runBtn.dataset.runUrl, {
     method: 'POST',
     headers: {
@@ -212,6 +223,7 @@ ccV3KbaSubmit.addEventListener('click', async function () {
       alert('Failed to submit answers.');
       return;
     }
+    kbaSubmittedFingerprint = lastQuestionsFingerprint;
     statusLine.textContent = 'Submitted ' + answers.length + ' KBA answer(s)';
     closeKbaModal();
   } catch (e) {
