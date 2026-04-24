@@ -145,6 +145,8 @@ Route::middleware('auth')->group(function () {
         ->name('leads.credit-check-v3.status');
     Route::post('/leads/credit-check-v3/jobs/{jobId}/answers', [CreditCheckV3Controller::class, 'submitAnswers'])
         ->name('leads.credit-check-v3.answers');
+    Route::post('/leads/{lead}/credit-check-v3/jobs/{jobId}/import', [CreditCheckV3Controller::class, 'importReportData'])
+        ->name('leads.credit-check-v3.import');
 
     Route::post('/credit-check-worker/start', [CreditCheckWorkerController::class, 'start'])
         ->name('credit-check-worker.start');
