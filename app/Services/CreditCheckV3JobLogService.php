@@ -87,6 +87,7 @@ class CreditCheckV3JobLogService
 
         $immediateFailSteps = [
             'job_failed',
+            'otp_poll_exhausted',
             'identity_validation_failed',
             'report_flow_failed',
             'report_data_store_failed',
@@ -99,16 +100,30 @@ class CreditCheckV3JobLogService
             'step_timeout',
         ];
 
+        $finalReason = strtolower((string) ($latestData['reason'] ?? ''));
+
         if ($step === 'job_finalized') {
             $finalStatus = strtolower((string) ($latestData['status'] ?? ''));
             $log->ended_at = $log->ended_at ?? now();
             if ($finalStatus === 'success') {
                 $log->status = CreditCheckJobLog::STATUS_SUCCESS;
                 $log->friendly_status = (string) ($latestData['userStatusTitle'] ?? 'Completed');
+            } elseif ($finalStatus === 'timeout') {
+                $log->status = CreditCheckJobLog::STATUS_TIMEOUT;
+                $log->friendly_status = (string) ($latestData['userStatusTitle'] ?? 'Credit check timed out');
+                $log->error_message = (string) ($latestData['userStatusMessage'] ?? $log->friendly_status);
+            } elseif ($finalStatus === 'cancelled') {
+                $log->status = CreditCheckJobLog::STATUS_CANCELLED;
+                $log->friendly_status = (string) ($latestData['userStatusTitle'] ?? 'Cancelled');
+                $log->error_message = (string) ($latestData['userStatusMessage'] ?? $log->friendly_status);
             } else {
                 $log->status = CreditCheckJobLog::STATUS_FAILED;
                 $title = (string) ($latestData['userStatusTitle'] ?? 'Failed');
                 $msg = (string) ($latestData['userStatusMessage'] ?? '');
+                if ($finalReason === 'otp_poll_exhausted') {
+                    $title = $title !== '' && $title !== 'Failed' ? $title : 'Verification code was not received';
+                    $msg = $msg !== '' ? $msg : 'OTP polling exhausted without code';
+                }
                 $log->friendly_status = $title;
                 $log->error_message = $msg !== '' ? $msg : $title;
             }
@@ -120,6 +135,10 @@ class CreditCheckV3JobLogService
                 $title = (string) ($line ?? 'Failed');
             }
             $msg = (string) ($latestData['userStatusMessage'] ?? '');
+            if ($step === 'otp_poll_exhausted' || $finalReason === 'otp_poll_exhausted') {
+                $title = $title !== '' && $title !== 'Failed' ? $title : 'Verification code was not received';
+                $msg = $msg !== '' ? $msg : 'OTP polling exhausted without code';
+            }
             $log->friendly_status = $title !== '' ? $title : 'Failed';
             $log->error_message = $msg !== '' ? $msg : ($title !== '' ? $title : 'Credit check failed');
         } elseif ($step === 'security_questions' || $step === 'kba_answers_applied') {
@@ -155,6 +174,7 @@ class CreditCheckV3JobLogService
             'job_failed', 'identity_validation_failed', 'report_flow_failed',
             'report_data_store_failed', 'report_page_health_failed', 'pdf_click_failed',
             'pdf_save_failed', 'pdf_save_failed_timeout', 'save_as_confirm_failed', 'save_as_confirm_timeout',
+            'otp_poll_exhausted' => 'Verification code was not received',
             'step_timeout' => (string) ($latestData['userStatusTitle'] ?? 'Failed'),
             default => $this->mapStepHeuristic($step, $bundle),
         };
