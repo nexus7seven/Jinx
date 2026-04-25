@@ -322,34 +322,6 @@
 
                 <button
                     type="button"
-                    onclick="window.open('/leads/{{ $lead->id }}/credit-check-helper', '_blank')"
-                    style="background:#7c3aed; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
-                >
-                    Run Credit Check
-                </button>
-
-                <button
-                    type="button"
-                    id="startCreditCheckWorkerBtn"
-                    style="background:#5b21b6; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
-                >
-                    Credit Check v2
-                </button>
-
-                <button
-                    type="button"
-                    onclick="window.open('{{ route('leads.credit-check-v3.page', $lead) }}', '_blank')"
-                    style="background:#6d28d9; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
-                >
-                    Cred Check v3
-                </button>
-
-                <div id="creditCheckWorkerStatus" style="font-size:12px; color:#9ca3af;">
-                    Ready
-                </div>
-
-                <button
-                    type="button"
                     id="openDebtModal"
                     style="background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
                 >
@@ -358,224 +330,34 @@
             </div>
         </div>
 
-        <div id="debtSummaryStrip" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:18px;">
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Total Debt</div>
-                <div id="totalDebtValue" style="font-size:22px; font-weight:700;">£0.00</div>
-            </div>
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Voting Balance</div>
-                <div id="eligibleBalanceValue" style="font-size:22px; font-weight:700;">£0.00</div>
-            </div>
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Accept %</div>
-                <div id="acceptPercentValue" style="font-size:22px; font-weight:700;">0.0%</div>
-            </div>
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Reject %</div>
-                <div id="rejectPercentValue" style="font-size:22px; font-weight:700;">0.0%</div>
-            </div>
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-                <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Dominant House</div>
-                <div id="dominantHouseValue" style="font-size:22px; font-weight:700;">-</div>
-            </div>
-        </div>
-
-        <div id="warningBox" style="display:none; margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;"></div>
-
-        <div id="debtList">
-            @forelse($lead->debts as $debt)
-                <div
-                    class="debt-row"
-                    id="debt-row-{{ $debt->id }}"
-                    data-debt-id="{{ $debt->id }}"
-                    data-balance="{{ number_format((float) $debt->balance, 2, '.', '') }}"
-                    data-voting-house="{{ $debt->creditor->voting_house }}"
-                    data-vote-practice1="{{ $debt->creditor->voting_practice1 }}"
-                    data-vote-practice2="{{ $debt->creditor->voting_practice2 }}"
-                    data-vote-practice3="{{ $debt->creditor->voting_practice3 }}"
-                    style="background:#020617; border:1px solid #374151; border-radius:12px; padding:16px; margin-bottom:12px;"
+        <div id="leadCreditCheckPanel" style="margin-bottom:18px; padding:14px; background:#020617; border:1px solid #374151; border-radius:10px;">
+            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+                <button
+                    type="button"
+                    id="runCreditCheckV3Btn"
+                    data-run-url="{{ route('leads.credit-check-v3.run', $lead) }}"
+                    data-panel-url="{{ route('leads.credit-check-v3.panel-poll', $lead) }}"
+                    data-debts-section-url="{{ route('leads.debts-section-html', $lead) }}"
+                    style="background:#6d28d9; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
                 >
-                    <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
-                        <div style="flex:1; min-width:240px;">
-                            <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">{{ $debt->creditor->name }}</div>
-                            @if($debt->creditor->name === 'Could Not Match' && $debt->reference)
-                                <div style="font-size:12px; color:#a1a1aa; margin-bottom:6px;">Unmatched import — Ref shows the name taken from the credit report.</div>
-                            @endif
+                    Run Credit Check
+                </button>
+                <span id="creditCheckListenerStatus" style="font-size:12px; color:#9ca3af;">—</span>
+                <span id="creditCheckJobBadge" style="display:none; font-size:11px; padding:4px 8px; border-radius:999px; background:#1f2937; color:#e5e7eb;"></span>
+            </div>
+            <div id="creditCheckRunningWrap" style="display:none; margin-top:12px;">
+                <div style="font-size:12px; color:#9ca3af; margin-bottom:8px;">Elapsed <span id="creditCheckElapsed">0:00</span></div>
+                <div
+                    id="creditCheckActivityBox"
+                    style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; line-height:1.5; color:#d1fae5; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; max-height:180px; overflow-y:auto; white-space:pre-wrap;"
+                ></div>
+            </div>
+        </div>
 
-                            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
-                                <span style="background:#1e293b; border:1px solid #334155; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;">
-                                    £<span class="debt-balance">{{ number_format((float) $debt->balance, 2) }}</span>
-                                </span>
-
-                                <span style="background:#1d4ed8; color:#ffffff; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-source-tag">
-                                    {{ match($debt->source_expected) {
-                                        'credit_check' => 'Credit check',
-                                        '3wc' => '3WC',
-                                        'screenshot_pdf' => 'Screenshot / PDF',
-                                        'live_chat' => 'Live chat',
-                                        default => 'Other',
-                                    } }}
-                                </span>
-
-@php
-    $initialVotingType = $debt->creditor->voting_practice1;
-
-    $votingPillStyles = match(strtolower(trim($initialVotingType))) {
-        'accept' => 'background:#14532d; color:#dcfce7;',
-        'reject' => 'background:#7f1d1d; color:#fecaca;',
-        'cbc' => 'background:#92400e; color:#fde68a;',
-        'non vote', 'non-vote', 'nonvote' => 'background:#3f3f46; color:#f4f4f5;',
-        default => 'background:#1f2937; color:#e5e7eb;',
-    };
-
-    $votingPillLabel = match(strtolower(trim($initialVotingType))) {
-        'accept' => 'ACCEPT',
-        'reject' => 'REJECT',
-        'cbc' => 'CBC',
-        'non vote', 'non-vote', 'nonvote' => 'NON VOTE',
-        default => strtoupper($initialVotingType),
-    };
-@endphp
-
-<span style="{{ $votingPillStyles }} padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
-    {{ $votingPillLabel }}
-</span>
-
-                                <span style="background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house">
-                                    {{ $debt->creditor->voting_house }}
-                                </span>
-
-                                <span
-                                    class="debt-evidence-status"
-                                    data-document-complete="{{ $debt->document?->is_complete ? '1' : '0' }}"
-                                    style="background:{{ $debt->document?->is_complete ? '#14532d' : '#7c2d12' }}; color:{{ $debt->document?->is_complete ? '#dcfce7' : '#fed7aa' }}; padding:6px 10px; border-radius:999px; font-size:12px;"
-                                >
-                                    {{ $debt->document?->is_complete ? 'Evidence complete' : 'Evidence incomplete' }}
-                                </span>
-                            </div>
-
-                            <div style="font-size:13px; color:#9ca3af;">
-                                Ref:
-                                <span class="debt-reference">{{ $debt->reference ?: '—' }}</span>
-                            </div>
-                        </div>
-
-                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                            <button
-                                type="button"
-                                class="edit-debt-btn"
-                                data-debt-id="{{ $debt->id }}"
-                                style="background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:8px; padding:10px 12px; font-size:13px; cursor:pointer;"
-                            >
-                                Edit
-                            </button>
-
-                            <button
-                                type="button"
-                                class="delete-debt-btn"
-                                data-debt-id="{{ $debt->id }}"
-                                style="background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:10px 12px; font-size:13px; cursor:pointer;"
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            @empty
-                <div id="noDebtsMessage" style="background:#020617; border:1px dashed #374151; border-radius:12px; padding:18px; color:#9ca3af;">
-                    No debts added yet.
-                </div>
-            @endforelse
+        <div id="leadDebtsRefreshMount">
+            @include('leads.partials.lead-debts-section-inner')
         </div>
     </div>
-
-    <div id="credit-report-upload" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-            <h2 style="margin:0; font-size:24px;">Credit Report Import</h2>
-        </div>
-
-        @if(session('credit_report_success'))
-            <div style="margin-bottom:16px; background:#14532d; border:1px solid #166534; color:#dcfce7; border-radius:10px; padding:14px;">
-                {{ session('credit_report_success') }}
-            </div>
-        @endif
-
-        @if(session('credit_report_error'))
-            <div style="margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;">
-                {{ session('credit_report_error') }}
-            </div>
-        @endif
-
-        @if($errors->any())
-            <div style="margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;">
-                {{ $errors->first() }}
-            </div>
-        @endif
-
-        <form action="/lead/{{ $lead->id }}/credit-reports" method="POST" enctype="multipart/form-data" style="margin-bottom:18px;">
-            @csrf
-
-            <div style="margin-bottom:12px; font-size:13px; color:#9ca3af;">
-                Upload saved MHT / MHTML / PDF credit reports. Files are stored as evidence and Jinx will try to import debts automatically. Rows that do not match a known creditor appear under <strong>Could Not Match</strong>; use the <strong>Ref</strong> column for the raw name from the report.
-            </div>
-
-            <input
-                type="file"
-                name="report_files[]"
-                multiple
-                accept=".mht,.mhtml,.pdf"
-                style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin-bottom:12px;"
-            >
-
-            <button
-                type="submit"
-                style="background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:12px 16px; font-size:14px; cursor:pointer;"
-            >
-                Upload Credit Report Files
-            </button>
-        </form>
-
-        <div style="display:flex; flex-direction:column; gap:14px;">
-            @forelse(($creditReports ?? []) as $report)
-                <div style="background:#020617; border:1px solid #374151; border-radius:12px; padding:16px;">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
-                        <div>
-                            <div style="font-size:16px; font-weight:700; margin-bottom:6px;">
-                                Report #{{ $report->id }}
-                            </div>
-
-                            <div style="font-size:13px; color:#9ca3af;">
-                                {{ $report->provider }} · {{ $report->status }} · {{ $report->created_at }}
-                            </div>
-                        </div>
-
-                        <button
-                            type="button"
-                            class="delete-report-btn"
-                            data-report-id="{{ $report->id }}"
-                            style="background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:10px 12px; font-size:13px; cursor:pointer;"
-                        >
-                            Delete Report Batch
-                        </button>
-                    </div>
-
-                    <div style="display:flex; flex-direction:column; gap:8px;">
-                        @foreach($report->files as $file)
-                            <div style="background:#111827; border:1px solid #374151; border-radius:10px; padding:12px; font-size:13px; color:#d1d5db;">
-                                {{ $file->original_name }}
-                            </div>
-                        @endforeach
-                    </div>
-                </div>
-            @empty
-                <div style="background:#020617; border:1px dashed #374151; border-radius:12px; padding:18px; color:#9ca3af;">
-                    No credit report files uploaded yet.
-                </div>
-            @endforelse
-        </div>
-    </div>
-</div>
 
 <div
     id="debtModalOverlay"
@@ -681,14 +463,18 @@
     </form>
 </div>
 
-<div id="ccv2QuestionsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
-  <div style="background:#020617; padding:20px; border-radius:10px; width:90%; max-width:500px;">
-    <h3 style="margin-bottom:15px;">Security Questions</h3>
-    <form id="ccv2QuestionsForm"></form>
-    <button id="ccv2SubmitAnswers" style="margin-top:15px; padding:10px 14px; background:#2563eb; color:#fff; border:0; border-radius:6px;">
-      Submit Answers
-    </button>
-  </div>
+<div id="ccV3KbaModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:10000; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; flex-direction:row;">
+    <div style="background:#111827; border:1px solid #4b5563; border-radius:14px; max-width:560px; width:100%; max-height:88vh; overflow:auto; padding:22px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.55);">
+        <h2 style="margin:0 0 10px; font-size:18px; color:#f9fafb;">Security questions</h2>
+        <p style="margin:0 0 16px; font-size:13px; color:#9ca3af; line-height:1.55;">
+            Select one answer per question.
+        </p>
+        <form id="ccV3KbaForm" style="margin:0;"></form>
+        <div style="margin-top:18px; display:flex; flex-wrap:wrap; gap:10px;">
+            <button type="button" id="ccV3KbaSubmit" style="background:#2563eb; color:#fff; border:0; border-radius:8px; padding:10px 18px; font-size:14px; cursor:pointer;">Submit answers</button>
+            <button type="button" id="ccV3KbaClose" style="background:#374151; color:#f9fafb; border:0; border-radius:8px; padding:10px 16px; font-size:13px; cursor:pointer;">Close</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -1067,193 +853,328 @@
     });
 
     const practiceSelect = document.getElementById('practiceSelect');
-    const debtList = document.getElementById('debtList');
-    const warningBox = document.getElementById('warningBox');
-    const totalDebtValue = document.getElementById('totalDebtValue');
-    const eligibleBalanceValue = document.getElementById('eligibleBalanceValue');
-    const acceptPercentValue = document.getElementById('acceptPercentValue');
-    const rejectPercentValue = document.getElementById('rejectPercentValue');
-    const dominantHouseValue = document.getElementById('dominantHouseValue');
-    const startCreditCheckWorkerBtn = document.getElementById('startCreditCheckWorkerBtn');
-    const creditCheckWorkerStatus = document.getElementById('creditCheckWorkerStatus');
-    let creditCheckWorkerPollTimer = null;
-    let creditCheckWorkerJobId = null;
-    let creditCheckWorkerAnswersSubmitted = false;
-    let creditCheckWorkerLastStatus = '';
-    let creditCheckWorkerQuestionRound = 0;
-    let creditCheckWorkerModalOpenedRound = 0;
-    let creditCheckWorkerLastSubmittedRound = 0;
+    let debtList = document.getElementById('debtList');
+    let warningBox = document.getElementById('warningBox');
+    let totalDebtValue = document.getElementById('totalDebtValue');
+    let eligibleBalanceValue = document.getElementById('eligibleBalanceValue');
+    let acceptPercentValue = document.getElementById('acceptPercentValue');
+    let rejectPercentValue = document.getElementById('rejectPercentValue');
+    let dominantHouseValue = document.getElementById('dominantHouseValue');
 
-    function setCreditCheckWorkerStatus(message, color = '#9ca3af') {
-        if (!creditCheckWorkerStatus) return;
-        creditCheckWorkerStatus.textContent = message;
-        creditCheckWorkerStatus.style.color = color;
+    function bindDebtSectionRefs() {
+        debtList = document.getElementById('debtList');
+        warningBox = document.getElementById('warningBox');
+        totalDebtValue = document.getElementById('totalDebtValue');
+        eligibleBalanceValue = document.getElementById('eligibleBalanceValue');
+        acceptPercentValue = document.getElementById('acceptPercentValue');
+        rejectPercentValue = document.getElementById('rejectPercentValue');
+        dominantHouseValue = document.getElementById('dominantHouseValue');
     }
 
-    function stopCreditCheckWorkerPolling() {
-        if (!creditCheckWorkerPollTimer) return;
-        clearInterval(creditCheckWorkerPollTimer);
-        creditCheckWorkerPollTimer = null;
-    }
+    const runCreditCheckV3Btn = document.getElementById('runCreditCheckV3Btn');
+    const creditCheckListenerStatus = document.getElementById('creditCheckListenerStatus');
+    const creditCheckJobBadge = document.getElementById('creditCheckJobBadge');
+    const creditCheckRunningWrap = document.getElementById('creditCheckRunningWrap');
+    const creditCheckActivityBox = document.getElementById('creditCheckActivityBox');
+    const creditCheckElapsed = document.getElementById('creditCheckElapsed');
+    const leadDebtsRefreshMount = document.getElementById('leadDebtsRefreshMount');
 
-    function readWorkerStatus(payload) {
-        if (!payload || typeof payload !== 'object') return '';
+    let ccV3PollTimer = null;
+    let ccV3TickTimer = null;
+    let ccV3JobId = null;
+    let ccV3StartedAtMs = null;
+    let ccV3LastDebtSignature = null;
+    let ccV3LastKbaFingerprint = null;
+    let ccV3SubmittedKbaFingerprint = null;
+    let creditCheckWasRunning = false;
 
-        if (typeof payload.status === 'string') return payload.status;
-        if (payload.job && typeof payload.job.status === 'string') return payload.job.status;
-        if (payload.data && typeof payload.data.status === 'string') return payload.data.status;
-
-        return '';
-    }
-
-    function readWorkerJobId(payload) {
-        if (!payload || typeof payload !== 'object') return '';
-
-        if (typeof payload.job_id === 'string') return payload.job_id;
-        if (payload.job && typeof payload.job.id === 'string') return payload.job.id;
-        if (payload.data && typeof payload.data.job_id === 'string') return payload.data.job_id;
-
-        return '';
-    }
-
-    function readWorkerError(payload) {
-        if (!payload || typeof payload !== 'object') return '';
-
-        if (typeof payload.error === 'string') return payload.error;
-        if (payload.job && typeof payload.job.error === 'string') return payload.job.error;
-        if (payload.data && typeof payload.data.error === 'string') return payload.data.error;
-
-        return '';
-    }
-
-    async function pollCreditCheckWorkerStatus(jobId) {
-        try {
-            const response = await fetch('/credit-check-worker/' + encodeURIComponent(jobId) + '/status', {
-                headers: {
-                    'Accept': 'application/json',
-                },
-            });
-            const payload = await response.json();
-
-            if (!response.ok) {
-                throw new Error(readWorkerError(payload) || 'Status request failed');
-            }
-
-            const status = readWorkerStatus(payload);
-            if (!status) {
-                setCreditCheckWorkerStatus('Worker status unavailable.', '#f59e0b');
-                return;
-            }
-
-            if (status === 'queued' || status === 'running') {
-                setCreditCheckWorkerStatus('Credit check status: ' + status, '#fbbf24');
-                creditCheckWorkerLastStatus = status;
-                return;
-            }
-
-            if (status === 'awaiting_answers') {
-                stopCreditCheckWorkerPolling();
-                setCreditCheckWorkerStatus('Credit check status: awaiting_answers', '#10b981');
-                if (creditCheckWorkerLastStatus !== 'awaiting_answers') {
-                    creditCheckWorkerQuestionRound += 1;
-                    console.log('[credit-check-worker] question set received for round ' + creditCheckWorkerQuestionRound);
-                    if (
-                        creditCheckWorkerQuestionRound > 1 &&
-                        creditCheckWorkerLastSubmittedRound === creditCheckWorkerQuestionRound - 1
-                    ) {
-                        console.log('[credit-check-worker] round ' + (creditCheckWorkerQuestionRound - 1) + ' failed');
-                    }
-                }
-                if (creditCheckWorkerModalOpenedRound !== creditCheckWorkerQuestionRound) {
-                    await openSecurityQuestionsModal(creditCheckWorkerJobId);
-                    creditCheckWorkerModalOpenedRound = creditCheckWorkerQuestionRound;
-                }
-                creditCheckWorkerLastStatus = status;
-                return;
-            }
-
-            if (status === 'completed') {
-                stopCreditCheckWorkerPolling();
-                setCreditCheckWorkerStatus('Credit check status: completed', '#10b981');
-                alert('Credit check completed.');
-                creditCheckWorkerLastStatus = status;
-                return;
-            }
-
-            if (status === 'failed') {
-                stopCreditCheckWorkerPolling();
-                const workerError = readWorkerError(payload);
-                const errorText = String(workerError || '').toLowerCase();
-                const isIdentityFailure = errorText.includes('identity')
-                    || errorText.includes('verify')
-                    || errorText.includes('failed identity check')
-                    || errorText.includes('transunion was unable to verify your identity automatically')
-                    || errorText.includes("sorry, we haven't been able to verify and validate your identity");
-                if (isIdentityFailure) {
-                    setCreditCheckWorkerStatus('Failed Identity Check', '#ef4444');
-                    alert('Failed Identity Check');
-                } else {
-                    setCreditCheckWorkerStatus('Credit check status: failed', '#ef4444');
-                    alert(workerError || 'Credit check failed.');
-                }
-                creditCheckWorkerLastStatus = status;
-                return;
-            }
-
-            setCreditCheckWorkerStatus('Credit check status: ' + status, '#9ca3af');
-            creditCheckWorkerLastStatus = status;
-        } catch (error) {
-            stopCreditCheckWorkerPolling();
-            setCreditCheckWorkerStatus('Worker polling failed.', '#ef4444');
-            alert('Could not poll credit check worker status.');
+    function stopCreditCheckV3Poll() {
+        if (ccV3PollTimer) {
+            clearInterval(ccV3PollTimer);
+            ccV3PollTimer = null;
+        }
+        if (ccV3TickTimer) {
+            clearInterval(ccV3TickTimer);
+            ccV3TickTimer = null;
         }
     }
 
-    if (startCreditCheckWorkerBtn) {
-        startCreditCheckWorkerBtn.addEventListener('click', async function () {
-            startCreditCheckWorkerBtn.disabled = true;
-            stopCreditCheckWorkerPolling();
-            setCreditCheckWorkerStatus('Starting credit check...', '#fbbf24');
+    function formatCreditCheckElapsed(ms) {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        const m = Math.floor(s / 60);
+        const r = s % 60;
+        return m + ':' + String(r).padStart(2, '0');
+    }
+
+    function updateCreditCheckElapsed() {
+        if (!creditCheckElapsed || !ccV3StartedAtMs) return;
+        creditCheckElapsed.textContent = formatCreditCheckElapsed(Date.now() - ccV3StartedAtMs);
+    }
+
+    async function refreshDebtsSectionIfNeeded(signatureFromPoll) {
+        if (!leadDebtsRefreshMount || !runCreditCheckV3Btn || !signatureFromPoll) return;
+        if (ccV3LastDebtSignature === signatureFromPoll) return;
+        ccV3LastDebtSignature = signatureFromPoll;
+        const url = runCreditCheckV3Btn.dataset.debtsSectionUrl;
+        const res = await fetch(url, { headers: { 'Accept': 'text/html' } });
+        if (!res.ok) return;
+        const html = await res.text();
+        leadDebtsRefreshMount.innerHTML = html;
+        bindDebtSectionRefs();
+        bindEditButtons();
+        bindDeleteButtons();
+        refreshDebtInterpretation();
+    }
+
+    async function refreshDebtsSectionForced(signatureToStore) {
+        if (!leadDebtsRefreshMount || !runCreditCheckV3Btn) return;
+        const url = runCreditCheckV3Btn.dataset.debtsSectionUrl;
+        const res = await fetch(url, { headers: { 'Accept': 'text/html' } });
+        if (!res.ok) return;
+        const html = await res.text();
+        leadDebtsRefreshMount.innerHTML = html;
+        bindDebtSectionRefs();
+        bindEditButtons();
+        bindDeleteButtons();
+        refreshDebtInterpretation();
+        if (signatureToStore) {
+            ccV3LastDebtSignature = signatureToStore;
+        }
+    }
+
+    function fingerprintCcV3Questions(list) {
+        if (!Array.isArray(list) || !list.length) return '';
+        return list.map(function (q) {
+            return String(q && q.id != null ? q.id : '') + '|' + String(q && q.question ? q.question : '');
+        }).join('||');
+    }
+
+    function renderCcV3KbaForm(questions) {
+        const form = document.getElementById('ccV3KbaForm');
+        if (!form) return;
+        form.innerHTML = '';
+        questions.forEach(function (q, index) {
+            const wrapper = document.createElement('div');
+            wrapper.style.marginBottom = '16px';
+            wrapper.style.padding = '12px 14px';
+            wrapper.style.background = '#020617';
+            wrapper.style.border = '1px solid #374151';
+            wrapper.style.borderRadius = '10px';
+            wrapper.dataset.questionBlock = '1';
+            wrapper.dataset.questionId = q && q.id != null ? String(q.id) : '';
+
+            const title = document.createElement('div');
+            title.textContent = q && q.question ? String(q.question) : ('Question ' + (index + 1));
+            title.style.marginBottom = '10px';
+            title.style.fontWeight = '600';
+            title.style.fontSize = '14px';
+            wrapper.appendChild(title);
+
+            const answers = Array.isArray(q && q.answers) ? q.answers : [];
+            answers.forEach(function (ans) {
+                const optLabel = document.createElement('label');
+                optLabel.style.display = 'block';
+                optLabel.style.marginBottom = '6px';
+                optLabel.style.cursor = 'pointer';
+                optLabel.style.fontSize = '13px';
+                optLabel.style.color = '#e5e7eb';
+
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'ccv3_q_' + index;
+                const raw = ans && typeof ans === 'object' ? ans : {};
+                const labelText = String(raw.label != null ? raw.label : '').trim();
+                const fallback = String(raw.value != null ? raw.value : '').trim();
+                const display = labelText || fallback;
+                radio.value = fallback || labelText;
+                radio.dataset.answerLabel = display;
+                optLabel.appendChild(radio);
+                optLabel.appendChild(document.createTextNode(' ' + display));
+                wrapper.appendChild(optLabel);
+            });
+
+            form.appendChild(wrapper);
+        });
+    }
+
+    function collectCcV3KbaAnswers() {
+        const answers = [];
+        const blocks = document.querySelectorAll('#ccV3KbaForm [data-question-block="1"]');
+        let idx = 0;
+        blocks.forEach(function (block) {
+            const id = block.dataset.questionId || '';
+            const selected = block.querySelector('input[type="radio"]:checked');
+            const value = selected ? String(selected.value).trim() : '';
+            const label = selected ? String(selected.dataset.answerLabel || '').trim() : '';
+            answers.push({
+                id: id,
+                index: idx,
+                value: value || null,
+                label: label || null,
+            });
+            idx += 1;
+        });
+        return answers;
+    }
+
+    async function handlePanelPollPayload(data) {
+        if (data.external_job_id) {
+            ccV3JobId = data.external_job_id;
+        }
+        if (creditCheckListenerStatus) {
+            creditCheckListenerStatus.textContent = data.listener_status || '—';
+        }
+        if (data.started_at) {
+            const parsed = Date.parse(data.started_at);
+            if (!Number.isNaN(parsed)) {
+                ccV3StartedAtMs = parsed;
+            }
+        }
+        const running = Boolean(data.running);
+
+        if (!running && creditCheckWasRunning) {
+            // Transition: running → idle
+            stopCreditCheckV3Poll();
 
             try {
-                const response = await fetch('/credit-check-worker/start', {
+                await refreshDebtsSectionForced(data.debts_signature || '');
+            } catch (e) { /* ignore */ }
+        }
+
+        // Update state AFTER handling transition
+        creditCheckWasRunning = running;
+
+        // Ensure polling is stopped when idle (covers page load / no job case)
+        if (!running) {
+            stopCreditCheckV3Poll();
+        }
+        if (creditCheckRunningWrap) {
+            creditCheckRunningWrap.style.display = running ? 'block' : 'none';
+        }
+        if (creditCheckActivityBox) {
+            const lines = Array.isArray(data.activity_lines) ? data.activity_lines : [];
+            creditCheckActivityBox.textContent = running ? lines.join('\n') : '';
+        }
+        if (creditCheckJobBadge) {
+            if (data.job_status && !running && (data.job_status === 'success' || data.job_status === 'failed')) {
+                creditCheckJobBadge.style.display = 'inline-block';
+                creditCheckJobBadge.textContent = data.job_status === 'success' ? 'Credit check completed' : 'Credit check failed';
+                creditCheckJobBadge.style.background = data.job_status === 'success' ? '#14532d' : '#7f1d1d';
+                creditCheckJobBadge.style.color = data.job_status === 'success' ? '#dcfce7' : '#fecaca';
+            } else if (running) {
+                creditCheckJobBadge.style.display = 'none';
+            }
+        }
+        if (runCreditCheckV3Btn) {
+            runCreditCheckV3Btn.disabled = running;
+            runCreditCheckV3Btn.textContent = running ? 'Credit check running…' : 'Run Credit Check';
+        }
+        if (data.debts_signature) {
+            try {
+                await refreshDebtsSectionIfNeeded(data.debts_signature);
+            } catch (e) { /* ignore */ }
+        }
+        const qs = data.security_questions;
+        if (running && Array.isArray(qs) && qs.length > 0) {
+            const fp = fingerprintCcV3Questions(qs);
+            if (fp && fp !== ccV3SubmittedKbaFingerprint) {
+                if (fp !== ccV3LastKbaFingerprint) {
+                    ccV3LastKbaFingerprint = fp;
+                    renderCcV3KbaForm(qs);
+                }
+                const modal = document.getElementById('ccV3KbaModal');
+                if (modal) modal.style.display = 'flex';
+            }
+        } else {
+            const modal = document.getElementById('ccV3KbaModal');
+            if (modal) modal.style.display = 'none';
+        }
+    }
+
+    async function pollCreditCheckPanelOnce() {
+        if (!runCreditCheckV3Btn) return;
+        const url = runCreditCheckV3Btn.dataset.panelUrl;
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!data.ok) return;
+        await handlePanelPollPayload(data);
+    }
+
+    if (runCreditCheckV3Btn) {
+        runCreditCheckV3Btn.addEventListener('click', async function () {
+            runCreditCheckV3Btn.disabled = true;
+            stopCreditCheckV3Poll();
+            ccV3LastKbaFingerprint = null;
+            ccV3SubmittedKbaFingerprint = null;
+            ccV3JobId = null;
+            ccV3StartedAtMs = null;
+            if (creditCheckJobBadge) creditCheckJobBadge.style.display = 'none';
+            try {
+                const res = await fetch(runCreditCheckV3Btn.dataset.runUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({}),
+                });
+                const json = await res.json();
+                ccV3JobId = json.jobId || null;
+                if (!ccV3JobId) {
+                    throw new Error(json.message || 'Could not start credit check');
+                }
+                ccV3StartedAtMs = Date.now();
+                updateCreditCheckElapsed();
+                await pollCreditCheckPanelOnce();
+                ccV3PollTimer = setInterval(pollCreditCheckPanelOnce, 3500);
+                ccV3TickTimer = setInterval(updateCreditCheckElapsed, 500);
+            } catch (e) {
+                alert('Could not start credit check.');
+                runCreditCheckV3Btn.disabled = false;
+                runCreditCheckV3Btn.textContent = 'Run Credit Check';
+            }
+        });
+
+        pollCreditCheckPanelOnce().catch(function () {});
+    }
+
+    const ccV3KbaModal = document.getElementById('ccV3KbaModal');
+    const ccV3KbaSubmit = document.getElementById('ccV3KbaSubmit');
+    const ccV3KbaClose = document.getElementById('ccV3KbaClose');
+    if (ccV3KbaClose && ccV3KbaModal) {
+        ccV3KbaClose.addEventListener('click', function () {
+            ccV3KbaModal.style.display = 'none';
+        });
+    }
+    if (ccV3KbaSubmit) {
+        ccV3KbaSubmit.addEventListener('click', async function () {
+            if (!ccV3JobId) return;
+            const answers = collectCcV3KbaAnswers();
+            const missing = answers.some(function (a) { return !a.value; });
+            if (missing) {
+                alert('Please select an answer for every question.');
+                return;
+            }
+            try {
+                const res = await fetch('/leads/credit-check-v3/jobs/' + encodeURIComponent(ccV3JobId) + '/answers', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': csrfToken,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({
-                        lead_id: {{ $lead->id }},
-                    }),
+                    body: JSON.stringify({ answers: answers }),
                 });
-                const payload = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(readWorkerError(payload) || 'Start request failed');
+                if (!res.ok) {
+                    throw new Error();
                 }
-
-                creditCheckWorkerJobId = readWorkerJobId(payload);
-                if (!creditCheckWorkerJobId) {
-                    throw new Error('Worker did not return a job ID');
+                if (ccV3LastKbaFingerprint) {
+                    ccV3SubmittedKbaFingerprint = ccV3LastKbaFingerprint;
                 }
-                creditCheckWorkerAnswersSubmitted = false;
-                creditCheckWorkerLastStatus = '';
-                creditCheckWorkerQuestionRound = 0;
-                creditCheckWorkerModalOpenedRound = 0;
-                creditCheckWorkerLastSubmittedRound = 0;
-
-                setCreditCheckWorkerStatus('Job started: ' + creditCheckWorkerJobId, '#10b981');
-
-                await pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
-                creditCheckWorkerPollTimer = setInterval(function () {
-                    pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
-                }, 3000);
-            } catch (error) {
-                setCreditCheckWorkerStatus('Failed to start worker credit check.', '#ef4444');
-                alert('Could not start credit check worker.');
-            } finally {
-                startCreditCheckWorkerBtn.disabled = false;
+                if (ccV3KbaModal) ccV3KbaModal.style.display = 'none';
+            } catch (e) {
+                alert('Failed to submit answers.');
             }
         });
     }
@@ -1321,6 +1242,10 @@
     }
 
     function refreshDebtInterpretation() {
+        if (!practiceSelect || !totalDebtValue || !eligibleBalanceValue || !acceptPercentValue || !rejectPercentValue || !dominantHouseValue || !warningBox) {
+            return;
+        }
+
         const practiceKey = practiceSelect.value;
         const rows = document.querySelectorAll('.debt-row');
 
@@ -1826,44 +1751,8 @@
         });
     }
 
-    function bindDeleteReportButtons() {
-        document.querySelectorAll('.delete-report-btn').forEach(button => {
-            if (button.dataset.bound === '1') return;
-
-            button.dataset.bound = '1';
-
-            button.addEventListener('click', async function () {
-                const reportId = this.dataset.reportId;
-
-                if (!confirm('Delete this report batch?')) {
-                    return;
-                }
-
-                try {
-                    const response = await fetch('/credit-reports/' + reportId, {
-                        method: 'DELETE',
-                        headers: {
-                            'X-CSRF-TOKEN': csrfToken,
-                            'Accept': 'application/json'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        window.location.reload();
-                        return;
-                    }
-
-                    window.location.reload();
-                } catch (e) {
-                    alert('Delete report batch failed');
-                }
-            });
-        });
-    }
-
     bindEditButtons();
     bindDeleteButtons();
-    bindDeleteReportButtons();
     refreshDebtInterpretation();
 
     (function () {
@@ -1900,111 +1789,6 @@
             }
         });
     })();
-</script>
-
-<script>
-    async function openSecurityQuestionsModal(jobId) {
-        try {
-            const res = await fetch('/credit-check-worker/' + jobId + '/questions');
-            const data = await res.json();
-            const resolvedQuestions = Array.isArray(data?.questions)
-                ? data.questions
-                : (Array.isArray(data?.questions?.questions) ? data.questions.questions : []);
-
-            if (!res.ok) {
-                alert('Failed to load questions');
-                return;
-            }
-
-            if (!resolvedQuestions.length) {
-                alert('Security questions are not available yet.');
-                return;
-            }
-
-            renderQuestions(resolvedQuestions);
-            document.getElementById('ccv2QuestionsModal').style.display = 'flex';
-        } catch (e) {
-            alert('Error loading questions');
-        }
-    }
-
-    function renderQuestions(questions) {
-        const form = document.getElementById('ccv2QuestionsForm');
-        form.innerHTML = '';
-
-        questions.forEach((q, index) => {
-            const wrapper = document.createElement('div');
-            wrapper.style.marginBottom = '12px';
-            wrapper.dataset.questionBlock = '1';
-            wrapper.dataset.questionId = q.id ? String(q.id) : '';
-
-            const label = document.createElement('div');
-            label.textContent = q.question || ('Question ' + (index + 1));
-            label.style.marginBottom = '6px';
-
-            wrapper.appendChild(label);
-
-            (q.answers || []).forEach((ans) => {
-                const option = document.createElement('label');
-                option.style.display = 'block';
-                const answerLabel = ans && typeof ans === 'object' ? (ans.label ?? ans.value ?? '') : String(ans ?? '');
-                const answerValue = ans && typeof ans === 'object' ? (ans.value ?? ans.label ?? '') : String(ans ?? '');
-
-                option.innerHTML = `
-                    <input type="radio" name="q_${index}" value="${answerValue}">
-                    ${answerLabel}
-                `;
-
-                wrapper.appendChild(option);
-            });
-
-            form.appendChild(wrapper);
-        });
-    }
-
-    document.getElementById('ccv2SubmitAnswers').addEventListener('click', async function () {
-        const form = document.getElementById('ccv2QuestionsForm');
-        const answers = [];
-
-        const questionBlocks = form.querySelectorAll('[data-question-block="1"]');
-
-        questionBlocks.forEach((block) => {
-            const id = block.dataset.questionId || '';
-            const selected = block.querySelector('input[type="radio"]:checked');
-            answers.push({
-                id,
-                value: selected ? selected.value : null,
-            });
-        });
-
-        try {
-            const res = await fetch('/credit-check-worker/' + creditCheckWorkerJobId + '/answers', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': csrfToken
-                },
-                body: JSON.stringify({ answers })
-            });
-
-            if (!res.ok) {
-                throw new Error();
-            }
-
-            document.getElementById('ccv2QuestionsModal').style.display = 'none';
-            creditCheckWorkerAnswersSubmitted = true;
-            creditCheckWorkerLastSubmittedRound = creditCheckWorkerQuestionRound;
-            console.log('[credit-check-worker] round ' + creditCheckWorkerQuestionRound + ' forwarded to Jinx');
-            setCreditCheckWorkerStatus('Answers submitted. Continuing...', '#10b981');
-
-            stopCreditCheckWorkerPolling();
-            creditCheckWorkerPollTimer = setInterval(function () {
-                pollCreditCheckWorkerStatus(creditCheckWorkerJobId);
-            }, 3000);
-        } catch (e) {
-            alert('Failed to submit answers');
-        }
-    });
 </script>
 
 @include('partials.financial-statement-init', [

@@ -9,7 +9,6 @@ use App\Models\Debt;
 use App\Models\Creditor;
 use App\Models\DebtDocument;
 use App\Models\VotingPractice;
-use App\Models\CreditReport;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CreditCheckWorkerController;
 use App\Http\Controllers\CreditCheckV2Controller;
@@ -105,18 +104,13 @@ Route::middleware('auth')->group(function () {
 
         $creditors = Creditor::orderBy('name')->get();
         $practices = VotingPractice::orderBy('id')->get();
-        $creditReports = CreditReport::with('files')
-            ->where('lead_id', $lead->id)
-            ->latest()
-            ->get();
-
         $financialStatementService = app(FinancialStatementService::class);
         $financialStatement = $financialStatementService->mergeForLead($lead);
         $fsClientPayload = $financialStatementService->clientViewPayload();
 
         $lastDialledAt = app(VicidialDialActivityService::class)->lastDialledAtForLead($lead);
 
-        return view('leads.show', compact('lead', 'creditors', 'practices', 'creditReports', 'financialStatement', 'fsClientPayload', 'lastDialledAt'));
+        return view('leads.show', compact('lead', 'creditors', 'practices', 'financialStatement', 'fsClientPayload', 'lastDialledAt'));
     });
 
     Route::get('/leads/{id}/credit-check-helper', function ($id) {
@@ -147,6 +141,10 @@ Route::middleware('auth')->group(function () {
         ->name('leads.credit-check-v3.answers');
     Route::post('/leads/{lead}/credit-check-v3/jobs/{jobId}/import', [CreditCheckV3Controller::class, 'importReportData'])
         ->name('leads.credit-check-v3.import');
+    Route::get('/lead/{lead}/credit-check-v3/panel-poll', [CreditCheckV3Controller::class, 'panelPoll'])
+        ->name('leads.credit-check-v3.panel-poll');
+    Route::get('/lead/{lead}/debts-section', [CreditCheckV3Controller::class, 'debtsSectionHtml'])
+        ->name('leads.debts-section-html');
 
     Route::post('/credit-check-worker/start', [CreditCheckWorkerController::class, 'start'])
         ->name('credit-check-worker.start');

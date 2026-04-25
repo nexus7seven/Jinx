@@ -146,6 +146,11 @@ class Lead extends Model
         return $this->hasMany(\App\Models\CreditReport::class);
     }
 
+    public function creditCheckJobLogs()
+    {
+        return $this->hasMany(CreditCheckJobLog::class)->latest('id');
+    }
+
     public function actionPoints()
     {
         return $this->hasMany(\App\Models\LeadActionPoint::class)->latest();
