@@ -23,11 +23,27 @@
         .lead-section-toggle:hover { border-color: #60a5fa; color: #f8fafc; }
         .lead-section-body { margin-top: 10px; }
         .lead-quick-panel { display: none; position: fixed; top: 78px; right: 20px; width: min(360px, calc(100vw - 28px)); max-height: calc(100vh - 96px); overflow: auto; z-index: 320; background: #111827; border: 1px solid #334155; border-right: 3px solid #2563eb; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+        .client-details-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:14px; box-sizing:border-box; margin-bottom:14px; }
+        .client-details-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 16px; align-items:start; }
+        .client-details-column { display:flex; flex-direction:column; gap:12px; min-width:0; }
+        .client-field label { display:block; font-size:12px; color:#9ca3af; margin-bottom:4px; }
+        .client-input { display:block; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px; min-height:40px; }
+        .client-input:disabled { background:#0b1220; color:#6b7280; }
+        .client-status-row { margin-bottom:10px; font-size:12px; color:#9ca3af; }
+        .client-field-address { grid-column: 1 / -1; }
+        .client-phone-row { display:flex; gap:8px; align-items:stretch; }
+        .client-phone-row .client-input { flex:1; }
+        .client-last-dialled { margin-top:5px; font-size:11px; color:#94a3b8; }
+        .temp-email-details { border:1px solid #253041; border-radius:10px; background:#010815; padding:0; }
+        .temp-email-details > summary { cursor:pointer; list-style:none; padding:8px 10px; font-size:11px; font-weight:700; color:#9fb0c9; }
+        .temp-email-details > summary::-webkit-details-marker { display:none; }
+        .temp-email-content { padding:0 12px 12px 12px; border-top:1px solid #1f2937; }
         @media (max-width: 720px) {
             .lead-top-nav { gap: 5px; padding: 7px; }
             .lead-top-nav-link, .lead-top-nav-btn { font-size: 11px; padding: 5px 8px; min-height: 30px; }
             .lead-info-item-value { font-size: 11px; }
             .lead-section-title { font-size: 15px; }
+            .client-details-grid { grid-template-columns:1fr; gap:12px; }
         }
     </style>
 </head>
@@ -155,129 +171,125 @@
             <button type="button" class="lead-section-toggle" data-section-toggle="client-details-section">Collapse</button>
         </div>
         <div id="client-details-section-body" class="lead-section-body">
-    <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
-
-        <div id="saveStatus" style="margin-bottom:22px; font-size:14px; color:#9ca3af;">
+    <div class="client-details-card">
+        <div id="saveStatus" class="client-status-row">
             Ready
         </div>
 
-
-        <div style="display:flex; flex-direction:column; gap:16px; width:100%; box-sizing:border-box;">
-
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">VICIdial Lead ID</label>
+        <div class="client-details-grid">
+            <div class="client-details-column">
+                <div class="client-field">
+                <label>VICIdial Lead ID</label>
                 <input
                     type="text"
                     value="{{ $lead->vicidial_lead_id }}"
                     disabled
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#6b7280; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
             @php
                 $titleField = old('title', $lead->title);
             @endphp
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Title</label>
+                <div class="client-field">
+                <label>Title</label>
                 <select
                     data-field="title"
-                    style="display:block; width:100%; max-width:420px; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px;"
+                    class="client-input"
                 >
                     <option value="" @selected($titleField === null || $titleField === '')>Select title</option>
                     @foreach (\App\Models\Lead::TITLES as $t)
                         <option value="{{ $t }}" @selected($titleField === $t)>{{ $t }}</option>
                     @endforeach
                 </select>
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">First Name</label>
+                <div class="client-field">
+                <label>First Name</label>
                 <input
                     type="text"
                     data-field="first_name"
                     value="{{ $lead->first_name }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Last Name</label>
+                <div class="client-field">
+                <label>Last Name</label>
                 <input
                     type="text"
                     data-field="last_name"
                     value="{{ $lead->last_name }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Date of Birth</label>
+                <div class="client-field">
+                <label>Date of Birth</label>
                 <input
                     type="text"
                     data-field="dob"
                     value="{{ $lead->dob }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
+                </div>
             </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Phone</label>
-                <input
-                    type="text"
-                    data-field="phone_number"
-                    value="{{ $lead->phone_number }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
-                >
-                <div style="margin-top:8px; font-size:12px; color:#94a3b8;">
+            <div class="client-details-column">
+                <div class="client-field">
+                <label>Phone</label>
+                <div class="client-phone-row">
+                    <input
+                        type="text"
+                        data-field="phone_number"
+                        value="{{ $lead->phone_number }}"
+                        class="client-input"
+                    >
+                    @if (trim((string) ($lead->phone_number ?? '')) !== '')
+                        @include('partials.lead-click-to-call', ['lead' => $lead])
+                    @endif
+                </div>
+                <div class="client-last-dialled">
                     Last dialled (dialler):
                     <span style="color:#cbd5e1;">
                         {{ $lastDialledAt ? $lastDialledAt->format('d M Y, H:i') : 'Never dialled' }}
                     </span>
                 </div>
-            </div>
-
-            @if (trim((string) ($lead->phone_number ?? '')) !== '')
-                <div style="margin-top:10px;">
-                    @include('partials.lead-click-to-call', ['lead' => $lead])
                 </div>
-            @endif
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Email</label>
+                <div class="client-field">
+                <label>Email</label>
                 <input
                     type="text"
                     data-field="email"
                     value="{{ $lead->email }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">WIP status</label>
+                <div class="client-field">
+                <label>WIP status</label>
                 <select
                     id="lead-wip-status-select"
                     data-lead-id="{{ $lead->id }}"
-                    style="display:block; width:100%; max-width:420px; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px;"
+                    class="client-input"
                 >
                     @foreach (\App\Models\Lead::WIP_STATUSES as $status)
                         <option value="{{ $status }}" @if($lead->wip_status === $status) selected @endif>{{ $status }}</option>
                     @endforeach
                 </select>
-            </div>
+                </div>
 
-            <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:12px 14px;">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-                    <div style="flex:1; min-width:220px;">
-                        <div style="font-size:13px; color:#9ca3af; margin-bottom:6px;">Temp Email</div>
+                <details class="temp-email-details">
+                    <summary>Temp Email</summary>
+                    <div class="temp-email-content">
                         <div id="tempMailAddress" style="font-size:16px; font-weight:700; word-break:break-word; line-height:1.4;">
                             {{ $lead->temp_mail ?: '—' }}
                         </div>
                         <div id="tempMailStatus" style="margin-top:6px; font-size:12px; color:#9ca3af;">
                             Ready
                         </div>
-                    </div>
-
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
                         <button
                             type="button"
                             id="generateTempMailBtn"
@@ -294,37 +306,38 @@
                             Copy
                         </button>
                     </div>
-                </div>
-            </div>
+                    </div>
+                </details>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">House Number</label>
+                <div class="client-field">
+                <label>House Number</label>
                 <input
                     type="text"
                     data-field="house_number"
                     value="{{ $lead->house_number }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Postcode</label>
+                <div class="client-field">
+                <label>Postcode</label>
                 <input
                     type="text"
                     data-field="postcode"
                     value="{{ $lead->postcode }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
-            </div>
+                </div>
 
-            <div>
-                <label style="display:block; font-size:13px; color:#9ca3af; margin-bottom:6px;">Address</label>
+                <div class="client-field client-field-address">
+                <label>Address</label>
                 <input
                     type="text"
                     data-field="address_line_1"
                     value="{{ $lead->address_line_1 }}"
-                    style="display:block; width:100%; box-sizing:border-box; padding:12px 14px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0;"
+                    class="client-input"
                 >
+                </div>
             </div>
         </div>
     </div>
