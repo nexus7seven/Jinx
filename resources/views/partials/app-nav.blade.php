@@ -56,6 +56,70 @@
         font-weight: 600;
         line-height: 1;
     }
+    .app-nav__search-wrap {
+        position: relative;
+        display: inline-flex;
+        flex-direction: column;
+        min-width: min(340px, 90vw);
+    }
+    .app-nav__search-box {
+        margin-top: 8px;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(71, 85, 105, 0.75);
+        background: rgba(15, 23, 42, 0.92);
+        color: #f8fafc;
+        font-size: 13px;
+    }
+    .app-nav__search-box::placeholder {
+        color: #64748b;
+    }
+    .app-nav__search-results {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        display: none;
+        border: 1px solid rgba(51, 65, 85, 0.75);
+        border-radius: 10px;
+        background: #0f172a;
+        overflow: hidden;
+        z-index: 40;
+        box-shadow: 0 14px 32px rgba(2, 6, 23, 0.55);
+    }
+    .app-nav__search-result {
+        display: block;
+        padding: 9px 10px;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.35);
+        color: #cbd5e1;
+    }
+    .app-nav__search-result:last-child {
+        border-bottom: none;
+    }
+    .app-nav__search-result:hover {
+        background: rgba(51, 65, 85, 0.35);
+        color: #f8fafc;
+    }
+    .app-nav__search-name {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: inherit;
+    }
+    .app-nav__search-meta {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        color: #94a3b8;
+    }
+    .app-nav__search-empty {
+        padding: 9px 10px;
+        font-size: 12px;
+        color: #94a3b8;
+    }
 </style>
 <nav class="app-nav" aria-label="Main">
     <div class="app-nav__tabs">
@@ -84,5 +148,36 @@
         >
             Remarketing
         </a>
+        <button type="button" class="app-nav__tab" id="appNavSearchToggle">Search</button>
+    </div>
+    <div class="app-nav__search-wrap" id="appNavSearchWrap" style="display:none;">
+        <input
+            type="search"
+            id="appNavSearchInput"
+            class="app-nav__search-box"
+            placeholder="Search by first name, surname, phone or VICIdial lead ID"
+            autocomplete="off"
+            aria-label="Search leads"
+        >
+        <div class="app-nav__search-results" id="appNavSearchResults" aria-live="polite"></div>
     </div>
 </nav>
+@include('partials.lead-search-script')
+<script>
+    window.initJinxLeadSearch({
+        toggleId: 'appNavSearchToggle',
+        wrapId: 'appNavSearchWrap',
+        inputId: 'appNavSearchInput',
+        resultsId: 'appNavSearchResults',
+        activeClass: 'app-nav__tab--active',
+        openDisplay: 'inline-flex',
+        minLength: 2,
+        debounceMs: 250,
+        searchUrl: '{{ route('lead.search') }}',
+        emptyClass: 'app-nav__search-empty',
+        resultClass: 'app-nav__search-result',
+        nameClass: 'app-nav__search-name',
+        metaClass: 'app-nav__search-meta',
+        noResultsText: 'No matching leads found',
+    });
+</script>

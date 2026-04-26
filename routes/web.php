@@ -27,6 +27,7 @@ use App\Services\FinancialStatementService;
 use App\Services\VicidialDialActivityService;
 use App\Http\Controllers\ClickToCallController;
 use App\Http\Controllers\LocalWorkerJobsPageController;
+use App\Http\Controllers\LeadSearchController;
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -87,6 +88,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/remarketing/call', [RemarketingController::class, 'call'])->name('remarketing.call');
     Route::post('/remarketing/complete', [RemarketingController::class, 'complete'])->name('remarketing.complete');
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
+    Route::get('/lead-search', LeadSearchController::class)->name('lead.search');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
 
     Route::get('/lead/{lead}/checklist', [WipController::class, 'checklist'])->name('lead.checklist.index');
