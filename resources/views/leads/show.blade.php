@@ -6,26 +6,27 @@
     <title>Jinx Lead {{ $lead->id }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
-        .lead-sticky-shell { position: sticky; top: 0; z-index: 260; margin-bottom: 12px; }
-        .lead-top-nav { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: rgba(2, 6, 23, 0.98); border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; backdrop-filter: blur(8px); }
+        #leadStickyShell,
+        .lead-sticky-shell { position: sticky; top: 0; z-index: 10000; margin-bottom: 12px; overflow: visible; }
+        .lead-top-nav { position: relative; z-index: 10001; overflow: visible; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: rgba(2, 6, 23, 0.98); border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; backdrop-filter: blur(8px); }
         .lead-top-nav-link, .lead-top-nav-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; padding: 6px 9px; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
         .lead-top-nav-btn { font-family: inherit; }
         .lead-top-nav-link:hover, .lead-top-nav-btn:hover { border-color: #60a5fa; background: #172036; color: #f8fafc; }
         .lead-top-nav-btn.is-active { border-color: #2563eb; background: #1d4ed8; color: #ffffff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); }
-        .lead-nav-search-wrap { position: relative; margin-left: 6px; display: inline-flex; flex-direction: column; min-width: min(300px, 85vw); }
+        .lead-nav-search-wrap { position: relative; z-index: 10002; overflow: visible; margin-left: 6px; display: inline-flex; flex-direction: column; min-width: min(300px, 85vw); }
         .lead-nav-search-box { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 8px; border: 1px solid #374151; background: #020617; color: #f8fafc; font-size: 12px; }
         .lead-nav-search-box::placeholder { color: #64748b; }
-        .lead-nav-search-results { display: none; position: absolute; top: 100%; left: 0; width: 100%; border: 1px solid #334155; border-radius: 10px; background: #fff; overflow: hidden; z-index: 9999; box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
-        .lead-nav-search-result { display: block; text-decoration: none; padding: 9px 10px; border-bottom: 1px solid rgba(148, 163, 184, 0.35); color: #0f172a; }
+        .lead-nav-search-results { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; width: 100%; border: 1px solid #334155; border-radius: 10px; background: #0f172a; overflow: hidden; z-index: 10003; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55); }
+        .lead-nav-search-result { display: block; text-decoration: none; padding: 9px 10px; border-bottom: 1px solid rgba(51, 65, 85, 0.35); color: #cbd5e1; }
         .lead-nav-search-result:last-child { border-bottom: none; }
-        .lead-nav-search-result:hover { background: #f8fafc; color: #020617; }
+        .lead-nav-search-result:hover { background: rgba(59, 130, 246, 0.18); color: #f8fafc; }
         .lead-nav-search-name { display: block; font-size: 13px; font-weight: 600; color: inherit; }
-        .lead-nav-search-meta { display: block; margin-top: 2px; font-size: 11px; color: #475569; }
-        .lead-nav-search-empty { padding: 9px 10px; font-size: 12px; color: #475569; }
+        .lead-nav-search-meta { display: block; margin-top: 2px; font-size: 11px; color: #94a3b8; }
+        .lead-nav-search-empty { padding: 9px 10px; font-size: 12px; color: #94a3b8; }
         .lead-info-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; padding: 8px 10px; background: rgba(17, 24, 39, 0.98); border: 1px solid #374151; border-radius: 0 0 12px 12px; backdrop-filter: blur(8px); }
         .lead-info-item-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
         .lead-info-item-value { font-size: 12px; font-weight: 700; color: #f8fafc; line-height: 1.25; word-break: break-word; }
-        .lead-section-shell { margin-bottom: 18px; }
+        .lead-section-shell { margin-bottom: 18px; position: relative; z-index: 1; }
         .lead-section-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #374151; border-radius: 12px; background: #0f172a; }
         .lead-section-shell.is-active .lead-section-header { border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,0.28); }
         .lead-section-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
