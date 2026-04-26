@@ -14,12 +14,9 @@
         }
 
         window.initJinxLeadSearch = function initJinxLeadSearch(config) {
-            const toggle = document.getElementById(config.toggleId);
-            const wrap = document.getElementById(config.wrapId);
+            const container = document.getElementById(config.containerId);
             const input = document.getElementById(config.inputId);
             const resultsEl = document.getElementById(config.resultsId);
-            const activeClass = config.activeClass || 'is-active';
-            const openDisplay = config.openDisplay || 'block';
             const minLength = Number(config.minLength || 2);
             const debounceMs = Number(config.debounceMs || 250);
             const searchUrl = String(config.searchUrl || '');
@@ -29,7 +26,7 @@
             const metaClass = String(config.metaClass || '');
             const noResultsText = String(config.noResultsText || 'No matching leads found');
 
-            if (!toggle || !wrap || !input || !resultsEl || searchUrl === '') {
+            if (!container || !input || !resultsEl || searchUrl === '') {
                 return;
             }
 
@@ -94,26 +91,13 @@
                     });
             };
 
-            toggle.addEventListener('click', function () {
-                const isHidden = wrap.style.display === 'none';
-                wrap.style.display = isHidden ? openDisplay : 'none';
-                toggle.classList.toggle(activeClass, isHidden);
-                if (isHidden) {
-                    input.focus();
-                } else {
-                    input.value = '';
-                    hideResults();
-                }
-            });
-
             input.addEventListener('input', function () {
                 if (debounceTimer) clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(runSearch, debounceMs);
             });
 
             document.addEventListener('click', function (event) {
-                if (wrap.style.display === 'none') return;
-                if (wrap.contains(event.target) || toggle.contains(event.target)) return;
+                if (container.contains(event.target)) return;
                 hideResults();
             });
         };

@@ -60,18 +60,18 @@
         position: relative;
         display: inline-flex;
         flex-direction: column;
-        min-width: min(340px, 90vw);
+        min-width: min(280px, 85vw);
+        margin-left: 6px;
     }
     .app-nav__search-box {
-        margin-top: 8px;
         width: 100%;
         box-sizing: border-box;
-        padding: 9px 10px;
+        padding: 7px 9px;
         border-radius: 8px;
         border: 1px solid rgba(71, 85, 105, 0.75);
         background: rgba(15, 23, 42, 0.92);
         color: #f8fafc;
-        font-size: 13px;
+        font-size: 12px;
     }
     .app-nav__search-box::placeholder {
         color: #64748b;
@@ -148,29 +148,25 @@
         >
             Remarketing
         </a>
-        <button type="button" class="app-nav__tab" id="appNavSearchToggle">Search</button>
-    </div>
-    <div class="app-nav__search-wrap" id="appNavSearchWrap" style="display:none;">
-        <input
-            type="search"
-            id="appNavSearchInput"
-            class="app-nav__search-box"
-            placeholder="Search by first name, surname, phone or VICIdial lead ID"
-            autocomplete="off"
-            aria-label="Search leads"
-        >
-        <div class="app-nav__search-results" id="appNavSearchResults" aria-live="polite"></div>
+        <div class="app-nav__search-wrap" id="appNavSearchWrap">
+            <input
+                type="search"
+                id="appNavSearchInput"
+                class="app-nav__search-box"
+                placeholder="Search by first name, surname, phone or VICIdial lead ID"
+                autocomplete="off"
+                aria-label="Search leads"
+            >
+            <div class="app-nav__search-results" id="appNavSearchResults" aria-live="polite"></div>
+        </div>
     </div>
 </nav>
 @include('partials.lead-search-script')
 <script>
     window.initJinxLeadSearch({
-        toggleId: 'appNavSearchToggle',
-        wrapId: 'appNavSearchWrap',
+        containerId: 'appNavSearchWrap',
         inputId: 'appNavSearchInput',
         resultsId: 'appNavSearchResults',
-        activeClass: 'app-nav__tab--active',
-        openDisplay: 'inline-flex',
         minLength: 2,
         debounceMs: 250,
         searchUrl: '{{ route('lead.search') }}',

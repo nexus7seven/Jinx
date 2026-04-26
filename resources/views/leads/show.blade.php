@@ -12,10 +12,10 @@
         .lead-top-nav-btn { font-family: inherit; }
         .lead-top-nav-link:hover, .lead-top-nav-btn:hover { border-color: #60a5fa; background: #172036; color: #f8fafc; }
         .lead-top-nav-btn.is-active { border-color: #2563eb; background: #1d4ed8; color: #ffffff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); }
-        .lead-nav-search-wrap { position: relative; margin-top: 6px; display: none; }
-        .lead-nav-search-box { width: min(380px, 100%); box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid #374151; background: #020617; color: #f8fafc; font-size: 12px; }
+        .lead-nav-search-wrap { position: relative; margin-left: 6px; display: inline-flex; flex-direction: column; min-width: min(300px, 85vw); }
+        .lead-nav-search-box { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 8px; border: 1px solid #374151; background: #020617; color: #f8fafc; font-size: 12px; }
         .lead-nav-search-box::placeholder { color: #64748b; }
-        .lead-nav-search-results { display: none; position: absolute; top: calc(100% + 6px); left: 0; width: min(380px, 100%); border: 1px solid #334155; border-radius: 10px; background: #0f172a; overflow: hidden; z-index: 360; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55); }
+        .lead-nav-search-results { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; border: 1px solid #334155; border-radius: 10px; background: #0f172a; overflow: hidden; z-index: 360; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55); }
         .lead-nav-search-result { display: block; text-decoration: none; padding: 9px 10px; border-bottom: 1px solid rgba(51, 65, 85, 0.35); color: #cbd5e1; }
         .lead-nav-search-result:last-child { border-bottom: none; }
         .lead-nav-search-result:hover { background: rgba(51, 65, 85, 0.35); color: #f8fafc; }
@@ -73,18 +73,17 @@
             <button type="button" id="jumpClientDetailsBtn" class="lead-top-nav-btn" data-nav-section="client-details-section">Client</button>
             <button type="button" id="jumpDebtsBtn" class="lead-top-nav-btn" data-nav-section="debts-section">Debts</button>
             <button type="button" id="jumpIncomeExpenditureBtn" class="lead-top-nav-btn" data-nav-section="income-expenditure-section">I&amp;E</button>
-            <button type="button" id="leadNavSearchToggle" class="lead-top-nav-btn">Search</button>
-        </div>
-        <div id="leadNavSearchWrap" class="lead-nav-search-wrap">
-            <input
-                type="search"
-                id="leadNavSearchInput"
-                class="lead-nav-search-box"
-                placeholder="Search by first name, surname, phone or VICIdial lead ID"
-                autocomplete="off"
-                aria-label="Search leads"
-            >
-            <div id="leadNavSearchResults" class="lead-nav-search-results" aria-live="polite"></div>
+            <div id="leadNavSearchWrap" class="lead-nav-search-wrap">
+                <input
+                    type="search"
+                    id="leadNavSearchInput"
+                    class="lead-nav-search-box"
+                    placeholder="Search by first name, surname, phone or VICIdial lead ID"
+                    autocomplete="off"
+                    aria-label="Search leads"
+                >
+                <div id="leadNavSearchResults" class="lead-nav-search-results" aria-live="polite"></div>
+            </div>
         </div>
         <div class="lead-info-bar">
             <div>
@@ -581,10 +580,6 @@
     const addActionPointBtn = document.getElementById('addActionPointBtn');
     const actionPointStatus = document.getElementById('actionPointStatus');
     const actionPointsList = document.getElementById('actionPointsList');
-    const leadNavSearchToggle = document.getElementById('leadNavSearchToggle');
-    const leadNavSearchWrap = document.getElementById('leadNavSearchWrap');
-    const leadNavSearchInput = document.getElementById('leadNavSearchInput');
-    const leadNavSearchResults = document.getElementById('leadNavSearchResults');
 
     let caseNotesOpen = false;
     let caseNotesSaveTimer = null;
@@ -864,12 +859,9 @@
     }
 
     window.initJinxLeadSearch({
-        toggleId: 'leadNavSearchToggle',
-        wrapId: 'leadNavSearchWrap',
+        containerId: 'leadNavSearchWrap',
         inputId: 'leadNavSearchInput',
         resultsId: 'leadNavSearchResults',
-        activeClass: 'is-active',
-        openDisplay: 'block',
         minLength: 2,
         debounceMs: 250,
         searchUrl: '{{ route('lead.search') }}',
