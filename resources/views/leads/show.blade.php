@@ -5,136 +5,162 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jinx Lead {{ $lead->id }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <style>
+        .lead-sticky-shell { position: sticky; top: 0; z-index: 260; margin-bottom: 12px; }
+        .lead-top-nav { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: rgba(2, 6, 23, 0.98); border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; backdrop-filter: blur(8px); }
+        .lead-top-nav-link, .lead-top-nav-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; padding: 6px 9px; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
+        .lead-top-nav-btn { font-family: inherit; }
+        .lead-top-nav-link:hover, .lead-top-nav-btn:hover { border-color: #60a5fa; background: #172036; color: #f8fafc; }
+        .lead-top-nav-btn.is-active { border-color: #2563eb; background: #1d4ed8; color: #ffffff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); }
+        .lead-info-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; padding: 8px 10px; background: rgba(17, 24, 39, 0.98); border: 1px solid #374151; border-radius: 0 0 12px 12px; backdrop-filter: blur(8px); }
+        .lead-info-item-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+        .lead-info-item-value { font-size: 12px; font-weight: 700; color: #f8fafc; line-height: 1.25; word-break: break-word; }
+        .lead-section-shell { margin-bottom: 18px; }
+        .lead-section-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #374151; border-radius: 12px; background: #0f172a; }
+        .lead-section-shell.is-active .lead-section-header { border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,0.28); }
+        .lead-section-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
+        .lead-section-toggle { min-height: 32px; border-radius: 8px; border: 1px solid #475569; background: #111827; color: #e5e7eb; padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer; min-width: 110px; text-align: center; }
+        .lead-section-toggle:hover { border-color: #60a5fa; color: #f8fafc; }
+        .lead-section-body { margin-top: 10px; }
+        .lead-quick-panel { display: none; position: fixed; top: 78px; right: 20px; width: min(360px, calc(100vw - 28px)); max-height: calc(100vh - 96px); overflow: auto; z-index: 320; background: #111827; border: 1px solid #334155; border-right: 3px solid #2563eb; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+        @media (max-width: 720px) {
+            .lead-top-nav { gap: 5px; padding: 7px; }
+            .lead-top-nav-link, .lead-top-nav-btn { font-size: 11px; padding: 5px 8px; min-height: 30px; }
+            .lead-info-item-value { font-size: 11px; }
+            .lead-section-title { font-size: 15px; }
+        }
+    </style>
 </head>
 <body style="margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 
 <div style="max-width:980px; margin:0 auto; padding:20px 20px 40px 20px; box-sizing:border-box;">
 
-    <div style="margin:0 0 12px 0;">
-        <a
-            href="/wip"
-            style="display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:8px 12px; border-radius:10px; border:1px solid #374151; background:#111827; color:#e5e7eb; text-decoration:none; font-size:13px; font-weight:700;"
-        >
-            <span aria-hidden="true">←</span>
-            <span>Back to WIP</span>
-        </a>
-    </div>
+    @php
+        $leadDisplayName = $lead->formattedName();
+    @endphp
 
-    <div
-        id="caseNotesStickyWrap"
-        style="position:fixed; top:72px; left:50%; transform:translateX(-50%); width:min(980px, calc(100vw - 40px)); z-index:200; pointer-events:none;"
-    >
-        <div style="width:fit-content; pointer-events:auto;">
-            <div style="display:inline-block; background:#111827; border:1px solid #374151; border-radius:12px; padding:8px; box-shadow:0 10px 30px rgba(0,0,0,0.35);">
-                <div style="margin:0;">
-                    <button
-                        type="button"
-                        id="caseNotesToggle"
-                        aria-label="Toggle scribble notes"
-                        title="Scribble notes"
-                        style="display:inline-flex; align-items:center; justify-content:center; width:56px; height:56px; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:12px; padding:0; font-size:30px; line-height:1; cursor:pointer;"
-                    >
-                        🗒️
-                    </button>
-                </div>
-
-                <div
-                    id="caseNotesPanel"
-                    style="display:none; margin-top:12px; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;"
-                >
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-                        <h2 style="margin:0; font-size:18px;">Case Notes</h2>
-                        <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
-                    </div>
-
-                    <textarea
-                        id="caseNotesInput"
-                        style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;"
-                        placeholder="Write quick scribble notes here..."
-                    >{{ old('case_notes', $lead->case_notes ?? '') }}</textarea>
-
-                    <div style="display:flex; justify-content:flex-end;">
-                        <button
-                            type="button"
-                            id="caseNotesSaveBtn"
-                            style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
-                        >
-                            Save Notes
-                        </button>
-                    </div>
-                </div>
+    <div id="leadStickyShell" class="lead-sticky-shell">
+        <div class="lead-top-nav">
+            <a href="/wip" class="lead-top-nav-link"><span aria-hidden="true">←</span><span>Back to WIP</span></a>
+            <button type="button" id="openScribbleNotesBtn" class="lead-top-nav-btn">🗒️ Scribble Notes</button>
+            <button type="button" id="openPrepNotesBtn" class="lead-top-nav-btn">📌 Prep Notes</button>
+            <button type="button" id="jumpClientDetailsBtn" class="lead-top-nav-btn" data-nav-section="client-details-section">Client</button>
+            <button type="button" id="jumpDebtsBtn" class="lead-top-nav-btn" data-nav-section="debts-section">Debts</button>
+            <button type="button" id="jumpIncomeExpenditureBtn" class="lead-top-nav-btn" data-nav-section="income-expenditure-section">I&amp;E</button>
+        </div>
+        <div class="lead-info-bar">
+            <div>
+                <div class="lead-info-item-label">Customer</div>
+                <div class="lead-info-item-value">{{ $leadDisplayName !== '' ? $leadDisplayName : 'Unknown' }}</div>
+            </div>
+            <div>
+                <div class="lead-info-item-label">Lead ID</div>
+                <div class="lead-info-item-value">{{ $lead->id }}</div>
+            </div>
+            <div>
+                <div class="lead-info-item-label">WIP status</div>
+                <div id="leadInfoWipStatus" class="lead-info-item-value">{{ $lead->wip_status ?: '—' }}</div>
+            </div>
+            <div>
+                <div class="lead-info-item-label">Total debt</div>
+                <div id="leadInfoTotalDebt" class="lead-info-item-value">£0.00</div>
+            </div>
+            <div>
+                <div class="lead-info-item-label">Disposable income</div>
+                <div id="leadInfoDisposableIncome" class="lead-info-item-value">£0.00</div>
             </div>
         </div>
     </div>
 
-    <div id="caseNotesSpacer" style="height:56px;"></div>
-
-    <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
-        <h1 style="margin:0 0 18px 0; font-size:28px; line-height:1.2;">Jinx Lead {{ $lead->id }}</h1>
-
-        @php
-            $leadDisplayName = $lead->formattedName();
-        @endphp
-        @if($leadDisplayName !== '')
-            <div style="margin:-8px 0 18px 0; font-size:20px; line-height:1.3; font-weight:600; color:#e5e7eb;">
-                {{ $leadDisplayName }}
+    <div id="caseNotesPanel" class="lead-quick-panel">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:18px;">Scribble Notes</h2>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div id="caseNotesStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+                <button type="button" id="closeScribbleNotesBtn" style="background:transparent; color:#9ca3af; border:0; font-size:20px; line-height:1; cursor:pointer;">×</button>
             </div>
-        @endif
+        </div>
+
+        <textarea
+            id="caseNotesInput"
+            style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;"
+            placeholder="Write quick scribble notes here..."
+        >{{ old('case_notes', $lead->case_notes ?? '') }}</textarea>
+
+        <div style="display:flex; justify-content:flex-end;">
+            <button
+                type="button"
+                id="caseNotesSaveBtn"
+                style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+            >
+                Save Notes
+            </button>
+        </div>
+    </div>
+
+    <div id="prepNotesPanel" class="lead-quick-panel">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:18px;">Prep Notes</h2>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div id="actionPointStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+                <button type="button" id="closePrepNotesBtn" style="background:transparent; color:#9ca3af; border:0; font-size:20px; line-height:1; cursor:pointer;">×</button>
+            </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:12px;">
+            <textarea
+                id="actionPointInput"
+                style="width:100%; min-height:80px; resize:vertical; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px;"
+                placeholder="Add an important prep note..."
+            ></textarea>
+            <div style="display:flex; justify-content:flex-end;">
+                <button
+                    type="button"
+                    id="addActionPointBtn"
+                    style="min-height:40px; background:#10b981; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
+                >
+                    Save Prep Note
+                </button>
+            </div>
+        </div>
+
+        <div id="actionPointsList" style="display:flex; flex-direction:column; gap:10px; max-height:240px; overflow-y:auto;">
+            @forelse($lead->actionPoints as $point)
+                <div
+                    class="action-point-row"
+                    data-action-point-id="{{ $point->id }}"
+                    style="background:#0f172a; border:1px solid #475569; border-radius:10px; padding:12px;"
+                >
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+                        <div style="font-size:14px; color:#e5e7eb; line-height:1.5; white-space:pre-wrap; word-break:break-word; flex:1;">{{ $point->note }}</div>
+                        <button
+                            type="button"
+                            class="delete-action-point-btn"
+                            style="min-height:32px; background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:8px 10px; font-size:12px; font-weight:700; cursor:pointer; flex-shrink:0;"
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            @empty
+                <div id="noActionPointsMessage" style="background:#020617; border:1px dashed #374151; border-radius:10px; padding:12px; color:#94a3b8; font-size:13px;">
+                    No prep notes yet.
+                </div>
+            @endforelse
+        </div>
+    </div>
+
+    <div id="client-details-section" class="lead-section-shell">
+        <div class="lead-section-header">
+            <div class="lead-section-title">Client Details</div>
+            <button type="button" class="lead-section-toggle" data-section-toggle="client-details-section">Collapse</button>
+        </div>
+        <div id="client-details-section-body" class="lead-section-body">
+    <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:28px; box-sizing:border-box; margin-bottom:20px;">
 
         <div id="saveStatus" style="margin-bottom:22px; font-size:14px; color:#9ca3af;">
             Ready
         </div>
 
-        <div id="appointmentPrepSection" style="margin:0 0 20px 0; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-                <h2 style="margin:0; font-size:18px;">IVA Appointment Prep</h2>
-                <div style="font-size:12px; color:#94a3b8;">Key talking points</div>
-            </div>
-
-            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:12px;">
-                <textarea
-                    id="actionPointInput"
-                    style="width:100%; min-height:80px; resize:vertical; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px;"
-                    placeholder="Add an appointment prep point..."
-                ></textarea>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-                    <div id="actionPointStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
-                    <button
-                        type="button"
-                        id="addActionPointBtn"
-                        style="min-height:42px; background:#10b981; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
-                    >
-                        Add Prep Point
-                    </button>
-                </div>
-            </div>
-
-            <div id="actionPointsList" style="display:flex; flex-direction:column; gap:10px;">
-                @forelse($lead->actionPoints as $point)
-                    <div
-                        class="action-point-row"
-                        data-action-point-id="{{ $point->id }}"
-                        style="background:#111827; border:1px solid #475569; border-radius:10px; padding:12px;"
-                    >
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
-                            <div style="font-size:14px; color:#e5e7eb; line-height:1.5; white-space:pre-wrap; word-break:break-word; flex:1;">{{ $point->note }}</div>
-                            <button
-                                type="button"
-                                class="delete-action-point-btn"
-                                style="min-height:36px; background:#7f1d1d; color:#ffffff; border:0; border-radius:8px; padding:8px 10px; font-size:12px; font-weight:700; cursor:pointer; flex-shrink:0;"
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                @empty
-                    <div id="noActionPointsMessage" style="background:#020617; border:1px dashed #374151; border-radius:10px; padding:12px; color:#94a3b8; font-size:13px;">
-                        No prep points yet.
-                    </div>
-                @endforelse
-            </div>
-        </div>
 
         <div style="display:flex; flex-direction:column; gap:16px; width:100%; box-sizing:border-box;">
 
@@ -302,9 +328,25 @@
             </div>
         </div>
     </div>
+        </div>
+    </div>
 
-    @include('partials.financial-statement-card')
+    <div id="income-expenditure-section" class="lead-section-shell">
+        <div class="lead-section-header">
+            <div class="lead-section-title">Income &amp; Expenditure</div>
+            <button type="button" class="lead-section-toggle" data-section-toggle="income-expenditure-section">Collapse</button>
+        </div>
+        <div id="income-expenditure-section-body" class="lead-section-body">
+            @include('partials.financial-statement-card')
+        </div>
+    </div>
 
+    <div id="debts-section" class="lead-section-shell">
+        <div class="lead-section-header">
+            <div class="lead-section-title">Debts</div>
+            <button type="button" class="lead-section-toggle" data-section-toggle="debts-section">Collapse</button>
+        </div>
+        <div id="debts-section-body" class="lead-section-body">
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
             <h2 style="margin:0; font-size:24px;">Debts</h2>
@@ -356,6 +398,8 @@
 
         <div id="leadDebtsRefreshMount">
             @include('leads.partials.lead-debts-section-inner')
+        </div>
+    </div>
         </div>
     </div>
 
@@ -487,10 +531,12 @@
 
     const saveStatus = document.getElementById('saveStatus');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    const caseNotesStickyWrap = document.getElementById('caseNotesStickyWrap');
-    const caseNotesSpacer = document.getElementById('caseNotesSpacer');
-    const caseNotesToggle = document.getElementById('caseNotesToggle');
+    const openScribbleNotesBtn = document.getElementById('openScribbleNotesBtn');
+    const closeScribbleNotesBtn = document.getElementById('closeScribbleNotesBtn');
+    const openPrepNotesBtn = document.getElementById('openPrepNotesBtn');
+    const closePrepNotesBtn = document.getElementById('closePrepNotesBtn');
     const caseNotesPanel = document.getElementById('caseNotesPanel');
+    const prepNotesPanel = document.getElementById('prepNotesPanel');
     const caseNotesInput = document.getElementById('caseNotesInput');
     const caseNotesSaveBtn = document.getElementById('caseNotesSaveBtn');
     const caseNotesStatus = document.getElementById('caseNotesStatus');
@@ -503,26 +549,36 @@
     let caseNotesSaveTimer = null;
     let caseNotesLastSavedValue = caseNotesInput ? caseNotesInput.value : '';
 
-    function updateCaseNotesSpacer() {
-        if (!caseNotesStickyWrap || !caseNotesSpacer || !caseNotesToggle) return;
-
-        if (!caseNotesOpen) {
-            caseNotesSpacer.style.height = '56px';
-            return;
-        }
-
-        const box = caseNotesStickyWrap.getBoundingClientRect();
-        caseNotesSpacer.style.height = Math.max(56, Math.ceil(box.height) + 8) + 'px';
-    }
-
     function setCaseNotesOpen(nextOpen) {
-        if (!caseNotesPanel || !caseNotesToggle) return;
+        if (!caseNotesPanel) return;
 
         caseNotesOpen = nextOpen;
         caseNotesPanel.style.display = caseNotesOpen ? 'block' : 'none';
-        caseNotesToggle.innerHTML = '🗒️';
+        if (openScribbleNotesBtn) {
+            openScribbleNotesBtn.classList.toggle('is-active', caseNotesOpen);
+        }
+        if (caseNotesOpen && prepNotesPanel) {
+            prepNotesPanel.style.display = 'none';
+            if (openPrepNotesBtn) {
+                openPrepNotesBtn.classList.remove('is-active');
+            }
+        }
+    }
 
-        requestAnimationFrame(updateCaseNotesSpacer);
+    function setPrepNotesOpen(nextOpen) {
+        if (!prepNotesPanel) return;
+
+        prepNotesPanel.style.display = nextOpen ? 'block' : 'none';
+        if (openPrepNotesBtn) {
+            openPrepNotesBtn.classList.toggle('is-active', nextOpen);
+        }
+        if (nextOpen && caseNotesPanel) {
+            caseNotesPanel.style.display = 'none';
+            caseNotesOpen = false;
+            if (openScribbleNotesBtn) {
+                openScribbleNotesBtn.classList.remove('is-active');
+            }
+        }
     }
 
     function setCaseNotesStatus(message, color = '#9ca3af') {
@@ -688,9 +744,25 @@
         }
     }
 
-    if (caseNotesToggle) {
-        caseNotesToggle.addEventListener('click', function () {
+    if (openScribbleNotesBtn) {
+        openScribbleNotesBtn.addEventListener('click', function () {
             setCaseNotesOpen(!caseNotesOpen);
+        });
+    }
+    if (closeScribbleNotesBtn) {
+        closeScribbleNotesBtn.addEventListener('click', function () {
+            setCaseNotesOpen(false);
+        });
+    }
+    if (openPrepNotesBtn) {
+        openPrepNotesBtn.addEventListener('click', function () {
+            const isOpen = prepNotesPanel && prepNotesPanel.style.display === 'block';
+            setPrepNotesOpen(!isOpen);
+        });
+    }
+    if (closePrepNotesBtn) {
+        closePrepNotesBtn.addEventListener('click', function () {
+            setPrepNotesOpen(false);
         });
     }
 
@@ -712,7 +784,6 @@
                 saveCaseNotes();
             }, 700);
 
-            requestAnimationFrame(updateCaseNotesSpacer);
         });
     }
 
@@ -744,11 +815,30 @@
         });
     }
 
-    if (caseNotesToggle && caseNotesPanel) {
+    if (caseNotesPanel) {
         setCaseNotesOpen(false);
-        requestAnimationFrame(updateCaseNotesSpacer);
-        window.addEventListener('resize', updateCaseNotesSpacer);
     }
+    if (prepNotesPanel) {
+        setPrepNotesOpen(false);
+    }
+
+    function repositionQuickPanels() {
+        const stickyShell = document.getElementById('leadStickyShell');
+        if (!stickyShell) return;
+
+        const rect = stickyShell.getBoundingClientRect();
+        const panelTop = Math.max(78, Math.ceil(rect.bottom + 8));
+        const panelHeight = Math.max(220, window.innerHeight - panelTop - 16);
+
+        [caseNotesPanel, prepNotesPanel].forEach(function (panel) {
+            if (!panel) return;
+            panel.style.top = panelTop + 'px';
+            panel.style.maxHeight = panelHeight + 'px';
+        });
+    }
+
+    repositionQuickPanels();
+    window.addEventListener('resize', repositionQuickPanels);
 
     const leadFields = document.querySelectorAll('input[data-field], select[data-field]');
     const originalLeadValues = {};
@@ -860,6 +950,8 @@
     let acceptPercentValue = document.getElementById('acceptPercentValue');
     let rejectPercentValue = document.getElementById('rejectPercentValue');
     let dominantHouseValue = document.getElementById('dominantHouseValue');
+    const leadInfoTotalDebt = document.getElementById('leadInfoTotalDebt');
+    const leadInfoWipStatus = document.getElementById('leadInfoWipStatus');
 
     function bindDebtSectionRefs() {
         debtList = document.getElementById('debtList');
@@ -1299,6 +1391,9 @@
         });
 
         totalDebtValue.textContent = formatMoney(totalDebt);
+        if (leadInfoTotalDebt) {
+            leadInfoTotalDebt.textContent = totalDebtValue.textContent;
+        }
         eligibleBalanceValue.textContent = formatMoney(eligibleTotal);
         acceptPercentValue.textContent = acceptPercent.toFixed(1) + '%';
         rejectPercentValue.textContent = rejectPercent.toFixed(1) + '%';
@@ -1783,10 +1878,133 @@
                 const data = await response.json();
                 originalWipStatus = data.wip_status;
                 leadWipStatusSelect.value = data.wip_status;
+                if (leadInfoWipStatus) {
+                    leadInfoWipStatus.textContent = data.wip_status;
+                }
             } catch (e) {
                 alert('Could not update WIP status.');
                 leadWipStatusSelect.value = originalWipStatus;
             }
+        });
+
+        if (leadInfoWipStatus) {
+            leadInfoWipStatus.textContent = leadWipStatusSelect.value;
+        }
+    })();
+
+    (function initLeadSectionNavigation() {
+        const sectionIds = ['client-details-section', 'debts-section', 'income-expenditure-section'];
+
+        function sectionBody(sectionId) {
+            return document.getElementById(sectionId + '-body');
+        }
+
+        function setExpanded(sectionId, expanded) {
+            const body = sectionBody(sectionId);
+            const toggle = document.querySelector('[data-section-toggle="' + sectionId + '"]');
+            const sectionEl = document.getElementById(sectionId);
+            if (!body || !toggle) return;
+            body.style.display = expanded ? 'block' : 'none';
+            toggle.textContent = expanded ? 'Collapse ▲' : 'Expand ▼';
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            if (sectionEl) {
+                sectionEl.classList.toggle('is-active', expanded);
+            }
+        }
+
+        function getStickyOffset() {
+            const shell = document.getElementById('leadStickyShell');
+            return shell ? shell.getBoundingClientRect().height + 16 : 16;
+        }
+
+        function focusSection(sectionId) {
+            sectionIds.forEach(function (id) {
+                setExpanded(id, id === sectionId);
+            });
+            document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
+                btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === sectionId);
+            });
+
+            const section = document.getElementById(sectionId);
+            if (!section) return;
+            const top = window.scrollY + section.getBoundingClientRect().top - getStickyOffset();
+            window.scrollTo({ top, behavior: 'smooth' });
+        }
+
+        document.querySelectorAll('[data-section-toggle]').forEach(function (toggleBtn) {
+            toggleBtn.addEventListener('click', function () {
+                const sectionId = this.getAttribute('data-section-toggle');
+                const body = sectionBody(sectionId);
+                if (!body) return;
+                const nextOpen = body.style.display === 'none';
+                setExpanded(sectionId, nextOpen);
+            });
+        });
+
+        const jumpClientDetailsBtn = document.getElementById('jumpClientDetailsBtn');
+        const jumpDebtsBtn = document.getElementById('jumpDebtsBtn');
+        const jumpIncomeExpenditureBtn = document.getElementById('jumpIncomeExpenditureBtn');
+
+        if (jumpClientDetailsBtn) jumpClientDetailsBtn.addEventListener('click', function () { focusSection('client-details-section'); });
+        if (jumpDebtsBtn) jumpDebtsBtn.addEventListener('click', function () { focusSection('debts-section'); });
+        if (jumpIncomeExpenditureBtn) jumpIncomeExpenditureBtn.addEventListener('click', function () { focusSection('income-expenditure-section'); });
+
+        setExpanded('client-details-section', true);
+        setExpanded('debts-section', false);
+        setExpanded('income-expenditure-section', false);
+        document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
+            btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === 'client-details-section');
+        });
+    })();
+
+    (function initLeadKeyboardShortcuts() {
+        function isTypingContext(target) {
+            if (!target) return false;
+            if (target.isContentEditable) return true;
+            const tag = (target.tagName || '').toUpperCase();
+            return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+        }
+
+        const shortcutActions = {
+            '1': function () { const btn = document.getElementById('jumpClientDetailsBtn'); if (btn) btn.click(); },
+            '2': function () { const btn = document.getElementById('jumpDebtsBtn'); if (btn) btn.click(); },
+            '3': function () { const btn = document.getElementById('jumpIncomeExpenditureBtn'); if (btn) btn.click(); },
+            'n': function () { if (openScribbleNotesBtn) openScribbleNotesBtn.click(); },
+            'p': function () { if (openPrepNotesBtn) openPrepNotesBtn.click(); },
+        };
+
+        document.addEventListener('keydown', function (event) {
+            if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            if (isTypingContext(event.target)) return;
+
+            const key = String(event.key || '').toLowerCase();
+            const action = shortcutActions[key];
+            if (!action) return;
+
+            event.preventDefault();
+            action();
+        });
+    })();
+
+    (function mirrorDisposableIncomeToInfoBar() {
+        const leadInfoDisposableIncome = document.getElementById('leadInfoDisposableIncome');
+        const source = document.getElementById('fs-summary-disposable-total');
+        if (!leadInfoDisposableIncome || !source) return;
+
+        const sync = function () {
+            leadInfoDisposableIncome.textContent = source.textContent || '£0.00';
+            leadInfoDisposableIncome.style.color = source.style.color || '#f8fafc';
+        };
+
+        sync();
+
+        const observer = new MutationObserver(sync);
+        observer.observe(source, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ['style'],
         });
     })();
 </script>
