@@ -59,7 +59,7 @@ return [
     'api_user' => env('VICIDIAL_API_USER'),
     'api_pass' => env('VICIDIAL_API_PASS'),
     'agent_user' => env('VICIDIAL_AGENT_USER'),
-    'db_connection' => env('VICIDIAL_DB_CONNECTION'),
+    'db_connection' => env('VICIDIAL_DB_CONNECTION', 'asterisk'),
     'remarketing_source' => env('REMARKETING_SOURCE', 'remarketing'),
 ],
 

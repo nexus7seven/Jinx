@@ -21,6 +21,22 @@
             background: #273549;
             border-color: #64748b;
         }
+        .jinx-ctc-btn[data-ctc-state="loading"] {
+            background: #1e3a8a;
+            border-color: #3b82f6;
+            color: #dbeafe;
+            cursor: wait;
+        }
+        .jinx-ctc-btn[data-ctc-state="ok"] {
+            background: #14532d;
+            border-color: #22c55e;
+            color: #dcfce7;
+        }
+        .jinx-ctc-btn[data-ctc-state="error"] {
+            background: #7f1d1d;
+            border-color: #ef4444;
+            color: #fee2e2;
+        }
     </style>
 @endonce
 
@@ -48,7 +64,7 @@
         if (window.__jinxCtcInit) return;
         window.__jinxCtcInit = true;
 
-        var postUrl = @json(url('/api/click-to-call'));
+        var postUrl = @json(route('api.click-to-call'));
         var csrf = document.querySelector('meta[name="csrf-token"]');
         csrf = csrf ? csrf.getAttribute('content') : '';
 
@@ -81,6 +97,24 @@
             return data.message || data.error || 'Call failed';
         }
 
+        function setButtonState(btn, state) {
+            if (!btn) return;
+            btn.setAttribute('data-ctc-state', state);
+        }
+
+        function setButtonLabel(btn, text) {
+            if (!btn) return;
+            if (btn.classList.contains('jinx-ctc-btn--icon')) return;
+            btn.textContent = text;
+        }
+
+        function resetButton(btn) {
+            if (!btn) return;
+            btn.disabled = false;
+            setButtonState(btn, 'idle');
+            setButtonLabel(btn, 'Call');
+        }
+
         document.addEventListener('click', function (e) {
             var btn = e.target.closest('.jinx-ctc-btn');
             if (!btn || btn.disabled) return;
@@ -90,6 +124,8 @@
             if (!leadId) return;
 
             btn.disabled = true;
+            setButtonState(btn, 'loading');
+            setButtonLabel(btn, 'Calling...');
 
             fetch(postUrl, {
                 method: 'POST',
@@ -117,26 +153,33 @@
                     var data = pair.data;
 
                     if (!res.ok) {
+                        setButtonState(btn, 'error');
                         showCtcToast(formatDeckardError(data), 'error');
                         return;
                     }
 
                     if (data.ok) {
                         if (data.popup_confirmed === true) {
+                            setButtonState(btn, 'ok');
                             showCtcToast('Dial started and popup confirmed.', 'ok');
                         } else {
+                            setButtonState(btn, 'ok');
                             showCtcToast('Dial started, but popup not confirmed yet.', 'warn');
                         }
                         return;
                     }
 
+                    setButtonState(btn, 'error');
                     showCtcToast(formatDeckardError(data), 'error');
                 })
                 .catch(function () {
+                    setButtonState(btn, 'error');
                     showCtcToast('Network error', 'error');
                 })
                 .finally(function () {
-                    btn.disabled = false;
+                    setTimeout(function () {
+                        resetButton(btn);
+                    }, 1100);
                 });
         });
     })();

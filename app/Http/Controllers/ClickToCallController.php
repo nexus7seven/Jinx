@@ -3,19 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
-use App\Services\DeckardCallbackClient;
+use App\Services\RemarketingCallbackService;
+use App\Services\VicidialLeadLookupService;
 use App\Support\VicidialDialPhone;
-use Illuminate\Http\Client\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
 use Throwable;
 
 class ClickToCallController extends Controller
 {
     public function __construct(
-        private DeckardCallbackClient $deckard,
+        private RemarketingCallbackService $vicidialDialer,
+        private VicidialLeadLookupService $vicidialLeadLookup,
     ) {
     }
 
@@ -35,104 +35,89 @@ class ClickToCallController extends Controller
             ), 422);
         }
 
-        $vicidialLeadId = (int) ($lead->vicidial_lead_id ?? 0);
-
         try {
-            $response = $this->deckard->postDirectDial($vicidialLeadId, $national);
-        } catch (InvalidArgumentException $e) {
-            if ($e->getMessage() === 'deckard_callback_not_configured') {
-                return response()->json($this->errorPayload(
-                    'deckard_callback_not_configured',
-                    'Set DECKARD_CALLBACK_URL in Jinx .env'
-                ), 503);
-            }
-
-            throw $e;
+            $dialContext = $this->vicidialLeadLookup->resolveDialContext($lead, $national);
         } catch (Throwable $e) {
-            Log::error('Deckard click-to-call: request exception', [
+            Log::error('Click-to-call: dial context lookup failed', [
                 'lead_id' => $lead->id,
-                'vicidial_lead_id' => $vicidialLeadId,
                 'exception' => $e::class,
                 'message' => $e->getMessage(),
             ]);
-            report($e);
 
             return response()->json($this->errorPayload(
-                'deckard_request_failed',
-                'Could not reach Deckard callback endpoint.'
+                'dial_context_lookup_failed',
+                'Could not resolve VICIdial campaign for this lead.'
             ), 502);
         }
 
-        $json = $response->json();
-        if (! is_array($json)) {
-            Log::error('Deckard click-to-call: response is not JSON', [
+        $resolvedLeadId = (int) ($dialContext['lead_id'] ?? 0);
+        $campaignId = is_string($dialContext['campaign_id'] ?? null) ? trim((string) $dialContext['campaign_id']) : '';
+
+        if ($campaignId === '') {
+            Log::warning('Click-to-call: campaign could not be resolved', [
                 'lead_id' => $lead->id,
-                'vicidial_lead_id' => $vicidialLeadId,
-                'http_status' => $response->status(),
-                'body_preview' => substr($response->body(), 0, 2000),
+                'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'phone_national' => $national,
             ]);
 
             return response()->json($this->errorPayload(
-                'invalid_deckard_response',
-                'Deckard returned an invalid response.'
+                'no_campaign_for_direct_dial',
+                'No VICIdial campaign found for this lead/phone.'
+            ), 422);
+        }
+
+        try {
+            $result = $this->vicidialDialer->dialLead([
+                'lead_id' => $resolvedLeadId,
+                'phone_number' => $national,
+                'campaign_id' => $campaignId,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Click-to-call: VICIdial dial request exception', [
+                'lead_id' => $lead->id,
+                'resolved_vicidial_lead_id' => $resolvedLeadId,
+                'campaign_id' => $campaignId,
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json($this->errorPayload(
+                'vicidial_request_failed',
+                'Could not reach VICIdial dial endpoint.'
             ), 502);
         }
 
-        $this->logDeckardOutcome($lead->id, $vicidialLeadId, $response, $json);
-
-        $status = $response->status();
-        if ($status < 200 || $status >= 300) {
-            return response()->json(
-                $this->enrichDeckardPayload($json),
-                $status >= 400 && $status < 600 ? $status : 502
-            );
-        }
-
-        return response()->json($this->enrichDeckardPayload($json));
-    }
-
-    /**
-     * @param  array<string, mixed>  $json
-     */
-    private function logDeckardOutcome(int $jinxLeadId, int $vicidialLeadId, Response $response, array $json): void
-    {
-        $ok = (bool) ($json['ok'] ?? false);
-
-        if (! $ok) {
-            Log::warning('Deckard click-to-call: Deckard reported failure', [
-                'jinx_lead_id' => $jinxLeadId,
-                'vicidial_lead_id' => $vicidialLeadId,
-                'http_status' => $response->status(),
-                'deckard' => $json,
+        if (! ($result['ok'] ?? false)) {
+            Log::warning('Click-to-call: VICIdial reported dial failure', [
+                'lead_id' => $lead->id,
+                'resolved_vicidial_lead_id' => $resolvedLeadId,
+                'campaign_id' => $campaignId,
+                'result' => $result,
             ]);
 
-            return;
+            return response()->json([
+                'ok' => false,
+                'error' => 'external_dial_failed',
+                'message' => (string) ($result['message'] ?? 'VICIdial call failed.'),
+            ], 502);
         }
 
-        if (($json['popup_confirmed'] ?? null) === false) {
-            Log::info('Deckard click-to-call: dial ok but popup not confirmed', [
-                'jinx_lead_id' => $jinxLeadId,
-                'vicidial_lead_id' => $vicidialLeadId,
-                'deckard_lead_id' => $json['lead_id'] ?? null,
+        if (($result['popup_confirmed'] ?? false) === false) {
+            Log::info('Click-to-call: dial started but popup not confirmed', [
+                'lead_id' => $lead->id,
+                'resolved_vicidial_lead_id' => $resolvedLeadId,
+                'campaign_id' => $campaignId,
             ]);
         }
-    }
 
-    /**
-     * @param  array<string, mixed>  $json
-     * @return array<string, mixed>
-     */
-    private function enrichDeckardPayload(array $json): array
-    {
-        if (! isset($json['message'])) {
-            if (isset($json['error']) && is_string($json['error'])) {
-                $json['message'] = $json['error'];
-            } elseif (isset($json['details']) && is_string($json['details'])) {
-                $json['message'] = $json['details'];
-            }
-        }
-
-        return $json;
+        return response()->json([
+            'ok' => true,
+            'dialled' => true,
+            'popup_confirmed' => (bool) ($result['popup_confirmed'] ?? false),
+            'lead_id' => $resolvedLeadId,
+            'phone' => $national,
+            'message' => (string) ($result['message'] ?? 'Call started successfully.'),
+        ]);
     }
 
     /**
