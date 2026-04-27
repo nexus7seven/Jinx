@@ -80,167 +80,247 @@ class WhatsAppDetectorEventIngestor
                     continue;
                 }
 
-                $eventId = isset($decoded['event_id']) ? (string) $decoded['event_id'] : '';
-                if ($eventId === '') {
-                    $stats['invalid_payload']++;
-                    continue;
-                }
-
-                if (WhatsAppDetectorEvent::query()->where('event_id', $eventId)->exists()) {
-                    $stats['skipped_existing']++;
-                    continue;
-                }
-
-                $noteParts = [];
-
-                $phone = isset($decoded['phone']) ? (string) $decoded['phone'] : null;
-                if ($phone === null || trim($phone) === '') {
-                    $noteParts[] = 'Phone missing.';
-                }
-
-                $inferredMessageAt = $this->parseIncomingDatetime($decoded['inferred_message_at'] ?? null, 'inferred_message_at', $noteParts);
-                $lastInboundAt = $this->parseIncomingDatetime($decoded['last_inbound_at'] ?? null, 'last_inbound_at', $noteParts);
-                $detectedAt = $this->parseIncomingDatetime($decoded['detected_at'] ?? null, 'detected_at', $noteParts);
-                $batchWrittenAt = $this->parseIncomingDatetime($decoded['batch_written_at'] ?? null, 'batch_written_at', $noteParts);
-
-                $engagementAt = $this->deriveEngagementAt($inferredMessageAt, $detectedAt, $noteParts);
-
-                $leadIds = $this->findMatchingLeadIds($phone);
-                $matchStatus = 'unmatched';
-                $matchedLeadId = null;
-                $matchNotes = null;
-                $prefetchedFlowStartedAt = null;
-
-                if (count($leadIds) === 0) {
-                    $matchStatus = 'unmatched';
-                    $stats['unmatched']++;
-                } elseif (count($leadIds) > 1) {
-                    $resolution = $this->resolveLeadIdFromCandidatesByLatestFlowStart($leadIds);
-                    if ($resolution['resolutionStatus'] === 'resolved') {
-                        $matchStatus = 'matched';
-                        $matchedLeadId = $resolution['matchedLeadId'];
-                        $matchNotes = $resolution['resolutionNote'];
-                        $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
-                        $stats['resolved_by_latest_flow_start']++;
-                    } else {
-                        $matchStatus = 'ambiguous';
-                        $matchNotes = $resolution['resolutionNote'];
-                        $stats['ambiguous']++;
-                    }
-                } else {
-                    $matchStatus = 'matched';
-                    $matchedLeadId = $leadIds[0];
-                }
-
-                $flowStartedAt = null;
-                if ($matchedLeadId !== null) {
-                    $flowStartedAt = $prefetchedFlowStartedAt ?? $this->latestFlowStartedAt((int) $matchedLeadId);
-                    if ($flowStartedAt === null) {
-                        $matchStatus = 'matched_no_flow_start';
-                        $stats['matched_no_flow_start']++;
-                    }
-                }
-
-                $isAfter = $this->decideIsAfterFlowStart($engagementAt, $flowStartedAt, $matchedLeadId);
-
-                if ($matchedLeadId !== null && $flowStartedAt !== null) {
-                    if ($isAfter === true) {
-                        $stats['matched_after_flow_start']++;
-                    } elseif ($isAfter === false) {
-                        $stats['matched_not_after_flow_start']++;
-                    }
-                }
-
-                $notes = $this->joinNotes(array_merge($noteParts, $matchNotes !== null ? [$matchNotes] : []));
-
-                $row = [
-                    'event_id' => $eventId,
-                    'chat_id' => $this->nullableString($decoded, 'chat_id'),
-                    'chat_name' => $this->nullableString($decoded, 'chat_name'),
-                    'phone' => $phone !== null && trim($phone) !== '' ? $phone : null,
-                    'preview_time_text' => $this->nullableString($decoded, 'preview_time_text'),
-                    'inferred_message_at' => $inferredMessageAt,
-                    'last_inbound_at' => $lastInboundAt,
-                    'latest_message' => $this->nullableString($decoded, 'latest_message'),
-                    'detected_at' => $detectedAt,
-                    'batch_written_at' => $batchWrittenAt,
-                    'matched_vicidial_lead_id' => $matchedLeadId,
-                    'flow_started_at' => $flowStartedAt,
-                    'engagement_at' => $engagementAt,
-                    'is_after_flow_start' => $isAfter,
-                    'match_status' => $matchStatus,
-                    'notes' => $notes,
-                    'raw_payload' => $decoded,
-                ];
-
-                try {
-                    $detectorEvent = WhatsAppDetectorEvent::query()->create($row);
-                    $stats['imported']++;
-                    $this->maybeCreateRemarketingResponseEvent($detectorEvent, $stats);
-
-                    if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
-                        try {
-                            $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
-
-                            RemarketingTask::query()
-                                ->where('lead_id', $matchedLeadId)
-                                ->where('status', RemarketingTask::STATUS_PENDING)
-                                ->update([
-                                    'status' => RemarketingTask::STATUS_CLOSED,
-                                ]);
-
-                            $lead = Lead::query()
-                                ->where('vicidial_lead_id', $matchedLeadId)
-                                ->first();
-
-                            if ($lead !== null) {
-                                $lead->update(['wip_status' => Lead::WIP_STATUS_REENGAGED]);
-                            }
-
-                            LeadReengagementEvent::query()->create([
-                                'lead_id' => $lead?->id,
-                                'vicidial_lead_id' => $matchedLeadId,
-                                'whatsapp_detector_event_id' => $detectorEvent->id,
-                                'whatsapp_detector_event_uuid' => $eventId,
-                                'channel' => 'whatsapp',
-                                'remarketing_stage' => $context['stage'],
-                                'remarketing_task_type' => $context['task_type'],
-                                'remarketing_reason' => $context['reason'],
-                                'flow_started_at' => $flowStartedAt,
-                                'engagement_at' => $engagementAt,
-                            ]);
-
-                            if ($lead !== null) {
-                                $this->appendNotesToEvent(
-                                    $eventId,
-                                    'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply after flow_start.'
-                                );
-                            } else {
-                                $this->appendNotesToEvent(
-                                    $eventId,
-                                    'Closed pending remarketing tasks due to WhatsApp reply after flow_start. No Jinx lead matched vicidial_lead_id.'
-                                );
-                            }
-                        } catch (Throwable $e) {
-                            $this->appendNotesToEvent(
-                                $eventId,
-                                'Re-engagement handling failed: '.$e->getMessage()
-                            );
-                        }
-                    }
-                } catch (Throwable $e) {
-                    if (WhatsAppDetectorEvent::query()->where('event_id', $eventId)->exists()) {
-                        $stats['skipped_existing']++;
-                    } else {
-                        throw $e;
-                    }
-                }
+                $this->ingestPayload($decoded, $stats);
             }
         } finally {
             fclose($handle);
         }
 
         return $stats;
+    }
+
+    /**
+     * Import a single decoded detector event (same processing as one JSONL line).
+     *
+     * @param  array<string, mixed>  $decoded
+     * @param  array<string, int>|null  $stats  When set (JSONL ingest), aggregate counters are updated.
+     * @return array{
+     *   status: 'imported'|'skipped_existing'|'invalid_payload',
+     *   event_id: string,
+     *   match_status?: string|null,
+     *   is_after_flow_start?: bool|null,
+     * }
+     */
+    public function ingestPayload(array $decoded, ?array &$stats = null): array
+    {
+        $eventId = isset($decoded['event_id']) ? (string) $decoded['event_id'] : '';
+        if ($eventId === '') {
+            if ($stats !== null) {
+                $stats['invalid_payload']++;
+            }
+
+            return [
+                'status' => 'invalid_payload',
+                'event_id' => '',
+                'match_status' => null,
+                'is_after_flow_start' => null,
+            ];
+        }
+
+        if (WhatsAppDetectorEvent::query()->where('event_id', $eventId)->exists()) {
+            if ($stats !== null) {
+                $stats['skipped_existing']++;
+            }
+
+            return $this->skippedExistingResponse($eventId);
+        }
+
+        $noteParts = [];
+
+        $phone = isset($decoded['phone']) ? (string) $decoded['phone'] : null;
+        if ($phone === null || trim($phone) === '') {
+            $noteParts[] = 'Phone missing.';
+        }
+
+        $inferredMessageAt = $this->parseIncomingDatetime($decoded['inferred_message_at'] ?? null, 'inferred_message_at', $noteParts);
+        $lastInboundAt = $this->parseIncomingDatetime($decoded['last_inbound_at'] ?? null, 'last_inbound_at', $noteParts);
+        $detectedAt = $this->parseIncomingDatetime($decoded['detected_at'] ?? null, 'detected_at', $noteParts);
+        $batchWrittenAt = $this->parseIncomingDatetime($decoded['batch_written_at'] ?? null, 'batch_written_at', $noteParts);
+
+        $engagementAt = $this->deriveEngagementAt($inferredMessageAt, $detectedAt, $noteParts);
+
+        $leadIds = $this->findMatchingLeadIds($phone);
+        $matchStatus = 'unmatched';
+        $matchedLeadId = null;
+        $matchNotes = null;
+        $prefetchedFlowStartedAt = null;
+
+        if (count($leadIds) === 0) {
+            $matchStatus = 'unmatched';
+            if ($stats !== null) {
+                $stats['unmatched']++;
+            }
+        } elseif (count($leadIds) > 1) {
+            $resolution = $this->resolveLeadIdFromCandidatesByLatestFlowStart($leadIds);
+            if ($resolution['resolutionStatus'] === 'resolved') {
+                $matchStatus = 'matched';
+                $matchedLeadId = $resolution['matchedLeadId'];
+                $matchNotes = $resolution['resolutionNote'];
+                $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
+                if ($stats !== null) {
+                    $stats['resolved_by_latest_flow_start']++;
+                }
+            } else {
+                $matchStatus = 'ambiguous';
+                $matchNotes = $resolution['resolutionNote'];
+                if ($stats !== null) {
+                    $stats['ambiguous']++;
+                }
+            }
+        } else {
+            $matchStatus = 'matched';
+            $matchedLeadId = $leadIds[0];
+        }
+
+        $flowStartedAt = null;
+        if ($matchedLeadId !== null) {
+            $flowStartedAt = $prefetchedFlowStartedAt ?? $this->latestFlowStartedAt((int) $matchedLeadId);
+            if ($flowStartedAt === null) {
+                $matchStatus = 'matched_no_flow_start';
+                if ($stats !== null) {
+                    $stats['matched_no_flow_start']++;
+                }
+            }
+        }
+
+        $isAfter = $this->decideIsAfterFlowStart($engagementAt, $flowStartedAt, $matchedLeadId);
+
+        if ($matchedLeadId !== null && $flowStartedAt !== null) {
+            if ($isAfter === true) {
+                if ($stats !== null) {
+                    $stats['matched_after_flow_start']++;
+                }
+            } elseif ($isAfter === false) {
+                if ($stats !== null) {
+                    $stats['matched_not_after_flow_start']++;
+                }
+            }
+        }
+
+        $notes = $this->joinNotes(array_merge($noteParts, $matchNotes !== null ? [$matchNotes] : []));
+
+        $row = [
+            'event_id' => $eventId,
+            'chat_id' => $this->nullableString($decoded, 'chat_id'),
+            'chat_name' => $this->nullableString($decoded, 'chat_name'),
+            'phone' => $phone !== null && trim($phone) !== '' ? $phone : null,
+            'preview_time_text' => $this->nullableString($decoded, 'preview_time_text'),
+            'inferred_message_at' => $inferredMessageAt,
+            'last_inbound_at' => $lastInboundAt,
+            'latest_message' => $this->nullableString($decoded, 'latest_message'),
+            'detected_at' => $detectedAt,
+            'batch_written_at' => $batchWrittenAt,
+            'matched_vicidial_lead_id' => $matchedLeadId,
+            'flow_started_at' => $flowStartedAt,
+            'engagement_at' => $engagementAt,
+            'is_after_flow_start' => $isAfter,
+            'match_status' => $matchStatus,
+            'notes' => $notes,
+            'raw_payload' => $decoded,
+        ];
+
+        try {
+            $detectorEvent = WhatsAppDetectorEvent::query()->create($row);
+            if ($stats !== null) {
+                $stats['imported']++;
+            }
+
+            $responseStats = $stats ?? [
+                'response_events_skipped' => 0,
+                'response_events_created' => 0,
+                'response_events_duplicate' => 0,
+                'response_events_skipped_lead_not_eligible_for_response_inbox' => 0,
+            ];
+            $this->maybeCreateRemarketingResponseEvent($detectorEvent, $responseStats);
+
+            if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
+                try {
+                    $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
+
+                    RemarketingTask::query()
+                        ->where('lead_id', $matchedLeadId)
+                        ->where('status', RemarketingTask::STATUS_PENDING)
+                        ->update([
+                            'status' => RemarketingTask::STATUS_CLOSED,
+                        ]);
+
+                    $lead = Lead::query()
+                        ->where('vicidial_lead_id', $matchedLeadId)
+                        ->first();
+
+                    if ($lead !== null) {
+                        $lead->update(['wip_status' => Lead::WIP_STATUS_REENGAGED]);
+                    }
+
+                    LeadReengagementEvent::query()->create([
+                        'lead_id' => $lead?->id,
+                        'vicidial_lead_id' => $matchedLeadId,
+                        'whatsapp_detector_event_id' => $detectorEvent->id,
+                        'whatsapp_detector_event_uuid' => $eventId,
+                        'channel' => 'whatsapp',
+                        'remarketing_stage' => $context['stage'],
+                        'remarketing_task_type' => $context['task_type'],
+                        'remarketing_reason' => $context['reason'],
+                        'flow_started_at' => $flowStartedAt,
+                        'engagement_at' => $engagementAt,
+                    ]);
+
+                    if ($lead !== null) {
+                        $this->appendNotesToEvent(
+                            $eventId,
+                            'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply after flow_start.'
+                        );
+                    } else {
+                        $this->appendNotesToEvent(
+                            $eventId,
+                            'Closed pending remarketing tasks due to WhatsApp reply after flow_start. No Jinx lead matched vicidial_lead_id.'
+                        );
+                    }
+                } catch (Throwable $e) {
+                    $this->appendNotesToEvent(
+                        $eventId,
+                        'Re-engagement handling failed: '.$e->getMessage()
+                    );
+                }
+            }
+        } catch (Throwable $e) {
+            if (WhatsAppDetectorEvent::query()->where('event_id', $eventId)->exists()) {
+                if ($stats !== null) {
+                    $stats['skipped_existing']++;
+                }
+
+                return $this->skippedExistingResponse($eventId);
+            }
+
+            throw $e;
+        }
+
+        return [
+            'status' => 'imported',
+            'event_id' => $eventId,
+            'match_status' => $matchStatus,
+            'is_after_flow_start' => $isAfter,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   status: 'skipped_existing',
+     *   event_id: string,
+     *   match_status: string|null,
+     *   is_after_flow_start: bool|null,
+     * }
+     */
+    private function skippedExistingResponse(string $eventId): array
+    {
+        $row = WhatsAppDetectorEvent::query()->where('event_id', $eventId)->first();
+
+        return [
+            'status' => 'skipped_existing',
+            'event_id' => $eventId,
+            'match_status' => $row?->match_status,
+            'is_after_flow_start' => $row?->is_after_flow_start,
+        ];
     }
 
     /**

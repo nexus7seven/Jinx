@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Models\Lead;
 use App\Http\Controllers\LocalWorkerJobController;
+use App\Http\Controllers\WhatsAppDetectorEventApiController;
 
 Route::post('/vicidial/create-or-open-case', function (Request $request) {
 
@@ -55,6 +56,9 @@ Route::post('/vicidial/create-or-open-case', function (Request $request) {
         'url' => url('/lead/' . $lead->id)
     ]);
 });
+
+Route::post('/whatsapp-detector/events', WhatsAppDetectorEventApiController::class)
+    ->middleware('whatsapp.detector.token');
 
 Route::prefix('local-worker')
     ->middleware('local.worker.token')

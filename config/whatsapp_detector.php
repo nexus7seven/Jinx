@@ -32,4 +32,9 @@ return [
     | Column used to order “latest” flow_start for a lead (usually created_at).
     */
     'remarketing_task_time_column' => env('WHATSAPP_DETECTOR_REMARKETING_TASK_TIME', 'created_at'),
+
+    /*
+    | Bearer token for POST /api/whatsapp-detector/events (standalone detector on Windows).
+    */
+    'api_token' => env('WHATSAPP_DETECTOR_API_TOKEN'),
 ];
