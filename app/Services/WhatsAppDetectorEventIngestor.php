@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use App\Models\LeadRemarketingProgress;
 use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingTask;
 use App\Models\WhatsAppDetectorEvent;
@@ -10,10 +11,16 @@ use Carbon\Carbon;
 use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class WhatsAppDetectorEventIngestor
 {
+    public function __construct(
+        private RemarketingResponseEventService $remarketingResponseEventService,
+    ) {
+    }
+
     /**
      * @return array{
      *   imported: int,
@@ -25,6 +32,9 @@ class WhatsAppDetectorEventIngestor
      *   matched_no_flow_start: int,
      *   invalid_payload: int,
      *   resolved_by_latest_flow_start: int,
+     *   response_events_created: int,
+     *   response_events_duplicate: int,
+     *   response_events_skipped: int,
      * }
      */
     public function ingest(?string $jsonlPath = null): array
@@ -41,6 +51,9 @@ class WhatsAppDetectorEventIngestor
             'matched_no_flow_start' => 0,
             'invalid_payload' => 0,
             'resolved_by_latest_flow_start' => 0,
+            'response_events_created' => 0,
+            'response_events_duplicate' => 0,
+            'response_events_skipped' => 0,
         ];
 
         if (! is_string($path) || $path === '' || ! File::isReadable($path)) {
@@ -161,6 +174,7 @@ class WhatsAppDetectorEventIngestor
                 try {
                     $detectorEvent = WhatsAppDetectorEvent::query()->create($row);
                     $stats['imported']++;
+                    $this->maybeCreateRemarketingResponseEvent($detectorEvent, $stats);
 
                     if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
                         try {
@@ -225,6 +239,141 @@ class WhatsAppDetectorEventIngestor
         }
 
         return $stats;
+    }
+
+    /**
+     * @param array<string, int> $stats
+     */
+    private function maybeCreateRemarketingResponseEvent(WhatsAppDetectorEvent $event, array &$stats): void
+    {
+        $leadId = $event->matched_vicidial_lead_id;
+        $matchStatus = strtolower(trim((string) ($event->match_status ?? '')));
+        $isAfter = $event->is_after_flow_start;
+
+        if ($leadId === null || (int) $leadId <= 0) {
+            $stats['response_events_skipped']++;
+            Log::info('Remarketing response event skipped (whatsapp)', [
+                'detector_event_id' => $event->event_id,
+                'reason' => 'missing_matched_vicidial_lead_id',
+            ]);
+            return;
+        }
+
+        if ($matchStatus !== '' && $matchStatus !== 'matched') {
+            $stats['response_events_skipped']++;
+            Log::info('Remarketing response event skipped (whatsapp)', [
+                'detector_event_id' => $event->event_id,
+                'lead_id' => (int) $leadId,
+                'reason' => 'match_status_not_matched',
+                'match_status' => $matchStatus,
+            ]);
+            return;
+        }
+
+        if ($isAfter !== true) {
+            $stats['response_events_skipped']++;
+            Log::info('Remarketing response event skipped (whatsapp)', [
+                'detector_event_id' => $event->event_id,
+                'lead_id' => (int) $leadId,
+                'reason' => $isAfter === false ? 'before_flow_start' : 'missing_after_flow_start_flag',
+            ]);
+            return;
+        }
+
+        if (! $this->looksInboundCustomerReply($event)) {
+            $stats['response_events_skipped']++;
+            Log::info('Remarketing response event skipped (whatsapp)', [
+                'detector_event_id' => $event->event_id,
+                'lead_id' => (int) $leadId,
+                'reason' => 'not_inbound_customer_reply',
+            ]);
+            return;
+        }
+
+        $jinxLead = Lead::query()
+            ->where('vicidial_lead_id', (int) $leadId)
+            ->first();
+
+        $progress = LeadRemarketingProgress::query()
+            ->where('lead_id', (int) $leadId)
+            ->orderByDesc('id')
+            ->first();
+
+        $detectedAt = $event->last_inbound_at
+            ?? $event->inferred_message_at
+            ?? $event->engagement_at
+            ?? $event->detected_at
+            ?? now();
+
+        $sourceEventId = trim((string) ($event->event_id ?? ''));
+        $dedupeKey = $sourceEventId !== ''
+            ? 'whatsapp:'.$sourceEventId
+            : sprintf(
+                'whatsapp:%d:%s:%s:%s',
+                (int) $leadId,
+                $detectedAt->format('Y-m-d H:i:s'),
+                (string) ($event->phone ?? ''),
+                (string) ($event->preview_time_text ?? '')
+            );
+
+        $payload = [
+            'chat_id' => $event->chat_id,
+            'chat_name' => $event->chat_name,
+            'phone' => $event->phone,
+            'preview_time_text' => $event->preview_time_text,
+            'latest_message' => $event->latest_message,
+            'matched_vicidial_lead_id' => $event->matched_vicidial_lead_id,
+            'is_after_flow_start' => $event->is_after_flow_start,
+            'match_status' => $event->match_status,
+        ];
+
+        $responseEvent = $this->remarketingResponseEventService->createNeedsReviewEvent([
+            'lead_id' => (int) $leadId,
+            'jinx_lead_id' => $jinxLead?->id,
+            'remarketing_progress_id' => $progress?->id,
+            'source_event_id' => $sourceEventId !== '' ? $sourceEventId : null,
+            'dedupe_key' => $dedupeKey,
+            'channel' => 'whatsapp',
+            'direction' => 'inbound',
+            'status' => 'needs_review',
+            'matched_phone' => $event->phone,
+            'matched_email' => null,
+            'message_preview' => $event->latest_message,
+            'raw_payload_json' => $payload,
+            'detected_at' => $detectedAt,
+        ]);
+
+        if ($responseEvent->wasRecentlyCreated) {
+            $stats['response_events_created']++;
+            Log::info('Remarketing response event created (whatsapp)', [
+                'response_event_id' => $responseEvent->id,
+                'detector_event_id' => $event->event_id,
+                'lead_id' => (int) $leadId,
+                'dedupe_key' => $dedupeKey,
+            ]);
+            return;
+        }
+
+        $stats['response_events_duplicate']++;
+        Log::info('Remarketing response event duplicate exists (whatsapp)', [
+            'response_event_id' => $responseEvent->id,
+            'detector_event_id' => $event->event_id,
+            'lead_id' => (int) $leadId,
+            'dedupe_key' => $dedupeKey,
+        ]);
+    }
+
+    private function looksInboundCustomerReply(WhatsAppDetectorEvent $event): bool
+    {
+        if ($event->last_inbound_at !== null) {
+            return true;
+        }
+
+        if ($event->inferred_message_at !== null && trim((string) ($event->latest_message ?? '')) !== '') {
+            return true;
+        }
+
+        return false;
     }
 
     private function deriveEngagementAt(?Carbon $inferredMessageAt, ?Carbon $detectedAt, array &$noteParts): ?Carbon
