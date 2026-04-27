@@ -3,11 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
+use App\Models\LeadRemarketingProgress;
+use App\Models\LeadRemarketingStepLog;
+use App\Models\RemarketingStep;
 use App\Models\RemarketingTask;
 use App\Support\LeadSourceDisplay;
 use App\Services\RemarketingCallbackService;
+use App\Services\RemarketingScheduleWindowService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDispositionService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -31,131 +36,165 @@ class RemarketingController extends Controller
         private RemarketingCallbackService $remarketingCallbackService,
         private RemarketingTaskService $remarketingTaskService,
         private VicidialDispositionService $vicidialDispositionService,
+        private RemarketingScheduleWindowService $scheduleWindowService,
     ) {
     }
 
     public function index()
     {
-        $pendingTasks = RemarketingTask::query()
-            ->where('status', RemarketingTask::STATUS_PENDING)
-            ->orderBy('id')
+        $steps = RemarketingStep::query()
+            ->where('is_active', true)
+            ->orderBy('step_order')
             ->get();
 
-        $leadIds = $pendingTasks
-            ->pluck('lead_id')
-            ->filter(fn ($leadId) => $leadId !== null)
-            ->map(fn ($leadId) => (int) $leadId)
-            ->unique()
-            ->values();
+        $now = Carbon::now(RemarketingScheduleWindowService::TIMEZONE);
 
-        $latestFlowStartedIds = RemarketingTask::query()
-            ->whereIn('lead_id', $leadIds)
-            ->where('task_type', 'flow_started')
-            ->where('reason', self::FLOW_START_REASON)
-            ->orderByDesc('id')
+        $progressRows = LeadRemarketingProgress::query()
+            ->whereIn('status', ['active', 'pending_manual_task'])
+            ->orderBy('id')
             ->get()
-            ->groupBy('lead_id')
-            ->map(fn ($tasks) => (int) $tasks->first()->id);
-
-        $latestStopMarkerIds = RemarketingTask::query()
-            ->whereIn('lead_id', $leadIds)
-            ->where('task_type', 'whatsapp')
-            ->where('reason', self::DORMANT_FINAL_WHATSAPP_REASON)
-            ->whereIn('status', [
-                RemarketingTask::STATUS_PENDING,
-                RemarketingTask::STATUS_COMPLETED,
-                RemarketingTask::STATUS_CLOSED,
-            ])
-            ->orderByDesc('id')
-            ->get()
-            ->groupBy('lead_id')
-            ->map(fn ($tasks) => (int) $tasks->first()->id);
-
-        $pendingTasks = $pendingTasks->filter(function (RemarketingTask $task) use ($latestFlowStartedIds, $latestStopMarkerIds) {
-            if ($task->lead_id === null) {
-                return false;
-            }
-
-            $leadId = (int) $task->lead_id;
-            $latestFlowStartedId = $latestFlowStartedIds->get($leadId);
-            if ($latestFlowStartedId === null || (int) $task->id <= $latestFlowStartedId) {
-                return false;
-            }
-
-            $latestStopMarkerId = $latestStopMarkerIds->get($leadId);
-
-            return $latestStopMarkerId === null || $latestStopMarkerId <= $latestFlowStartedId;
-        })->values();
-
-        $vicidialIdsForSource = $pendingTasks->pluck('lead_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
-        $leadsByVicidialId = collect();
-        if ($vicidialIdsForSource->isNotEmpty()) {
-            $leadsByVicidialId = Lead::query()
-                ->whereIn('vicidial_lead_id', $vicidialIdsForSource->all())
-                ->get()
-                ->keyBy(fn (Lead $lead) => (int) $lead->vicidial_lead_id);
-        }
-
-        $activeTasks = $pendingTasks->sortBy('id')->values()->map(function (RemarketingTask $task) use ($leadsByVicidialId) {
-            $vicidialId = (int) $task->lead_id;
-            $leadRow = $leadsByVicidialId->get($vicidialId);
-
-            $row = [
-                'id' => $task->id,
-                'lead_id' => $task->lead_id,
-                'lead_name' => $task->lead_name,
-                'phone' => $task->phone,
-                'campaign_id' => $task->campaign_id,
-                'reason' => $task->reason,
-                'time_waiting' => $task->time_waiting_text ?? 'Waiting',
-                'task_type' => $task->task_type,
-                'stage' => $task->stage,
-                'whatsapp_url' => null,
-                'source_label' => $leadRow ? LeadSourceDisplay::label($leadRow->source) : null,
-            ];
-
-            if ($task->task_type === 'whatsapp') {
-                $phone = str_replace(' ', '', (string) $task->phone);
-                if (str_starts_with($phone, '0')) {
-                    $phone = '44' . substr($phone, 1);
+            ->map(function (LeadRemarketingProgress $progress) use ($steps, $stepsByOrder, $now) {
+                $currentOrder = $progress->current_step_order;
+                if ($currentOrder === null && $progress->current_step_id !== null) {
+                    $currentOrder = optional($steps->firstWhere('id', $progress->current_step_id))->step_order;
                 }
-                $message = 'Hi ' . $task->lead_name . ', just following up in case WhatsApp is easier for you.';
-                $row['whatsapp_url'] = 'https://wa.me/' . $phone . '?text=' . urlencode($message);
-            }
 
-            return $row;
-        })->all();
+                $nextStep = $currentOrder === null
+                    ? $steps->first()
+                    : $steps->first(fn (RemarketingStep $step) => $step->step_order > $currentOrder);
 
-        $recentActivity = RemarketingTask::query()
-            ->whereIn('status', [
-                RemarketingTask::STATUS_STARTED,
-                RemarketingTask::STATUS_COMPLETED,
-                RemarketingTask::STATUS_CLOSED,
-            ])
-            ->orderByDesc('updated_at')
-            ->limit(50)
-            ->get()
-            ->map(function (RemarketingTask $task) {
-                if ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_STARTED) {
-                    $activity = 'Call started';
-                } elseif ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_COMPLETED) {
-                    $activity = 'Call completed';
-                } elseif ($task->task_type === 'call' && $task->status === RemarketingTask::STATUS_CLOSED) {
-                    $activity = 'Call closed';
-                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_STARTED) {
-                    $activity = 'WhatsApp started';
-                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_COMPLETED) {
-                    $activity = 'WhatsApp completed';
-                } elseif ($task->task_type === 'whatsapp' && $task->status === RemarketingTask::STATUS_CLOSED) {
-                    $activity = 'WhatsApp closed';
-                } else {
-                    $activity = ucfirst((string) $task->task_type) . ' ' . ucfirst((string) $task->status);
+                if (! $nextStep instanceof RemarketingStep) {
+                    return null;
+                }
+
+                if (! in_array($nextStep->medium, ['call', 'whatsapp'], true)) {
+                    return null;
+                }
+
+                $rawDue = $progress->next_step_due_at
+                    ? $progress->next_step_due_at->copy()->setTimezone(RemarketingScheduleWindowService::TIMEZONE)
+                    : $now->copy();
+                $nextAllowed = $this->scheduleWindowService->nextAllowedTime($nextStep, $rawDue->copy());
+                $dueNow = $now->greaterThanOrEqualTo($nextAllowed);
+
+                if ($progress->status !== 'pending_manual_task' && ! $dueNow) {
+                    return null;
                 }
 
                 return [
-                    'lead_name' => $task->lead_name,
+                    'progress' => $progress,
+                    'next_step' => $nextStep,
+                    'due_at' => $nextAllowed,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $vicidialIds = $progressRows->pluck('lead_id')
+            ->merge($manualCandidates->pluck('progress.lead_id'))
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $leadsByVicidialId = Lead::query()
+            ->whereIn('vicidial_lead_id', $vicidialIds->all())
+            ->get()
+            ->keyBy(fn (Lead $lead) => (int) $lead->vicidial_lead_id);
+
+        $activeTasks = $manualCandidates->map(function (array $candidate) use ($leadsByVicidialId, $now) {
+            /** @var LeadRemarketingProgress $progress */
+            $progress = $candidate['progress'];
+            /** @var RemarketingStep $nextStep */
+            $nextStep = $candidate['next_step'];
+            /** @var Carbon $dueAt */
+            $dueAt = $candidate['due_at'];
+
+            $lead = $leadsByVicidialId->get((int) $progress->lead_id);
+            $first = trim((string) ($lead?->first_name ?? ''));
+            $last = trim((string) ($lead?->last_name ?? ''));
+            $leadName = trim($first.' '.$last);
+            if ($leadName === '') {
+                $leadName = 'Lead #'.$progress->lead_id;
+            }
+
+            $phone = trim((string) ($lead?->phone_number ?? ''));
+            $waiting = $dueAt ? $dueAt->diffForHumans($now, [
+                'parts' => 2,
+                'short' => true,
+            ]) : 'Waiting';
+            $waiting = str_replace([' ago', 'from now'], '', $waiting);
+
+            $whatsappUrl = null;
+            if ($nextStep->medium === 'whatsapp' && $phone !== '') {
+                $digits = preg_replace('/\D+/', '', $phone) ?? '';
+                if (str_starts_with($digits, '0')) {
+                    $digits = '44'.substr($digits, 1);
+                } elseif (str_starts_with($digits, '7')) {
+                    $digits = '44'.$digits;
+                }
+                if ($digits !== '') {
+                    $message = 'Hi '.$leadName.', just following up in case WhatsApp is easier for you.';
+                    $whatsappUrl = 'https://wa.me/'.$digits.'?text='.urlencode($message);
+                }
+            }
+
+            return [
+                // preserve card contract keys
+                'id' => 'linear-progress-'.$progress->id,
+                'lead_id' => $progress->lead_id,
+                'lead_name' => $leadName,
+                'phone' => $phone !== '' ? $phone : '-',
+                'campaign_id' => null,
+                'reason' => $nextStep->step_name,
+                'time_waiting' => $waiting,
+                'task_type' => $nextStep->medium,
+                'stage' => $nextStep->step_name,
+                'whatsapp_url' => $whatsappUrl,
+                'source_label' => $lead ? LeadSourceDisplay::label($lead->source) : null,
+                'is_linear' => true,
+            ];
+        })->all();
+
+        $recentActivity = LeadRemarketingStepLog::query()
+            ->with(['remarketingStep', 'template'])
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->map(function (LeadRemarketingStepLog $log) use ($leadsByVicidialId) {
+                $lead = $leadsByVicidialId->get((int) $log->lead_id);
+                $first = trim((string) ($lead?->first_name ?? ''));
+                $last = trim((string) ($lead?->last_name ?? ''));
+                $leadName = trim($first.' '.$last);
+                if ($leadName === '') {
+                    $leadName = 'Lead #'.$log->lead_id;
+                }
+
+                $medium = strtolower((string) ($log->medium ?? ''));
+                $status = strtolower((string) ($log->status ?? ''));
+
+                if ($medium === 'sms' && $status === 'sent') {
+                    $activity = 'sms sent';
+                } elseif ($medium === 'email' && $status === 'sent') {
+                    $activity = 'email sent';
+                } elseif ($medium === 'sms' && $status === 'failed') {
+                    $activity = 'sms failed';
+                } elseif ($medium === 'email' && $status === 'failed') {
+                    $activity = 'email failed';
+                } elseif ($medium === 'call' && $status === 'queued_task') {
+                    $activity = 'call queued';
+                } elseif ($medium === 'whatsapp' && $status === 'queued_task') {
+                    $activity = 'whatsapp queued';
+                } elseif ($status === 'completed') {
+                    $activity = 'step completed';
+                } else {
+                    $activity = trim(($medium !== '' ? $medium.' ' : '').$status);
+                }
+
+                return [
+                    'lead_name' => $leadName,
                     'activity' => $activity,
-                    'time' => optional($task->updated_at)->diffForHumans() ?? 'Just now',
+                    'time' => optional($log->created_at)->diffForHumans() ?? 'Just now',
                 ];
             })
             ->all();
