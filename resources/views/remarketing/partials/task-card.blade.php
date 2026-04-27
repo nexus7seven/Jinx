@@ -1,5 +1,6 @@
 @php
     $type = (string) ($task['task_type'] ?? '');
+    $isLinearTask = (bool) ($task['is_linear'] ?? false) || (($task['system'] ?? null) === 'linear');
     $actionLabel = match ($type) {
         'call' => 'Call',
         'whatsapp' => 'WhatsApp',
@@ -54,17 +55,28 @@
                 </a>
             @endif
 
-            <form class="rm-inline-form" method="POST" action="{{ route('remarketing.complete') }}">
-                @csrf
-                <input type="hidden" name="task_id" value="{{ $task['id'] }}">
-                <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
-                <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
-                <button type="submit" class="rm-icon-btn rm-icon-btn--complete" title="Complete" aria-label="Mark task complete">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                </button>
-            </form>
+            @if ($isLinearTask)
+                <form class="rm-inline-form" method="POST" action="{{ route('remarketing.linear.complete-manual-step', ['leadId' => $task['lead_id']]) }}">
+                    @csrf
+                    <button type="submit" class="rm-icon-btn rm-icon-btn--complete" title="Complete" aria-label="Mark task complete">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                    </button>
+                </form>
+            @else
+                <form class="rm-inline-form" method="POST" action="{{ route('remarketing.complete') }}">
+                    @csrf
+                    <input type="hidden" name="task_id" value="{{ $task['id'] }}">
+                    <input type="hidden" name="task_type" value="{{ $task['task_type'] }}">
+                    <input type="hidden" name="lead_name" value="{{ $task['lead_name'] }}">
+                    <button type="submit" class="rm-icon-btn rm-icon-btn--complete" title="Complete" aria-label="Mark task complete">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                    </button>
+                </form>
+            @endif
         </div>
     </div>
     <div class="rm-card__meta">

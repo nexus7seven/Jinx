@@ -87,6 +87,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/remarketing/tasks', [RemarketingController::class, 'store'])->name('remarketing.tasks.store');
     Route::post('/remarketing/call', [RemarketingController::class, 'call'])->name('remarketing.call');
     Route::post('/remarketing/complete', [RemarketingController::class, 'complete'])->name('remarketing.complete');
+    Route::post('/remarketing/linear/{leadId}/complete-manual-step', [RemarketingController::class, 'completeLinearManualStep'])->name('remarketing.linear.complete-manual-step');
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::get('/lead-search', LeadSearchController::class)->name('lead.search');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');

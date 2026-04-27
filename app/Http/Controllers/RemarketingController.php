@@ -3,13 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
+use App\Models\LeadRemarketingProgress;
+use App\Models\RemarketingStep;
+use App\Models\RemarketingStepLog;
 use App\Models\RemarketingTask;
+use App\Services\RemarketingScheduleWindowService;
 use App\Support\LeadSourceDisplay;
 use App\Services\RemarketingCallbackService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDispositionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class RemarketingController extends Controller
 {
@@ -311,6 +316,115 @@ class RemarketingController extends Controller
         return redirect()
             ->route('remarketing.index')
             ->with($flashType, $flashMessage);
+    }
+
+    public function completeLinearManualStep(Request $request, int $leadId)
+    {
+        $result = DB::transaction(function () use ($leadId) {
+            $progress = LeadRemarketingProgress::query()
+                ->where('lead_id', $leadId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $progress) {
+                return [
+                    'ok' => false,
+                    'message' => 'Remarketing progress not found for this lead.',
+                ];
+            }
+
+            $steps = RemarketingStep::query()
+                ->where('active', true)
+                ->orderBy('step_order')
+                ->get();
+
+            if ($steps->isEmpty()) {
+                return [
+                    'ok' => false,
+                    'message' => 'No active remarketing steps are configured.',
+                ];
+            }
+
+            $nextStep = null;
+            if ($progress->current_step_order === null) {
+                $nextStep = $steps->first();
+            } else {
+                $nextStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
+            }
+
+            if (! $nextStep) {
+                $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
+                $progress->save();
+
+                return [
+                    'ok' => true,
+                    'message' => 'Remarketing flow already completed.',
+                ];
+            }
+
+            if (! in_array($nextStep->medium, ['call', 'whatsapp'], true)) {
+                return [
+                    'ok' => false,
+                    'message' => 'Only call or WhatsApp steps can be completed manually.',
+                ];
+            }
+
+            $baseTime = $progress->current_step_order === null
+                ? ($progress->started_at ?? $progress->created_at)
+                : ($progress->last_step_completed_at ?? $progress->updated_at ?? $progress->created_at);
+
+            $rawDue = $baseTime->copy()->addMinutes((int) $nextStep->delay_minutes);
+            $nextAllowed = RemarketingScheduleWindowService::nextAllowedTime($nextStep, $rawDue);
+            $dueNow = now()->greaterThanOrEqualTo($nextAllowed);
+
+            if (! $dueNow && $progress->status !== LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
+                return [
+                    'ok' => false,
+                    'message' => 'This manual step is not due yet.',
+                ];
+            }
+
+            $now = now();
+
+            RemarketingStepLog::query()->create([
+                'lead_id' => $leadId,
+                'remarketing_step_id' => $nextStep->id,
+                'step_order' => $nextStep->step_order,
+                'medium' => $nextStep->medium,
+                'template_id' => $nextStep->template_id,
+                'status' => RemarketingStepLog::STATUS_COMPLETED,
+                'due_at' => $nextAllowed,
+                'started_at' => $now,
+                'completed_at' => $now,
+                'context_json' => [
+                    'mode' => 'manual_ui_complete',
+                    'note' => 'completed from remarketing screen',
+                ],
+            ]);
+
+            $progress->current_step_id = $nextStep->id;
+            $progress->current_step_order = $nextStep->step_order;
+            $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
+            $progress->last_step_completed_at = $now;
+
+            $followingStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $nextStep->step_order);
+            if ($followingStep) {
+                $nextRaw = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
+                $progress->next_step_due_at = app(RemarketingScheduleWindowService::class)->nextAllowedTime($followingStep, $nextRaw);
+            } else {
+                $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
+                $progress->next_step_due_at = null;
+            }
+
+            $progress->save();
+
+            return [
+                'ok' => true,
+                'message' => 'Manual step completed.',
+            ];
+        });
+
+        return redirect()->back()->with($result['ok'] ? 'success' : 'error', $result['message']);
     }
 
     /**
