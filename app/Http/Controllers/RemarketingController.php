@@ -72,9 +72,14 @@ class RemarketingController extends Controller
                     return null;
                 }
 
-                $rawDue = $progress->next_step_due_at
-                    ? $progress->next_step_due_at->copy()->setTimezone(RemarketingScheduleWindowService::TIMEZONE)
-                    : $now->copy();
+                $baseTime = $progress->current_step_order === null
+                    ? ($progress->started_at ?? $progress->created_at)
+                    : ($progress->last_step_completed_at ?? $progress->updated_at ?? $progress->created_at);
+                $baseTime = ($baseTime ?? $now)
+                    ->copy()
+                    ->setTimezone(RemarketingScheduleWindowService::TIMEZONE);
+
+                $rawDue = $baseTime->copy()->addMinutes((int) $nextStep->delay_minutes);
                 $nextAllowed = $this->scheduleWindowService->nextAllowedTime($nextStep, $rawDue->copy());
                 $dueNow = $now->greaterThanOrEqualTo($nextAllowed);
 
