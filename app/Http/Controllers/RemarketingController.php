@@ -136,14 +136,17 @@ class RemarketingController extends Controller
             $whatsappUrl = null;
             if ($nextStep->medium === 'whatsapp' && $phone !== '') {
                 $digits = preg_replace('/\D+/', '', $phone) ?? '';
-                if (str_starts_with($digits, '0')) {
+
+                if (str_starts_with($digits, '0') && strlen($digits) === 11) {
                     $digits = '44'.substr($digits, 1);
-                } elseif (str_starts_with($digits, '7')) {
+                } elseif (str_starts_with($digits, '7') && strlen($digits) === 10) {
                     $digits = '44'.$digits;
+                } elseif (! str_starts_with($digits, '44')) {
+                    $digits = '';
                 }
+
                 if ($digits !== '') {
-                    $message = 'Hi '.$leadName.', just following up in case WhatsApp is easier for you.';
-                    $whatsappUrl = 'https://wa.me/'.$digits.'?text='.urlencode($message);
+                    $whatsappUrl = 'https://wa.me/'.$digits;
                 }
             }
 
@@ -195,6 +198,8 @@ class RemarketingController extends Controller
                     $activity = 'call queued';
                 } elseif ($medium === 'whatsapp' && $status === 'queued_task') {
                     $activity = 'whatsapp queued';
+                } elseif ($medium === 'whatsapp' && $status === 'completed') {
+                    $activity = 'WhatsApp completed';
                 } elseif ($status === 'completed') {
                     $activity = 'step completed';
                 } else {
