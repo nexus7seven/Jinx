@@ -211,6 +211,20 @@ class WipController extends Controller
         DB::transaction(function () use ($id, $decision, &$leadMissing): void {
             $event = RemarketingResponseEvent::query()->lockForUpdate()->findOrFail($id);
             $now = now();
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $event->lead_id)
+                ->first();
+
+            // Ignore is event-only: no lead status update, no progress stop, no stopped log.
+            if ($decision === 'ignore') {
+                $event->status = RemarketingResponseEvent::STATUS_IGNORED;
+                $event->decision = $decision;
+                $event->handled_at = $now;
+                $event->handled_by = auth()->id();
+                $event->save();
+
+                return;
+            }
 
             $statusMap = [
                 'dead' => 'DEAD',
@@ -220,10 +234,6 @@ class WipController extends Controller
             ];
 
             $targetWipStatus = $statusMap[$decision] ?? null;
-
-            $lead = Lead::query()
-                ->where('vicidial_lead_id', $event->lead_id)
-                ->first();
 
             if ($targetWipStatus !== null) {
                 if ($lead !== null) {
