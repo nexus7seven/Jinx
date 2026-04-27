@@ -530,7 +530,7 @@
                         <div class="wip-card__meta">
                             <span class="wip-meta-k">Lead ID</span> <span class="wip-meta-v">{{ $event['lead_id'] }}</span>
                             <span class="wip-meta-dot" aria-hidden="true">·</span>
-                            <span class="wip-meta-k">Detected</span> <span class="wip-meta-v">{{ optional($event['detected_at'])->diffForHumans() ?? 'Just now' }}</span>
+                            <span class="wip-meta-k">Detected</span> <span class="wip-meta-v">{{ $event['detected_text'] ?? 'Just now' }}</span>
                             @if ($phone !== '')
                                 <span class="wip-meta-dot" aria-hidden="true">·</span>
                                 <span class="wip-meta-k">Phone</span> <span class="wip-meta-v">{{ $phone }}</span>

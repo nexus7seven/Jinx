@@ -165,12 +165,37 @@ class WipController extends Controller
         $remarketingResponseEvents = RemarketingResponseEvent::query()
             ->where('status', RemarketingResponseEvent::STATUS_NEEDS_REVIEW)
             ->with('jinxLead')
-            ->orderByDesc('detected_at')
-            ->limit(20)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(200)
             ->get()
+            ->filter(function (RemarketingResponseEvent $event, int $index) {
+                // Collapse call alerts to the latest per lead so repeated inbound calls
+                // don't spam the inbox; the newest call remains for human handling.
+                static $seenCallLeadIds = [];
+                if (strtolower((string) $event->channel) !== 'call') {
+                    return true;
+                }
+
+                $leadId = (int) $event->lead_id;
+                if (isset($seenCallLeadIds[$leadId])) {
+                    return false;
+                }
+
+                $seenCallLeadIds[$leadId] = true;
+
+                return true;
+            })
+            ->take(20)
             ->map(function (RemarketingResponseEvent $event): array {
                 $jinxLead = $event->jinxLead;
                 $leadName = trim((string) ($jinxLead?->first_name ?? '').' '.(string) ($jinxLead?->last_name ?? ''));
+                $now = now();
+                $eventAt = $event->detected_at ?? $event->created_at;
+                // Use model Carbon instances (timezone-aware) and ensure attention cards
+                // always read as past detections in the UI.
+                $detectedText = $eventAt?->diffForHumans($now, ['parts' => 2]) ?? 'Just now';
+                $detectedText = str_replace(' from now', ' ago', $detectedText);
 
                 return [
                     'id' => $event->id,
@@ -181,6 +206,7 @@ class WipController extends Controller
                     'channel' => (string) $event->channel,
                     'message_preview' => $event->message_preview,
                     'detected_at' => $event->detected_at,
+                    'detected_text' => $detectedText,
                 ];
             })
             ->values()
