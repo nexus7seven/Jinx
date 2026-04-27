@@ -9,6 +9,8 @@
     };
     $stageLabel = isset($task['stage']) && $task['stage'] !== '' ? ucfirst((string) $task['stage']) : '';
     $sourceLabel = isset($task['source_label']) ? trim((string) $task['source_label']) : '';
+    $isDueNow = (bool) ($task['is_due_now'] ?? false);
+    $waitingText = trim((string) ($task['waiting_text'] ?? $task['time_waiting'] ?? ''));
 @endphp
 <article class="rm-card">
     <div class="rm-card__row1">
@@ -80,6 +82,10 @@
         <span class="rm-meta-dot" aria-hidden="true">·</span>
         <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
         <span class="rm-meta-dot" aria-hidden="true">·</span>
-        <span class="rm-meta-k">Waiting</span> <span class="rm-meta-v">{{ $task['time_waiting'] }}</span>
+        @if ($isDueNow)
+            <span class="rm-meta-k">DUE NOW</span>
+        @else
+            <span class="rm-meta-k">WAITING</span> <span class="rm-meta-v">{{ $waitingText !== '' ? $waitingText : 'Waiting' }}</span>
+        @endif
     </div>
 </article>

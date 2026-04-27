@@ -91,6 +91,7 @@ class RemarketingController extends Controller
                     'progress' => $progress,
                     'next_step' => $nextStep,
                     'due_at' => $nextAllowed,
+                    'is_due_now' => $dueNow,
                 ];
             })
             ->filter()
@@ -114,6 +115,7 @@ class RemarketingController extends Controller
             $nextStep = $candidate['next_step'];
             /** @var Carbon $dueAt */
             $dueAt = $candidate['due_at'];
+            $isDueNow = (bool) ($candidate['is_due_now'] ?? false);
 
             $lead = $leadsByVicidialId->get((int) $progress->lead_id);
             $first = trim((string) ($lead?->first_name ?? ''));
@@ -153,6 +155,8 @@ class RemarketingController extends Controller
                 'campaign_id' => null,
                 'reason' => $nextStep->step_name,
                 'time_waiting' => $waiting,
+                'waiting_text' => $waiting,
+                'is_due_now' => $isDueNow,
                 'task_type' => $nextStep->medium,
                 'stage' => $nextStep->step_name,
                 'whatsapp_url' => $whatsappUrl,
