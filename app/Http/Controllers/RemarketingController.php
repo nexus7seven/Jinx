@@ -47,9 +47,10 @@ class RemarketingController extends Controller
             ->orderBy('step_order')
             ->get();
 
+        $stepsByOrder = $steps->keyBy('step_order');
         $now = Carbon::now(RemarketingScheduleWindowService::TIMEZONE);
 
-        $progressRows = LeadRemarketingProgress::query()
+        $manualCandidates = LeadRemarketingProgress::query()
             ->whereIn('status', ['active', 'pending_manual_task'])
             ->orderBy('id')
             ->get()
@@ -90,8 +91,7 @@ class RemarketingController extends Controller
             ->filter()
             ->values();
 
-        $vicidialIds = $progressRows->pluck('lead_id')
-            ->merge($manualCandidates->pluck('progress.lead_id'))
+        $vicidialIds = $manualCandidates->pluck('progress.lead_id')
             ->filter()
             ->map(fn ($id) => (int) $id)
             ->unique()
