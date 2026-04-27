@@ -28,6 +28,9 @@ use App\Services\VicidialDialActivityService;
 use App\Http\Controllers\ClickToCallController;
 use App\Http\Controllers\LocalWorkerJobsPageController;
 use App\Http\Controllers\LeadSearchController;
+use App\Http\Controllers\Webhooks\TwilioInboundSmsWebhookController;
+
+Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
