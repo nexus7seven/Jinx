@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'leads/*/temp-mail/generate',
             'leads/*/temp-mail/reset',
             'partner-lead-submit',
+            'webhooks/twilio/inbound-sms',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
