@@ -3,17 +3,21 @@
 namespace App\Console\Commands;
 
 use App\Models\LeadRemarketingProgress;
+use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingStep;
 use App\Services\RemarketingScheduleWindowService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 class RemarketingLinearExecuteCommand extends Command
 {
     protected $signature = 'remarketing:linear-execute
         {--lead_id= : Optional single vicidial lead_id}
         {--limit=50 : Max number of progress rows to inspect}
-        {--json : Output JSON instead of human report}';
+        {--json : Output JSON instead of human report}
+        {--commit : Commit planner decisions to linear progress/log tables}
+        {--only-log : Commit mode guard to ensure no external actions are used}';
 
     protected $description = 'Read-only dry-run execution planner for linear remarketing.';
 
@@ -26,6 +30,14 @@ class RemarketingLinearExecuteCommand extends Command
 
     public function handle(): int
     {
+        $commit = (bool) $this->option('commit');
+        $onlyLog = (bool) $this->option('only-log');
+        if ($commit && ! $onlyLog) {
+            $this->error('Live execution not implemented yet. Use --only-log.');
+
+            return self::FAILURE;
+        }
+
         $steps = RemarketingStep::query()
             ->where('is_active', true)
             ->orderBy('step_order')
@@ -65,6 +77,8 @@ class RemarketingLinearExecuteCommand extends Command
             'due_now' => 0,
             'would_execute' => 0,
             'skipped' => 0,
+            'committed' => 0,
+            'advanced' => 0,
         ];
 
         foreach ($progressRows as $progress) {
@@ -95,6 +109,7 @@ class RemarketingLinearExecuteCommand extends Command
                 nextStep: $nextStep,
                 isDueNow: $isDueNow
             );
+            $commitAction = 'dry_run_no_change';
 
             if ($isDueNow) {
                 $summary['due_now']++;
@@ -104,6 +119,25 @@ class RemarketingLinearExecuteCommand extends Command
                 $summary['would_execute']++;
             } else {
                 $summary['skipped']++;
+            }
+
+            if ($commit && $this->isCommitEligible($executionAction, $isDueNow) && $nextStep !== null) {
+                $commitResult = $this->commitStepDecision(
+                    progress: $progress,
+                    currentStep: $nextStep,
+                    allSteps: $steps,
+                    executionAction: $executionAction,
+                    dueAt: $dueAt,
+                    now: $now
+                );
+
+                $commitAction = $commitResult['commit_action'];
+                if ($commitResult['committed']) {
+                    $summary['committed']++;
+                }
+                if ($commitResult['advanced']) {
+                    $summary['advanced']++;
+                }
             }
 
             $rows[] = [
@@ -117,6 +151,7 @@ class RemarketingLinearExecuteCommand extends Command
                 'is_due_now' => $isDueNow,
                 'is_allowed_now' => $isAllowedNow,
                 'execution_action' => $executionAction,
+                'commit_action' => $commitAction,
             ];
         }
 
@@ -133,6 +168,7 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('Due now: '.($row['is_due_now'] ? 'yes' : 'no'));
                 $this->line('Allowed now: '.($row['is_allowed_now'] ? 'yes' : 'no'));
                 $this->line('Execution decision: '.$row['execution_action']);
+                $this->line('Commit action: '.$row['commit_action']);
                 $this->line('');
                 $this->line(str_repeat('-', 40));
                 $this->line('');
@@ -142,9 +178,123 @@ class RemarketingLinearExecuteCommand extends Command
             $this->line('Due now: '.$summary['due_now']);
             $this->line('Would execute: '.$summary['would_execute']);
             $this->line('Skipped: '.$summary['skipped']);
+            $this->line('Committed: '.$summary['committed']);
+            $this->line('Advanced: '.$summary['advanced']);
         }
 
         return self::SUCCESS;
+    }
+
+    private function isCommitEligible(string $executionAction, bool $isDueNow): bool
+    {
+        if (! $isDueNow) {
+            return false;
+        }
+
+        return in_array($executionAction, [
+            'would_send_sms',
+            'would_send_email',
+            'would_send_or_queue_whatsapp',
+            'would_queue_call_task',
+        ], true);
+    }
+
+    private function commitStepDecision(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        string $executionAction,
+        ?Carbon $dueAt,
+        Carbon $now
+    ): array {
+        return DB::transaction(function () use ($progress, $currentStep, $allSteps, $executionAction, $dueAt, $now): array {
+            $startedAt = $now->copy();
+            $completedAt = $now->copy();
+
+            if ($currentStep->requires_manual_completion) {
+                LeadRemarketingStepLog::query()->create([
+                    'lead_id' => $progress->lead_id,
+                    'remarketing_step_id' => $currentStep->id,
+                    'step_order' => $currentStep->step_order,
+                    'medium' => $currentStep->medium,
+                    'template_id' => $currentStep->template_id,
+                    'status' => 'queued_task',
+                    'due_at' => $dueAt,
+                    'started_at' => $startedAt,
+                    'completed_at' => null,
+                    'failed_at' => null,
+                    'provider_message_id' => null,
+                    'error_message' => null,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_only_log',
+                        'execution_action' => $executionAction,
+                        'note' => 'no external action performed',
+                    ],
+                ]);
+
+                $progress->update([
+                    'current_step_id' => $currentStep->id,
+                    'current_step_order' => $currentStep->step_order,
+                    'status' => 'pending_manual_task',
+                    'next_step_due_at' => $dueAt,
+                ]);
+
+                return [
+                    'committed' => true,
+                    'advanced' => false,
+                    'commit_action' => 'logged_manual_pending',
+                ];
+            }
+
+            LeadRemarketingStepLog::query()->create([
+                'lead_id' => $progress->lead_id,
+                'remarketing_step_id' => $currentStep->id,
+                'step_order' => $currentStep->step_order,
+                'medium' => $currentStep->medium,
+                'template_id' => $currentStep->template_id,
+                'status' => 'completed',
+                'due_at' => $dueAt,
+                'started_at' => $startedAt,
+                'completed_at' => $completedAt,
+                'failed_at' => null,
+                'provider_message_id' => null,
+                'error_message' => null,
+                'created_task_id' => null,
+                'context_json' => [
+                    'mode' => 'commit_only_log',
+                    'execution_action' => $executionAction,
+                    'note' => 'no external action performed',
+                ],
+            ]);
+
+            $followingStep = $allSteps->first(
+                static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+            );
+
+            $updates = [
+                'current_step_id' => $currentStep->id,
+                'current_step_order' => $currentStep->step_order,
+                'last_step_completed_at' => $completedAt,
+                'status' => 'active',
+            ];
+
+            if ($followingStep === null) {
+                $updates['status'] = 'completed';
+                $updates['next_step_due_at'] = null;
+            } else {
+                $rawNextDue = $completedAt->copy()->addMinutes((int) $followingStep->delay_minutes);
+                $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
+            }
+
+            $progress->update($updates);
+
+            return [
+                'committed' => true,
+                'advanced' => true,
+                'commit_action' => 'logged_and_advanced',
+            ];
+        });
     }
 
     private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow): string
