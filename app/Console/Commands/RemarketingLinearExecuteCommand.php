@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -116,6 +117,7 @@ class RemarketingLinearExecuteCommand extends Command
 
         $now = Carbon::now(RemarketingScheduleWindowService::TIMEZONE);
         $rows = [];
+        $pauseLoggedLeadIds = [];
         $summary = [
             'total_checked' => 0,
             'due_now' => 0,
@@ -162,6 +164,14 @@ class RemarketingLinearExecuteCommand extends Command
             if ($hasNeedsReviewResponse) {
                 $executionAction = 'skip_needs_review_response';
                 $pauseReason = 'inbound_response_needs_review';
+
+                if (! isset($pauseLoggedLeadIds[(int) $progress->lead_id])) {
+                    Log::info('[remarketing-linear] paused due to pending response event', [
+                        'lead_id' => (int) $progress->lead_id,
+                        'vicidial_lead_id' => (int) $progress->lead_id,
+                    ]);
+                    $pauseLoggedLeadIds[(int) $progress->lead_id] = true;
+                }
             } else {
                 $executionAction = $this->resolveExecutionAction(
                     progressStatus: (string) $progress->status,
