@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
+use App\Models\LeadRemarketingProgress;
 use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingTask;
 use App\Services\LeadChecklistService;
@@ -307,6 +308,46 @@ class WipController extends Controller
                     'trigger_status' => 'Lost Contact',
                     'trigger_source' => 'lost_contact',
                 ]);
+
+                $freshLead = $lead->fresh();
+                $vicidialLeadId = is_numeric($freshLead?->vicidial_lead_id) ? (int) $freshLead->vicidial_lead_id : null;
+                if ($vicidialLeadId !== null) {
+                    $existingProgress = LeadRemarketingProgress::query()
+                        ->where('lead_id', $vicidialLeadId)
+                        ->exists();
+
+                    if (! $existingProgress) {
+                        LeadRemarketingProgress::query()->create([
+                            'lead_id' => $vicidialLeadId,
+                            'current_step_id' => null,
+                            'current_step_order' => null,
+                            'status' => 'active',
+                            'started_at' => now(),
+                            'last_step_completed_at' => null,
+                            'next_step_due_at' => now(),
+                            'stopped_at' => null,
+                            'stop_reason' => null,
+                            'stop_context_json' => null,
+                        ]);
+
+                        Log::info('Linear remarketing progress initialized from Lost Contact transition', [
+                            'lead_local_id' => $freshLead?->id,
+                            'vicidial_lead_id' => $vicidialLeadId,
+                            'trigger_status' => 'Lost Contact',
+                        ]);
+                    } else {
+                        Log::info('Linear remarketing progress already exists; initialization skipped', [
+                            'lead_local_id' => $freshLead?->id,
+                            'vicidial_lead_id' => $vicidialLeadId,
+                            'trigger_status' => 'Lost Contact',
+                        ]);
+                    }
+                } else {
+                    Log::warning('Linear remarketing initialization skipped: missing vicidial_lead_id', [
+                        'lead_local_id' => $freshLead?->id ?? $lead->id,
+                        'trigger_status' => 'Lost Contact',
+                    ]);
+                }
             } catch (Throwable $e) {
                 report($e);
             }
