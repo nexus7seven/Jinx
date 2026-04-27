@@ -77,7 +77,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
 
             $callCandidates = DB::connection('asterisk')
                 ->table('call_log')
-                ->select(['channel_group', 'number_dialled', 'caller_code', 'start_time', 'uniqueid'])
+                ->select(['channel_group', 'number_dialed', 'caller_code', 'start_time', 'uniqueid'])
                 ->where('channel_group', 'DID_INBOUND')
                 ->whereNotNull('uniqueid')
                 ->where('start_time', '>=', $flowStartAt)
@@ -107,7 +107,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
                         'lead_id' => $progress->lead_id,
                         'vicidial_lead_id' => $vicidialLeadId,
                         'caller_code' => $call->caller_code,
-                        'number_dialled' => $call->number_dialled,
+                        'number_dialed' => $call->number_dialed,
                         'start_time' => (string) $call->start_time,
                         'uniqueid' => $uniqueId,
                         'source_event_id' => $sourceEventId,
@@ -135,7 +135,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
                     'raw_payload_json' => [
                         'source' => 'vicidial_call_log',
                         'channel_group' => $call->channel_group,
-                        'number_dialled' => $call->number_dialled,
+                        'number_dialed' => $call->number_dialed,
                         'caller_code' => $call->caller_code,
                         'start_time' => (string) $call->start_time,
                         'uniqueid' => $uniqueId,
@@ -150,7 +150,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
                         'lead_id' => $progress->lead_id,
                         'vicidial_lead_id' => $vicidialLeadId,
                         'caller_code' => $call->caller_code,
-                        'number_dialled' => $call->number_dialled,
+                        'number_dialed' => $call->number_dialed,
                         'start_time' => (string) $call->start_time,
                         'uniqueid' => $uniqueId,
                         'source_event_id' => $sourceEventId,
@@ -165,7 +165,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
                         'lead_id' => $progress->lead_id,
                         'vicidial_lead_id' => $vicidialLeadId,
                         'caller_code' => $call->caller_code,
-                        'number_dialled' => $call->number_dialled,
+                        'number_dialed' => $call->number_dialed,
                         'start_time' => (string) $call->start_time,
                         'uniqueid' => $uniqueId,
                         'source_event_id' => $sourceEventId,
@@ -179,7 +179,7 @@ class RemarketingInboundCallResponseScanCommand extends Command
                     'lead_id' => $progress->lead_id,
                     'vicidial_lead_id' => $vicidialLeadId,
                     'caller_code' => $call->caller_code,
-                    'number_dialled' => $call->number_dialled,
+                    'number_dialed' => $call->number_dialed,
                     'start_time' => (string) $call->start_time,
                     'uniqueid' => $uniqueId,
                     'source_event_id' => $sourceEventId,
