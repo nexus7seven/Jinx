@@ -21,7 +21,8 @@ class RemarketingLinearExecuteCommand extends Command
         {--json : Output JSON instead of human report}
         {--commit : Commit planner decisions to linear progress/log tables}
         {--only-log : Commit mode guard to ensure no external actions are used}
-        {--send-sms : Send SMS only for explicit single-lead commit mode}';
+        {--send-sms : Send SMS only for explicit single-lead commit mode}
+        {--send-email : Send email only for explicit single-lead commit mode}';
 
     protected $description = 'Read-only dry-run execution planner for linear remarketing.';
 
@@ -37,6 +38,7 @@ class RemarketingLinearExecuteCommand extends Command
         $commit = (bool) $this->option('commit');
         $onlyLog = (bool) $this->option('only-log');
         $sendSms = (bool) $this->option('send-sms');
+        $sendEmail = (bool) $this->option('send-email');
         $leadId = $this->option('lead_id');
 
         if ($sendSms && ! $commit) {
@@ -54,8 +56,28 @@ class RemarketingLinearExecuteCommand extends Command
             return self::FAILURE;
         }
 
-        if ($commit && ! $onlyLog && ! $sendSms) {
-            $this->error('Live execution not implemented yet. Use --only-log or --send-sms.');
+        if ($sendEmail && ! $commit) {
+            $this->error('Use --commit with --send-email.');
+            return self::FAILURE;
+        }
+
+        if ($sendEmail && ($leadId === null || $leadId === '')) {
+            $this->error('Email sending requires --lead_id for now.');
+            return self::FAILURE;
+        }
+
+        if ($sendEmail && $onlyLog) {
+            $this->error('Choose either --only-log or --send-email, not both.');
+            return self::FAILURE;
+        }
+
+        if ($sendEmail && $sendSms) {
+            $this->error('Choose only one send medium at a time.');
+            return self::FAILURE;
+        }
+
+        if ($commit && ! $onlyLog && ! $sendSms && ! $sendEmail) {
+            $this->error('Live execution not implemented yet. Use --only-log, --send-sms, or --send-email.');
 
             return self::FAILURE;
         }
@@ -102,6 +124,8 @@ class RemarketingLinearExecuteCommand extends Command
             'advanced' => 0,
             'sms_sent' => 0,
             'sms_failed' => 0,
+            'email_sent' => 0,
+            'email_failed' => 0,
         ];
 
         foreach ($progressRows as $progress) {
@@ -135,6 +159,8 @@ class RemarketingLinearExecuteCommand extends Command
             $commitAction = 'dry_run_no_change';
             $smsAction = 'skipped';
             $smsTo = null;
+            $emailAction = 'skipped';
+            $emailTo = null;
             $providerMessageId = null;
             $errorMessage = null;
 
@@ -200,6 +226,40 @@ class RemarketingLinearExecuteCommand extends Command
                             $summary['sms_failed']++;
                         }
                     }
+                } elseif ($sendEmail) {
+                    if ($executionAction !== 'would_send_email') {
+                        $commitAction = 'skipped_non_email_step';
+                        $emailAction = 'skipped';
+                        $errorMessage = 'execution_action is not would_send_email';
+                    } else {
+                        $sendResult = $this->commitEmailStepDecision(
+                            progress: $progress,
+                            currentStep: $nextStep,
+                            allSteps: $steps,
+                            executionAction: $executionAction,
+                            dueAt: $dueAt,
+                            now: $now
+                        );
+
+                        $commitAction = $sendResult['commit_action'];
+                        $emailAction = $sendResult['email_action'];
+                        $emailTo = $sendResult['email_to'];
+                        $providerMessageId = $sendResult['provider_message_id'];
+                        $errorMessage = $sendResult['error_message'];
+
+                        if ($sendResult['committed']) {
+                            $summary['committed']++;
+                        }
+                        if ($sendResult['advanced']) {
+                            $summary['advanced']++;
+                        }
+                        if ($emailAction === 'sent') {
+                            $summary['email_sent']++;
+                        }
+                        if ($emailAction === 'failed') {
+                            $summary['email_failed']++;
+                        }
+                    }
                 }
             }
 
@@ -216,6 +276,8 @@ class RemarketingLinearExecuteCommand extends Command
                 'execution_action' => $executionAction,
                 'sms_action' => $smsAction,
                 'sms_to' => $smsTo,
+                'email_action' => $emailAction,
+                'email_to' => $emailTo,
                 'provider_message_id' => $providerMessageId,
                 'error_message' => $errorMessage,
                 'commit_action' => $commitAction,
@@ -237,6 +299,8 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('Execution decision: '.$row['execution_action']);
                 $this->line('SMS action: '.$row['sms_action']);
                 $this->line('SMS to: '.($row['sms_to'] ?? '-'));
+                $this->line('Email action: '.$row['email_action']);
+                $this->line('Email to: '.($row['email_to'] ?? '-'));
                 $this->line('Provider message ID: '.($row['provider_message_id'] ?? '-'));
                 $this->line('Error: '.($row['error_message'] ?? '-'));
                 $this->line('Commit action: '.$row['commit_action']);
@@ -253,6 +317,8 @@ class RemarketingLinearExecuteCommand extends Command
             $this->line('Advanced: '.$summary['advanced']);
             $this->line('SMS sent: '.$summary['sms_sent']);
             $this->line('SMS failed: '.$summary['sms_failed']);
+            $this->line('Email sent: '.$summary['email_sent']);
+            $this->line('Email failed: '.$summary['email_failed']);
         }
 
         return self::SUCCESS;
@@ -543,6 +609,75 @@ class RemarketingLinearExecuteCommand extends Command
         ];
     }
 
+    private function fetchEmailLeadData(int $vicidialLeadId): array
+    {
+        $leadEmail = null;
+        $leadFirstName = '';
+
+        $leadSelect = ['id', 'vicidial_lead_id'];
+        if (Schema::hasColumn('leads', 'email')) {
+            $leadSelect[] = 'email';
+        }
+        if (Schema::hasColumn('leads', 'email_address')) {
+            $leadSelect[] = 'email_address';
+        }
+        if (Schema::hasColumn('leads', 'first_name')) {
+            $leadSelect[] = 'first_name';
+        }
+
+        $lead = DB::table('leads')
+            ->select($leadSelect)
+            ->where('vicidial_lead_id', $vicidialLeadId)
+            ->first();
+
+        if ($lead !== null) {
+            $leadFirstName = (string) ($lead->first_name ?? '');
+            $leadEmail = $this->pickFirstValidEmail([
+                $lead->email ?? null,
+                $lead->email_address ?? null,
+            ]);
+        }
+
+        $vicidialSelect = ['lead_id'];
+        if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'email')) {
+            $vicidialSelect[] = 'email';
+        }
+        if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'email_address')) {
+            $vicidialSelect[] = 'email_address';
+        }
+        if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'first_name')) {
+            $vicidialSelect[] = 'first_name';
+        }
+
+        $vicidial = DB::connection('asterisk')
+            ->table('vicidial_list')
+            ->select($vicidialSelect)
+            ->where('lead_id', $vicidialLeadId)
+            ->first();
+
+        $vicidialEmail = $this->pickFirstValidEmail([
+            $vicidial->email ?? null,
+            $vicidial->email_address ?? null,
+        ]);
+
+        return [
+            'email' => $leadEmail ?? $vicidialEmail,
+            'first_name' => $leadFirstName !== '' ? $leadFirstName : (string) ($vicidial->first_name ?? ''),
+        ];
+    }
+
+    private function pickFirstValidEmail(array $candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            $email = trim((string) ($candidate ?? ''));
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $email;
+            }
+        }
+
+        return null;
+    }
+
     private function normalizeUkPhone(string $phone): ?string
     {
         $value = trim($phone);
@@ -585,10 +720,249 @@ class RemarketingLinearExecuteCommand extends Command
     private function renderTemplateBody(string $templateBody, string $firstName, int $leadId): string
     {
         return str_replace(
-            ['{{first_name}}', '{{lead_id}}'],
-            [$firstName, (string) $leadId],
+            ['{{first_name}}', '{{lead_id}}', '{{portal_link}}'],
+            [$firstName, (string) $leadId, (string) (config('app.url') ?? '')],
             $templateBody
         );
+    }
+
+    private function commitEmailStepDecision(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        string $executionAction,
+        ?Carbon $dueAt,
+        Carbon $now
+    ): array {
+        if ($currentStep->medium !== 'email') {
+            return [
+                'committed' => false,
+                'advanced' => false,
+                'email_action' => 'skipped',
+                'email_to' => null,
+                'provider_message_id' => null,
+                'error_message' => 'next step medium is not email',
+                'commit_action' => 'skipped_non_email_step',
+            ];
+        }
+
+        $leadData = $this->fetchEmailLeadData((int) $progress->lead_id);
+        $emailTo = $leadData['email'] ?? null;
+        if ($emailTo === null) {
+            $error = 'Missing or invalid email for lead.';
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error);
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'failed',
+                'email_to' => null,
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
+
+        $template = $currentStep->template;
+        $subjectTemplate = trim((string) ($template?->subject ?? ''));
+        $bodyTemplate = trim((string) ($template?->body ?? ''));
+        if ($bodyTemplate === '') {
+            $error = 'Email template body is empty for step.';
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, $emailTo, $error);
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'failed',
+                'email_to' => $emailTo,
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
+
+        $firstName = (string) ($leadData['first_name'] ?? '');
+        $subject = $subjectTemplate !== ''
+            ? $this->renderTemplateBody($subjectTemplate, $firstName, (int) $progress->lead_id)
+            : (string) ($template?->template_name ?? 'Remarketing update');
+        $body = $this->renderTemplateBody($bodyTemplate, $firstName, (int) $progress->lead_id);
+
+        $sendResult = $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body);
+        if (! $sendResult['success']) {
+            $this->logFailedEmailStep(
+                $progress,
+                $currentStep,
+                $executionAction,
+                $dueAt,
+                $now,
+                $emailTo,
+                $sendResult['error'] ?? 'Unknown SendGrid error.'
+            );
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'failed',
+                'email_to' => $emailTo,
+                'provider_message_id' => null,
+                'error_message' => $sendResult['error'] ?? 'Unknown SendGrid error.',
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
+
+        $providerMessageId = $sendResult['provider_message_id'] ?? null;
+        $fromEmail = (string) (config('mail.from.address') ?? env('EMAIL_FROM'));
+
+        return DB::transaction(function () use (
+            $progress,
+            $currentStep,
+            $allSteps,
+            $executionAction,
+            $dueAt,
+            $now,
+            $emailTo,
+            $providerMessageId,
+            $fromEmail
+        ): array {
+            LeadRemarketingStepLog::query()->create([
+                'lead_id' => $progress->lead_id,
+                'remarketing_step_id' => $currentStep->id,
+                'step_order' => $currentStep->step_order,
+                'medium' => $currentStep->medium,
+                'template_id' => $currentStep->template_id,
+                'status' => 'sent',
+                'due_at' => $dueAt,
+                'started_at' => $now->copy(),
+                'completed_at' => $now->copy(),
+                'failed_at' => null,
+                'provider_message_id' => $providerMessageId,
+                'error_message' => null,
+                'created_task_id' => null,
+                'context_json' => [
+                    'mode' => 'commit_send_email',
+                    'to' => $emailTo,
+                    'from' => $fromEmail,
+                    'execution_action' => $executionAction,
+                ],
+            ]);
+
+            $followingStep = $allSteps->first(
+                static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+            );
+
+            $updates = [
+                'current_step_id' => $currentStep->id,
+                'current_step_order' => $currentStep->step_order,
+                'last_step_completed_at' => $now->copy(),
+                'status' => 'active',
+            ];
+
+            if ($followingStep === null) {
+                $updates['status'] = 'completed';
+                $updates['next_step_due_at'] = null;
+            } else {
+                $rawNextDue = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
+                $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
+            }
+
+            $progress->update($updates);
+
+            return [
+                'committed' => true,
+                'advanced' => true,
+                'email_action' => 'sent',
+                'email_to' => $emailTo,
+                'provider_message_id' => $providerMessageId,
+                'error_message' => null,
+                'commit_action' => 'sent_logged_and_advanced',
+            ];
+        });
+    }
+
+    private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body): array
+    {
+        $apiKey = (string) (config('services.sendgrid.api_key') ?? env('SENDGRID_API_KEY'));
+        $fromEmail = trim((string) (config('mail.from.address') ?? env('EMAIL_FROM')));
+        $fromName = trim((string) (config('mail.from.name') ?? env('EMAIL_FROM_NAME')));
+
+        if ($apiKey === '' || $fromEmail === '' || ! filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+            return [
+                'success' => false,
+                'error' => 'Invalid SendGrid/email from configuration.',
+            ];
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer '.$apiKey,
+                'Content-Type' => 'application/json',
+            ])->post('https://api.sendgrid.com/v3/mail/send', [
+                'personalizations' => [[
+                    'to' => [[
+                        'email' => $toEmail,
+                        'name' => $toName !== '' ? $toName : null,
+                    ]],
+                ]],
+                'from' => [
+                    'email' => $fromEmail,
+                    'name' => $fromName !== '' ? $fromName : null,
+                ],
+                'subject' => $subject,
+                'content' => [[
+                    'type' => 'text/plain',
+                    'value' => $body,
+                ]],
+            ]);
+
+            if (! in_array($response->status(), [200, 201, 202], true)) {
+                return [
+                    'success' => false,
+                    'error' => 'SendGrid error: '.$response->status().' '.$response->body(),
+                ];
+            }
+
+            return [
+                'success' => true,
+                'provider_message_id' => $response->header('X-Message-Id'),
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function logFailedEmailStep(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        string $executionAction,
+        ?Carbon $dueAt,
+        Carbon $now,
+        ?string $to,
+        string $error
+    ): void {
+        LeadRemarketingStepLog::query()->create([
+            'lead_id' => $progress->lead_id,
+            'remarketing_step_id' => $currentStep->id,
+            'step_order' => $currentStep->step_order,
+            'medium' => $currentStep->medium,
+            'template_id' => $currentStep->template_id,
+            'status' => 'failed',
+            'due_at' => $dueAt,
+            'started_at' => $now->copy(),
+            'completed_at' => null,
+            'failed_at' => $now->copy(),
+            'provider_message_id' => null,
+            'error_message' => $error,
+            'created_task_id' => null,
+            'context_json' => [
+                'mode' => 'commit_send_email',
+                'to' => $to,
+                'execution_action' => $executionAction,
+                'note' => 'email send failed; no progress advance',
+            ],
+        ]);
     }
 
     private function sendSmsViaTwilio(string $to, string $body): array
