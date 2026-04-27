@@ -58,6 +58,20 @@
             flex-wrap: wrap;
             gap: 8px;
         }
+        .wip-attention-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(127, 29, 29, 0.5);
+            border: 1px solid rgba(248, 113, 113, 0.5);
+            color: #fee2e2;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
         .wip-scope-segment {
             display: inline-flex;
             align-items: stretch;
@@ -251,17 +265,51 @@
             font-weight: 450;
         }
         .wip-attention-title {
-            margin: 0 0 10px 0;
-            font-size: 11px;
+            margin: 0;
+            font-size: 12px;
             font-weight: 700;
             letter-spacing: 0.06em;
             text-transform: uppercase;
-            color: #fca5a5;
+            color: #fef2f2;
+        }
+        .wip-attention-section {
+            margin-bottom: 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(248, 113, 113, 0.42);
+            background: linear-gradient(180deg, rgba(69, 10, 10, 0.3) 0%, rgba(15, 23, 42, 0.65) 100%);
+            padding: 12px;
+        }
+        .wip-attention-section--active {
+            animation: wip-attention-pulse 3.2s ease-in-out infinite;
+        }
+        @keyframes wip-attention-pulse {
+            0%, 100% { box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.14), 0 0 0 rgba(0, 0, 0, 0); }
+            50% { box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.28), 0 8px 24px rgba(248, 113, 113, 0.08); }
+        }
+        .wip-attention-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .wip-attention-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(251, 146, 60, 0.5);
+            background: rgba(154, 52, 18, 0.45);
+            color: #ffedd5;
+            font-size: 11px;
+            font-weight: 700;
         }
         .wip-attention-grid {
             display: grid;
             gap: 10px;
-            margin-bottom: 16px;
         }
         .wip-card-attention {
             border-color: rgba(248, 113, 113, 0.45);
@@ -271,6 +319,14 @@
             background: rgba(127, 29, 29, 0.5);
             border-color: rgba(252, 165, 165, 0.4);
             color: #fee2e2;
+        }
+        .wip-attention-empty {
+            border: 1px dashed rgba(248, 113, 113, 0.35);
+            border-radius: 10px;
+            padding: 10px 12px;
+            color: #fecaca;
+            font-size: 12px;
+            background: rgba(30, 41, 59, 0.35);
         }
         .wip-action-form {
             display: inline;
@@ -462,6 +518,9 @@
     @include('partials.app-nav')
 
     <header class="wip-header-block">
+        @php
+            $attentionCount = count($remarketing_response_events ?? []);
+        @endphp
         <div class="wip-header-toolbar">
             <div>
                 <div class="wip-header-title">WIP</div>
@@ -487,6 +546,11 @@
                     @if ($show === 'all') aria-current="page" @endif
                 >All</a>
             </div>
+            @if ($attentionCount > 0)
+                <span class="wip-attention-badge" title="Inbound responses waiting for review">
+                    ⚠️ {{ $attentionCount }} Attention Required
+                </span>
+            @endif
         </div>
     </header>
 
@@ -497,22 +561,35 @@
         <div class="wip-flash" role="status">{{ session('success') }}</div>
     @endif
 
-    @if (!empty($remarketing_response_events ?? []))
-        <section aria-labelledby="wip-attention-required-heading">
+    <section aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
+        <div class="wip-attention-header">
             <h2 id="wip-attention-required-heading" class="wip-attention-title">⚠️ Attention Required</h2>
+            @if ($attentionCount > 0)
+                <span class="wip-attention-count">{{ $attentionCount }}</span>
+            @endif
+        </div>
+        @if ($attentionCount > 0)
             <div class="wip-attention-grid">
                 @foreach(($remarketing_response_events ?? []) as $event)
                     @php
                         $channelRaw = strtolower((string) ($event['channel'] ?? ''));
                         $channelLabel = match ($channelRaw) {
-                            'whatsapp' => 'WhatsApp',
-                            'sms' => 'SMS',
-                            'email' => 'Email',
-                            'call' => 'Call',
+                            'whatsapp' => '🟢 WhatsApp',
+                            'sms' => '💬 SMS',
+                            'email' => '✉️ Email',
+                            'call' => '📞 Call',
                             default => \Illuminate\Support\Str::title(str_replace('_', ' ', $channelRaw ?: 'unknown')),
                         };
                         $preview = \Illuminate\Support\Str::limit((string) ($event['message_preview'] ?? ''), 180);
                         $phone = trim((string) ($event['phone'] ?? ''));
+                        $callFrom = trim((string) ($event['call_from_phone'] ?? ''));
+                        $callTo = trim((string) ($event['call_to_phone'] ?? ''));
+                        $displayPreview = $preview !== '' ? $preview : '-';
+                        if ($channelRaw === 'call') {
+                            $callerText = $callFrom !== '' ? $callFrom : 'Unknown';
+                            $dialledText = $callTo !== '' ? $callTo : 'Unknown';
+                            $displayPreview = 'Inbound call received. Caller: '.$callerText.'. Dialled: '.$dialledText.'.';
+                        }
                     @endphp
                     <article class="wip-card wip-card-attention">
                         <div class="wip-card__row1">
@@ -538,7 +615,7 @@
                         </div>
                         <div class="wip-card__meta" style="padding-top:0; border-top:none;">
                             <span class="wip-meta-k">Preview</span>
-                            <span class="wip-meta-v">{{ $preview !== '' ? $preview : '-' }}</span>
+                            <span class="wip-meta-v">{{ $displayPreview }}</span>
                         </div>
                         <div class="wip-card-actions" style="justify-content:flex-start; max-width:none;">
                             @if (!empty($event['jinx_lead_id']))
@@ -547,33 +624,41 @@
 
                             <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
                                 @csrf
-                                <input type="hidden" name="decision" value="dead">
-                                <button type="submit" class="wip-attention-btn wip-attention-btn--dead">MARK DEAD</button>
-                            </form>
-
-                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
-                                @csrf
                                 <input type="hidden" name="decision" value="awaiting_call">
-                                <button type="submit" class="wip-attention-btn">MOVE TO AWAITING CALL</button>
+                                <button type="submit" class="wip-attention-btn">Awaiting Call</button>
                             </form>
 
                             <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
                                 @csrf
                                 <input type="hidden" name="decision" value="initial_assessment">
-                                <button type="submit" class="wip-attention-btn">MOVE TO INITIAL ASSESSMENT</button>
+                                <button type="submit" class="wip-attention-btn">Initial Assessment</button>
+                            </form>
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="callback">
+                                <button type="submit" class="wip-attention-btn">Callback</button>
+                            </form>
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="dead">
+                                <button type="submit" class="wip-attention-btn wip-attention-btn--dead">Dead</button>
                             </form>
 
                             <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
                                 @csrf
                                 <input type="hidden" name="decision" value="ignore">
-                                <button type="submit" class="wip-attention-btn wip-attention-btn--ignore">IGNORE</button>
+                                <button type="submit" class="wip-attention-btn wip-attention-btn--ignore">Ignore</button>
                             </form>
                         </div>
                     </article>
                 @endforeach
             </div>
-        </section>
-    @endif
+        @else
+            <div class="wip-attention-empty">No inbound responses waiting for review.</div>
+        @endif
+    </section>
 
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input

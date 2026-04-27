@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
@@ -192,9 +193,10 @@ class WipController extends Controller
                 $leadName = trim((string) ($jinxLead?->first_name ?? '').' '.(string) ($jinxLead?->last_name ?? ''));
                 $now = now();
                 $channel = strtolower((string) $event->channel);
+                $payload = is_array($event->raw_payload_json) ? $event->raw_payload_json : [];
                 $eventAt = $event->detected_at ?? $event->created_at;
                 if ($channel === 'call') {
-                    $payloadStartTime = $event->raw_payload_json['start_time'] ?? null;
+                    $payloadStartTime = $payload['start_time'] ?? null;
                     if (is_string($payloadStartTime) && trim($payloadStartTime) !== '') {
                         try {
                             $eventAt = Carbon::parse($payloadStartTime);
@@ -220,8 +222,15 @@ class WipController extends Controller
                     'message_preview' => $event->message_preview,
                     'detected_at' => $event->detected_at,
                     'detected_text' => $detectedText,
+                    'event_at_ts' => $eventAt?->getTimestamp() ?? 0,
+                    'call_from_phone' => $payload['from_phone'] ?? $payload['caller_code'] ?? null,
+                    'call_to_phone' => $payload['to_phone'] ?? $payload['number_dialed'] ?? null,
                 ];
             })
+            ->sortByDesc(function (array $event): int {
+                return (int) ($event['event_at_ts'] ?? 0);
+            })
+            ->take(20)
             ->values()
             ->all();
 
