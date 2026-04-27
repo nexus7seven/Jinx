@@ -46,6 +46,7 @@ class RemarketingController extends Controller
         $steps = RemarketingStep::query()
             ->where('is_active', true)
             ->orderBy('step_order')
+            ->with('template')
             ->get();
 
         $stepsByOrder = $steps->keyBy('step_order');
@@ -147,6 +148,20 @@ class RemarketingController extends Controller
 
                 if ($digits !== '') {
                     $whatsappUrl = 'https://wa.me/'.$digits;
+
+                    $templateBody = trim((string) ($nextStep->template?->body ?? ''));
+                    if ($templateBody !== '') {
+                        $renderedBody = str_replace(
+                            ['{{first_name}}', '{{lead_id}}', '{{portal_link}}'],
+                            [
+                                (string) ($lead?->first_name ?? ''),
+                                (string) $progress->lead_id,
+                                (string) config('app.url'),
+                            ],
+                            $templateBody
+                        );
+                        $whatsappUrl .= '?text='.urlencode($renderedBody);
+                    }
                 }
             }
 
