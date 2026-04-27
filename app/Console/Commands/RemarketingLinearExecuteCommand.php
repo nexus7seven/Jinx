@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\LeadRemarketingProgress;
+use App\Models\RemarketingResponseEvent;
 use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingStep;
 use App\Services\RemarketingScheduleWindowService;
@@ -151,11 +152,23 @@ class RemarketingLinearExecuteCommand extends Command
                 $isAllowedNow = $this->scheduleWindowService->isAllowedNow($nextStep, $now->copy());
             }
 
-            $executionAction = $this->resolveExecutionAction(
-                progressStatus: (string) $progress->status,
-                nextStep: $nextStep,
-                isDueNow: $isDueNow
-            );
+            $hasNeedsReviewResponse = RemarketingResponseEvent::query()
+                ->where('lead_id', (int) $progress->lead_id)
+                ->where('status', RemarketingResponseEvent::STATUS_NEEDS_REVIEW)
+                ->exists();
+
+            $pauseReason = null;
+
+            if ($hasNeedsReviewResponse) {
+                $executionAction = 'skip_needs_review_response';
+                $pauseReason = 'inbound_response_needs_review';
+            } else {
+                $executionAction = $this->resolveExecutionAction(
+                    progressStatus: (string) $progress->status,
+                    nextStep: $nextStep,
+                    isDueNow: $isDueNow
+                );
+            }
             $commitAction = 'dry_run_no_change';
             $smsAction = 'skipped';
             $smsTo = null;
@@ -274,6 +287,7 @@ class RemarketingLinearExecuteCommand extends Command
                 'is_due_now' => $isDueNow,
                 'is_allowed_now' => $isAllowedNow,
                 'execution_action' => $executionAction,
+                'pause_reason' => $pauseReason,
                 'sms_action' => $smsAction,
                 'sms_to' => $smsTo,
                 'email_action' => $emailAction,
@@ -297,6 +311,9 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('Due now: '.($row['is_due_now'] ? 'yes' : 'no'));
                 $this->line('Allowed now: '.($row['is_allowed_now'] ? 'yes' : 'no'));
                 $this->line('Execution decision: '.$row['execution_action']);
+                if (! empty($row['pause_reason'])) {
+                    $this->line('Pause reason: inbound response needs review');
+                }
                 $this->line('SMS action: '.$row['sms_action']);
                 $this->line('SMS to: '.($row['sms_to'] ?? '-'));
                 $this->line('Email action: '.$row['email_action']);
