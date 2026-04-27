@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use App\Models\LeadRemarketingProgress;
 use App\Models\LeadReengagementEvent;
+use App\Models\RemarketingResponseEvent;
 use App\Models\RemarketingTask;
 use App\Services\LeadChecklistService;
 use App\Services\LeadOpsAlertEligibility;
@@ -19,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
 use RuntimeException;
 use Throwable;
 
@@ -158,6 +160,30 @@ class WipController extends Controller
             ->values()
             ->all();
 
+        $remarketingResponseEvents = RemarketingResponseEvent::query()
+            ->where('status', RemarketingResponseEvent::STATUS_NEEDS_REVIEW)
+            ->with('jinxLead')
+            ->orderByDesc('detected_at')
+            ->limit(20)
+            ->get()
+            ->map(function (RemarketingResponseEvent $event): array {
+                $jinxLead = $event->jinxLead;
+                $leadName = trim((string) ($jinxLead?->first_name ?? '').' '.(string) ($jinxLead?->last_name ?? ''));
+
+                return [
+                    'id' => $event->id,
+                    'lead_id' => $event->lead_id,
+                    'jinx_lead_id' => $event->jinx_lead_id,
+                    'lead_name' => $leadName !== '' ? $leadName : ('Lead '.$event->lead_id),
+                    'phone' => $event->matched_phone ?: ($jinxLead?->phone_number ?: null),
+                    'channel' => (string) $event->channel,
+                    'message_preview' => $event->message_preview,
+                    'detected_at' => $event->detected_at,
+                ];
+            })
+            ->values()
+            ->all();
+
         return view('wip.index', [
             'leads' => $leads,
             'statuses' => Lead::WIP_STATUSES,
@@ -167,7 +193,28 @@ class WipController extends Controller
             'unseen_reengagement_lead_set' => $unseenReengagementLeadSet,
             'unseen_reengagement_event_ids' => $unseenReengagementEventIds,
             'reengagement_channel_by_lead_id' => $reengagementChannelByLeadId,
+            'remarketing_response_events' => $remarketingResponseEvents,
         ]);
+    }
+
+    public function handleResponseEvent(int $id, Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'decision' => ['required', 'string', Rule::in(['dead', 'awaiting_call', 'initial_assessment', 'callback', 'continue', 'ignore'])],
+        ]);
+
+        $event = RemarketingResponseEvent::query()->findOrFail($id);
+        $decision = (string) $validated['decision'];
+
+        $event->update([
+            'status' => $decision === 'ignore'
+                ? RemarketingResponseEvent::STATUS_IGNORED
+                : RemarketingResponseEvent::STATUS_HANDLED,
+            'decision' => $decision,
+            'handled_at' => now(),
+        ]);
+
+        return redirect()->back()->with('success', 'Remarketing response handled.');
     }
 
     public function pollReengagement(): JsonResponse

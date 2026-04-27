@@ -250,6 +250,70 @@
             font-size: 13px;
             font-weight: 450;
         }
+        .wip-attention-title {
+            margin: 0 0 10px 0;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #fca5a5;
+        }
+        .wip-attention-grid {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .wip-card-attention {
+            border-color: rgba(248, 113, 113, 0.45);
+            background: linear-gradient(165deg, rgba(45, 19, 19, 0.6) 0%, rgba(15, 23, 42, 0.99) 55%);
+        }
+        .wip-channel-chip {
+            background: rgba(127, 29, 29, 0.5);
+            border-color: rgba(252, 165, 165, 0.4);
+            color: #fee2e2;
+        }
+        .wip-action-form {
+            display: inline;
+            margin: 0;
+        }
+        .wip-attention-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 30px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(71, 85, 105, 0.55);
+            background: rgba(30, 41, 59, 0.55);
+            color: #e2e8f0;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+        .wip-attention-btn:hover {
+            background: rgba(51, 65, 85, 0.55);
+            border-color: rgba(100, 116, 139, 0.7);
+        }
+        .wip-attention-btn--dead {
+            background: rgba(127, 29, 29, 0.55);
+            border-color: rgba(239, 68, 68, 0.45);
+            color: #fee2e2;
+        }
+        .wip-attention-btn--ignore {
+            background: rgba(51, 65, 85, 0.4);
+            color: #cbd5e1;
+        }
+        .wip-flash {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            border: 1px solid rgba(16, 185, 129, 0.45);
+            background: rgba(6, 78, 59, 0.35);
+            color: #d1fae5;
+        }
         .wip-chip-outstanding {
             font: inherit;
             cursor: pointer;
@@ -428,6 +492,88 @@
 
     <div id="wip-ops-toast" role="status"></div>
     <div id="wip-reengagement-toast" role="alert"></div>
+
+    @if (session('success'))
+        <div class="wip-flash" role="status">{{ session('success') }}</div>
+    @endif
+
+    @if (!empty($remarketing_response_events ?? []))
+        <section aria-labelledby="wip-attention-required-heading">
+            <h2 id="wip-attention-required-heading" class="wip-attention-title">⚠️ Attention Required</h2>
+            <div class="wip-attention-grid">
+                @foreach(($remarketing_response_events ?? []) as $event)
+                    @php
+                        $channelRaw = strtolower((string) ($event['channel'] ?? ''));
+                        $channelLabel = match ($channelRaw) {
+                            'whatsapp' => 'WhatsApp',
+                            'sms' => 'SMS',
+                            'email' => 'Email',
+                            'call' => 'Call',
+                            default => \Illuminate\Support\Str::title(str_replace('_', ' ', $channelRaw ?: 'unknown')),
+                        };
+                        $preview = \Illuminate\Support\Str::limit((string) ($event['message_preview'] ?? ''), 180);
+                        $phone = trim((string) ($event['phone'] ?? ''));
+                    @endphp
+                    <article class="wip-card wip-card-attention">
+                        <div class="wip-card__row1">
+                            <div class="wip-card__title">
+                                @if (!empty($event['jinx_lead_id']))
+                                    <a href="{{ url('/lead/' . $event['jinx_lead_id']) }}">{{ $event['lead_name'] }}</a>
+                                @else
+                                    <span>{{ $event['lead_name'] }}</span>
+                                @endif
+                            </div>
+                            <div class="wip-card-actions">
+                                <span class="wip-chip wip-channel-chip">{{ $channelLabel }}</span>
+                            </div>
+                        </div>
+                        <div class="wip-card__meta">
+                            <span class="wip-meta-k">Lead ID</span> <span class="wip-meta-v">{{ $event['lead_id'] }}</span>
+                            <span class="wip-meta-dot" aria-hidden="true">·</span>
+                            <span class="wip-meta-k">Detected</span> <span class="wip-meta-v">{{ optional($event['detected_at'])->diffForHumans() ?? 'Just now' }}</span>
+                            @if ($phone !== '')
+                                <span class="wip-meta-dot" aria-hidden="true">·</span>
+                                <span class="wip-meta-k">Phone</span> <span class="wip-meta-v">{{ $phone }}</span>
+                            @endif
+                        </div>
+                        <div class="wip-card__meta" style="padding-top:0; border-top:none;">
+                            <span class="wip-meta-k">Preview</span>
+                            <span class="wip-meta-v">{{ $preview !== '' ? $preview : '-' }}</span>
+                        </div>
+                        <div class="wip-card-actions" style="justify-content:flex-start; max-width:none;">
+                            @if (!empty($event['jinx_lead_id']))
+                                <a href="{{ url('/lead/' . $event['jinx_lead_id']) }}" class="wip-attention-btn">OPEN LEAD</a>
+                            @endif
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="dead">
+                                <button type="submit" class="wip-attention-btn wip-attention-btn--dead">MARK DEAD</button>
+                            </form>
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="awaiting_call">
+                                <button type="submit" class="wip-attention-btn">MOVE TO AWAITING CALL</button>
+                            </form>
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="initial_assessment">
+                                <button type="submit" class="wip-attention-btn">MOVE TO INITIAL ASSESSMENT</button>
+                            </form>
+
+                            <form class="wip-action-form" method="POST" action="{{ route('remarketing.response.handle', ['id' => $event['id']]) }}">
+                                @csrf
+                                <input type="hidden" name="decision" value="ignore">
+                                <button type="submit" class="wip-attention-btn wip-attention-btn--ignore">IGNORE</button>
+                            </form>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+        </section>
+    @endif
 
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input

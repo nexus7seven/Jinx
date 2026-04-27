@@ -83,6 +83,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
     Route::get('/wip/reengagement-poll', [WipController::class, 'pollReengagement'])->name('wip.reengagement-poll');
     Route::post('/wip/reengagement-acknowledge', [WipController::class, 'acknowledgeReengagement'])->name('wip.reengagement-acknowledge');
+    Route::post('/remarketing/response/{id}/handle', [WipController::class, 'handleResponseEvent'])->name('remarketing.response.handle');
     Route::get('/remarketing', [RemarketingController::class, 'index'])->name('remarketing.index');
     Route::post('/remarketing/tasks', [RemarketingController::class, 'store'])->name('remarketing.tasks.store');
     Route::post('/remarketing/call', [RemarketingController::class, 'call'])->name('remarketing.call');
