@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use App\Models\LeadRemarketingProgress;
 use App\Models\LeadReengagementEvent;
+use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingResponseEvent;
 use App\Models\RemarketingTask;
 use App\Services\LeadChecklistService;
@@ -17,6 +18,7 @@ use App\Services\VicidialDialActivityService;
 use App\Services\VicidialLeadLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -203,18 +205,91 @@ class WipController extends Controller
             'decision' => ['required', 'string', Rule::in(['dead', 'awaiting_call', 'initial_assessment', 'callback', 'continue', 'ignore'])],
         ]);
 
-        $event = RemarketingResponseEvent::query()->findOrFail($id);
         $decision = (string) $validated['decision'];
+        $leadMissing = false;
 
-        $event->update([
-            'status' => $decision === 'ignore'
+        DB::transaction(function () use ($id, $decision, &$leadMissing): void {
+            $event = RemarketingResponseEvent::query()->lockForUpdate()->findOrFail($id);
+            $now = now();
+
+            $statusMap = [
+                'dead' => 'DEAD',
+                'awaiting_call' => 'Awaiting Call',
+                'initial_assessment' => 'Initial Assessment',
+                'callback' => 'Callback',
+            ];
+
+            $targetWipStatus = $statusMap[$decision] ?? null;
+
+            $lead = Lead::query()
+                ->where('vicidial_lead_id', $event->lead_id)
+                ->first();
+
+            if ($targetWipStatus !== null) {
+                if ($lead !== null) {
+                    // Keep this aligned with updateStatus() which writes to wip_status.
+                    $lead->wip_status = $targetWipStatus;
+                    $lead->save();
+                } else {
+                    $leadMissing = true;
+                }
+
+                $progress = LeadRemarketingProgress::query()
+                    ->where('lead_id', $event->lead_id)
+                    ->orderByDesc('id')
+                    ->first();
+
+                if ($progress !== null && ! in_array((string) $progress->status, ['stopped', LeadRemarketingProgress::STATUS_COMPLETED], true)) {
+                    $progress->status = 'stopped';
+                    $progress->stopped_at = $now;
+                    $progress->stop_reason = 'response_handled:'.$decision;
+                    $progress->stop_context_json = [
+                        'source' => 'remarketing_response_event',
+                        'response_event_id' => $event->id,
+                        'decision' => $decision,
+                    ];
+                    $progress->next_step_due_at = null;
+                    $progress->save();
+
+                    LeadRemarketingStepLog::query()->create([
+                        'lead_id' => $event->lead_id,
+                        'remarketing_step_id' => $progress->current_step_id,
+                        'step_order' => $progress->current_step_order,
+                        'medium' => null,
+                        'template_id' => null,
+                        'status' => 'stopped',
+                        'due_at' => null,
+                        'started_at' => null,
+                        'completed_at' => $now,
+                        'failed_at' => null,
+                        'provider_message_id' => null,
+                        'error_message' => null,
+                        'created_task_id' => null,
+                        'context_json' => [
+                            'mode' => 'response_event_decision',
+                            'response_event_id' => $event->id,
+                            'decision' => $decision,
+                            'note' => 'Flow stopped after inbound response was handled',
+                        ],
+                    ]);
+                }
+            }
+
+            $event->status = $decision === 'ignore'
                 ? RemarketingResponseEvent::STATUS_IGNORED
-                : RemarketingResponseEvent::STATUS_HANDLED,
-            'decision' => $decision,
-            'handled_at' => now(),
-        ]);
+                : RemarketingResponseEvent::STATUS_HANDLED;
+            $event->decision = $decision;
+            $event->handled_at = $now;
+            $event->handled_by = auth()->id();
+            $event->save();
+        });
 
-        return redirect()->back()->with('success', 'Remarketing response handled.');
+        $message = 'Remarketing response handled: '.$decision.'.';
+        if ($leadMissing) {
+            $message .= ' Lead not found for VICIdial lead_id.';
+        }
+
+        return redirect()->back()->with('success', $message);
     }
 
     public function pollReengagement(): JsonResponse
