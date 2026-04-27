@@ -95,6 +95,11 @@ class WipController extends Controller
 
         $unseenReengagementLeadSet = array_flip(array_map('intval', $unseenReengagementLeadIds));
 
+        // Unseen re-engagement is surfaced elsewhere (Attention Required / lead workflow); omit from main grid to avoid duplicate rows.
+        $leads = $leads->filter(function (Lead $lead) use ($unseenReengagementLeadSet) {
+            return ! isset($unseenReengagementLeadSet[(int) $lead->id]);
+        })->values();
+
         $unseenReengagementEventIds = LeadReengagementEvent::query()
             ->whereNull('seen_at')
             ->whereIn('lead_id', $leadIds)
