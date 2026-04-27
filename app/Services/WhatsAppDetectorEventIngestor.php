@@ -35,6 +35,7 @@ class WhatsAppDetectorEventIngestor
      *   response_events_created: int,
      *   response_events_duplicate: int,
      *   response_events_skipped: int,
+     *   response_events_skipped_lead_not_eligible_for_response_inbox: int,
      * }
      */
     public function ingest(?string $jsonlPath = null): array
@@ -54,6 +55,7 @@ class WhatsAppDetectorEventIngestor
             'response_events_created' => 0,
             'response_events_duplicate' => 0,
             'response_events_skipped' => 0,
+            'response_events_skipped_lead_not_eligible_for_response_inbox' => 0,
         ];
 
         if (! is_string($path) || $path === '' || ! File::isReadable($path)) {
@@ -327,7 +329,7 @@ class WhatsAppDetectorEventIngestor
             'match_status' => $event->match_status,
         ];
 
-        $responseEvent = $this->remarketingResponseEventService->createNeedsReviewEvent([
+        $responseEvent = $this->remarketingResponseEventService->createNeedsReviewEventIfEligible([
             'lead_id' => (int) $leadId,
             'jinx_lead_id' => $jinxLead?->id,
             'remarketing_progress_id' => $progress?->id,
@@ -341,7 +343,19 @@ class WhatsAppDetectorEventIngestor
             'message_preview' => $event->latest_message,
             'raw_payload_json' => $payload,
             'detected_at' => $detectedAt,
-        ]);
+        ], $jinxLead);
+
+        if ($responseEvent === null) {
+            $stats['response_events_skipped']++;
+            $stats['response_events_skipped_lead_not_eligible_for_response_inbox']++;
+            Log::info('Remarketing response event skipped (whatsapp)', [
+                'detector_event_id' => $event->event_id,
+                'lead_id' => (int) $leadId,
+                'reason' => 'lead_not_eligible_for_response_inbox',
+                'wip_status' => $jinxLead?->wip_status,
+            ]);
+            return;
+        }
 
         if ($responseEvent->wasRecentlyCreated) {
             $stats['response_events_created']++;

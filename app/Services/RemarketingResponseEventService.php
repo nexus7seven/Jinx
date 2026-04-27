@@ -2,11 +2,30 @@
 
 namespace App\Services;
 
+use App\Models\Lead;
 use App\Models\RemarketingResponseEvent;
 use InvalidArgumentException;
 
 class RemarketingResponseEventService
 {
+    public function leadIsEligibleForResponseInbox(?Lead $lead): bool
+    {
+        if ($lead === null) {
+            return false;
+        }
+
+        return in_array((string) $lead->wip_status, ['Lost Contact', 'DEAD'], true);
+    }
+
+    public function createNeedsReviewEventIfEligible(array $data, ?Lead $lead): ?RemarketingResponseEvent
+    {
+        if (! $this->leadIsEligibleForResponseInbox($lead)) {
+            return null;
+        }
+
+        return $this->createNeedsReviewEvent($data);
+    }
+
     public function createNeedsReviewEvent(array $data): RemarketingResponseEvent
     {
         $leadId = $data['lead_id'] ?? null;
