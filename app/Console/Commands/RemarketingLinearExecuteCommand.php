@@ -391,10 +391,11 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         $leadData = $this->fetchVicidialLeadData((int) $progress->lead_id);
-        $normalizedPhone = $this->normalizeUkPhone((string) ($leadData['phone_number'] ?? ''));
+        $rawPhone = (string) ($leadData['phone_number'] ?? '');
+        $normalizedPhone = $this->normalizeUkPhone($rawPhone);
 
         if ($normalizedPhone === null) {
-            $error = 'Missing or invalid phone number for lead.';
+            $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
             $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error);
 
             return [
@@ -549,18 +550,27 @@ class RemarketingLinearExecuteCommand extends Command
             return null;
         }
 
-        $hasPlus = str_starts_with($value, '+');
-        $digits = preg_replace('/[^\d]/', '', $value);
+        $cleaned = preg_replace('/[\s\-\(\)\.]+/', '', $value);
+        if (! is_string($cleaned) || $cleaned === '') {
+            return null;
+        }
+
+        $hasPlus = str_starts_with($cleaned, '+');
+        $digits = preg_replace('/[^\d]/', '', $cleaned);
         if (! is_string($digits) || $digits === '') {
             return null;
         }
 
         if ($hasPlus) {
+            return preg_match('/^\+\d{10,15}$/', $cleaned) ? $cleaned : null;
+        }
+
+        if (str_starts_with($digits, '44') && strlen($digits) === 12) {
             $normalized = '+' . $digits;
-        } elseif (str_starts_with($digits, '44')) {
-            $normalized = '+' . $digits;
-        } elseif (str_starts_with($digits, '0')) {
+        } elseif (str_starts_with($digits, '0') && strlen($digits) === 11) {
             $normalized = '+44' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '7') && strlen($digits) === 10) {
+            $normalized = '+44' . $digits;
         } else {
             return null;
         }
