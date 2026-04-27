@@ -191,7 +191,20 @@ class WipController extends Controller
                 $jinxLead = $event->jinxLead;
                 $leadName = trim((string) ($jinxLead?->first_name ?? '').' '.(string) ($jinxLead?->last_name ?? ''));
                 $now = now();
+                $channel = strtolower((string) $event->channel);
                 $eventAt = $event->detected_at ?? $event->created_at;
+                if ($channel === 'call') {
+                    $payloadStartTime = $event->raw_payload_json['start_time'] ?? null;
+                    if (is_string($payloadStartTime) && trim($payloadStartTime) !== '') {
+                        try {
+                            $eventAt = Carbon::parse($payloadStartTime);
+                        } catch (\Throwable) {
+                            $eventAt = $event->created_at;
+                        }
+                    } else {
+                        $eventAt = $event->created_at;
+                    }
+                }
                 // Use model Carbon instances (timezone-aware) and ensure attention cards
                 // always read as past detections in the UI.
                 $detectedText = $eventAt?->diffForHumans($now, ['parts' => 2]) ?? 'Just now';
