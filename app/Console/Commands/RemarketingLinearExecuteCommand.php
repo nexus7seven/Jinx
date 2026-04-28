@@ -7,6 +7,7 @@ use App\Models\RemarketingResponseEvent;
 use App\Models\LeadRemarketingStepLog;
 use App\Models\Lead;
 use App\Models\RemarketingStep;
+use App\Models\RemarketingTemplate;
 use App\Services\RemarketingScheduleWindowService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -231,6 +232,8 @@ class RemarketingLinearExecuteCommand extends Command
             $smsTo = null;
             $emailAction = 'skipped';
             $emailTo = null;
+            $whatsappAction = 'skipped';
+            $whatsappBodyPreview = null;
             $providerMessageId = null;
             $errorMessage = null;
 
@@ -293,6 +296,29 @@ class RemarketingLinearExecuteCommand extends Command
                     }
                     if ($smsAction === 'failed') {
                         $summary['sms_failed']++;
+                    }
+                } elseif ($executionAction === 'would_send_or_queue_whatsapp') {
+                    $sendResult = $this->commitWhatsAppManualTaskDecision(
+                        progress: $progress,
+                        currentStep: $stepToExecute,
+                        allSteps: $journeyScopedSteps,
+                        executionAction: $executionAction,
+                        dueAt: $dueAt,
+                        now: $now,
+                        plannedDelivery: $plannedDelivery ?? [],
+                        actualDelivery: $actualDelivery ?? []
+                    );
+
+                    $commitAction = $sendResult['commit_action'];
+                    $whatsappAction = $sendResult['whatsapp_action'];
+                    $whatsappBodyPreview = $sendResult['whatsapp_body_preview'];
+                    $errorMessage = $sendResult['error_message'];
+
+                    if ($sendResult['committed']) {
+                        $summary['committed']++;
+                    }
+                    if ($sendResult['advanced']) {
+                        $summary['advanced']++;
                     }
                 } elseif ($sendEmail) {
                     if ($executionAction !== 'would_send_email') {
@@ -358,6 +384,8 @@ class RemarketingLinearExecuteCommand extends Command
                 'sms_to' => $smsTo,
                 'email_action' => $emailAction,
                 'email_to' => $emailTo,
+                'whatsapp_action' => $whatsappAction,
+                'whatsapp_body_preview' => $whatsappBodyPreview,
                 'provider_message_id' => $providerMessageId,
                 'error_message' => $errorMessage,
                 'commit_action' => $commitAction,
@@ -393,6 +421,8 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('SMS to: '.($row['sms_to'] ?? '-'));
                 $this->line('Email action: '.$row['email_action']);
                 $this->line('Email to: '.($row['email_to'] ?? '-'));
+                $this->line('WhatsApp action: '.$row['whatsapp_action']);
+                $this->line('WhatsApp body preview: '.($row['whatsapp_body_preview'] ?? '-'));
                 $this->line('Provider message ID: '.($row['provider_message_id'] ?? '-'));
                 $this->line('Error: '.($row['error_message'] ?? '-'));
                 $this->line('Commit action: '.$row['commit_action']);
@@ -1124,6 +1154,110 @@ class RemarketingLinearExecuteCommand extends Command
                 'provider_message_id' => $providerMessageId,
                 'error_message' => null,
                 'commit_action' => $advanced ? 'sent_logged_and_advanced' : 'sent_logged_no_advance',
+            ];
+        });
+    }
+
+    private function commitWhatsAppManualTaskDecision(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        string $executionAction,
+        ?Carbon $dueAt,
+        Carbon $now,
+        array $plannedDelivery,
+        array $actualDelivery
+    ): array {
+        if (($actualDelivery['actual_medium'] ?? null) !== 'whatsapp') {
+            return [
+                'committed' => false,
+                'advanced' => false,
+                'whatsapp_action' => 'skipped',
+                'whatsapp_body_preview' => null,
+                'error_message' => 'next step actual medium is not whatsapp',
+                'commit_action' => 'skipped_non_whatsapp_step',
+            ];
+        }
+
+        $templateKey = (string) ($actualDelivery['actual_template_key'] ?? $plannedDelivery['planned_template_key'] ?? '');
+        $templateBody = '';
+        if ($templateKey !== '') {
+            $templateBody = trim((string) optional(
+                RemarketingTemplate::query()->where('template_key', $templateKey)->first()
+            )->body);
+        }
+        if ($templateBody === '') {
+            $templateBody = trim((string) optional($currentStep->template)->body);
+        }
+
+        $variables = $this->resolveTemplateVariables((int) $progress->lead_id);
+        $renderedBody = $templateBody !== '' ? $this->renderTemplateBody($templateBody, $variables) : '';
+        $bodyPreview = $renderedBody !== '' ? mb_substr($renderedBody, 0, 120) : null;
+
+        return DB::transaction(function () use (
+            $progress,
+            $currentStep,
+            $allSteps,
+            $executionAction,
+            $dueAt,
+            $now,
+            $plannedDelivery,
+            $actualDelivery,
+            $renderedBody,
+            $bodyPreview,
+            $templateKey
+        ): array {
+            $this->createStepLog(
+                progress: $progress,
+                currentStep: $currentStep,
+                payload: [
+                    'medium' => $currentStep->medium,
+                    'status' => 'queued_task',
+                    'execution_status' => 'manual_task_created',
+                    'due_at' => $dueAt,
+                    'executed_at' => $now->copy(),
+                    'started_at' => $now->copy(),
+                    'completed_at' => null,
+                    'failed_at' => null,
+                    'provider_message_id' => null,
+                    'error_message' => null,
+                    'execution_error' => null,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_manual_whatsapp_task',
+                        'execution_action' => $executionAction,
+                        'note' => 'outbound_whatsapp_manual_task',
+                    ],
+                    'metadata_json' => [
+                        'rendered_body' => $renderedBody,
+                        'planned_medium' => $plannedDelivery['planned_medium'] ?? null,
+                        'actual_medium' => $actualDelivery['actual_medium'] ?? null,
+                        'fallback_used' => (bool) ($actualDelivery['fallback_used'] ?? false),
+                        'fallback_reason' => $actualDelivery['fallback_reason'] ?? null,
+                        'template_key' => $templateKey !== '' ? $templateKey : null,
+                        'note' => 'outbound_whatsapp_manual_task',
+                    ],
+                ],
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery
+            );
+
+            $updates = [
+                'current_step_id' => $currentStep->id,
+                'current_step_order' => $currentStep->step_order,
+                'last_step_completed_at' => $now->copy(),
+                'status' => 'active',
+            ];
+            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+            $progress->update($updates);
+
+            return [
+                'committed' => true,
+                'advanced' => $advanced,
+                'whatsapp_action' => 'manual_task_created',
+                'whatsapp_body_preview' => $bodyPreview,
+                'error_message' => null,
+                'commit_action' => $advanced ? 'manual_task_created_and_advanced' : 'manual_task_created_waiting',
             ];
         });
     }
