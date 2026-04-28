@@ -184,6 +184,55 @@ class RemarketingController extends Controller
             ];
         })->all();
 
+        $pendingTasks = RemarketingTask::query()
+            ->where('status', RemarketingTask::STATUS_PENDING)
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get()
+            ->map(function (RemarketingTask $task): array {
+                $messageBody = null;
+                $whatsappUrl = $task->whatsapp_url;
+                if ($task->task_type === 'whatsapp') {
+                    $whatsappUrl = $whatsappUrl ?: 'https://whatsapp.clearmycredit.co.uk';
+                    $query = parse_url((string) $whatsappUrl, PHP_URL_QUERY);
+                    if (is_string($query) && $query !== '') {
+                        parse_str($query, $queryParams);
+                        $rawText = $queryParams['text'] ?? null;
+                        if (is_string($rawText) && trim($rawText) !== '') {
+                            $messageBody = urldecode($rawText);
+                        }
+                    }
+                }
+
+                return [
+                    'id' => 'task-'.$task->id,
+                    'lead_id' => $task->lead_id,
+                    'lead_name' => $task->lead_name ?: ('Lead #'.$task->lead_id),
+                    'phone' => $task->phone ?: '-',
+                    'campaign_id' => $task->campaign_id,
+                    'reason' => $task->reason,
+                    'time_waiting' => $task->time_waiting_text ?: 'Waiting',
+                    'waiting_text' => $task->time_waiting_text ?: 'Waiting',
+                    'is_due_now' => true,
+                    'task_type' => $task->task_type,
+                    'stage' => $task->stage,
+                    'whatsapp_url' => $whatsappUrl,
+                    'message_body' => $messageBody,
+                    'source_label' => null,
+                    'is_linear' => false,
+                ];
+            })
+            ->all();
+
+        $activeTasks = collect(array_merge($pendingTasks, $activeTasks))
+            ->unique(fn (array $task): string => implode('|', [
+                (string) ($task['lead_id'] ?? ''),
+                (string) ($task['task_type'] ?? ''),
+                (string) ($task['reason'] ?? ''),
+            ]))
+            ->values()
+            ->all();
+
         $recentActivity = LeadRemarketingStepLog::query()
             ->with(['remarketingStep', 'template'])
             ->orderByDesc('id')

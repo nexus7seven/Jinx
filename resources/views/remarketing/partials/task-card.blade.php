@@ -56,9 +56,16 @@
                     </svg>
                 </a>
             @elseif ($type === 'whatsapp')
-                <button type="button" class="rm-icon-btn rm-icon-btn--wa" title="WhatsApp unavailable" aria-label="WhatsApp unavailable" disabled>
+                <a
+                    href="https://whatsapp.clearmycredit.co.uk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="rm-icon-btn rm-icon-btn--wa"
+                    title="Open WhatsApp"
+                    aria-label="Open WhatsApp"
+                >
                     WA
-                </button>
+                </a>
             @endif
 
             @if ($isLinearTask)
@@ -96,4 +103,10 @@
             <span class="rm-meta-k">WAITING</span> <span class="rm-meta-v">{{ $waitingText !== '' ? $waitingText : 'Waiting' }}</span>
         @endif
     </div>
+    @if (!empty($task['message_body']))
+        <div class="rm-card__meta">
+            <span class="rm-meta-k">Message</span>
+            <div class="rm-meta-v" style="white-space: pre-wrap; margin-top: 4px;">{{ $task['message_body'] }}</div>
+        </div>
+    @endif
 </article>

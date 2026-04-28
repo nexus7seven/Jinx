@@ -8,6 +8,7 @@ use App\Models\LeadRemarketingStepLog;
 use App\Models\Lead;
 use App\Models\RemarketingStep;
 use App\Models\RemarketingTemplate;
+use App\Models\RemarketingTask;
 use App\Services\RemarketingScheduleWindowService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -1207,6 +1208,13 @@ class RemarketingLinearExecuteCommand extends Command
             $bodyPreview,
             $templateKey
         ): array {
+            $manualTask = $this->upsertPendingWhatsAppTask(
+                progress: $progress,
+                currentStep: $currentStep,
+                renderedBody: $renderedBody,
+                templateKey: $templateKey
+            );
+
             $this->createStepLog(
                 progress: $progress,
                 currentStep: $currentStep,
@@ -1222,7 +1230,7 @@ class RemarketingLinearExecuteCommand extends Command
                     'provider_message_id' => null,
                     'error_message' => null,
                     'execution_error' => null,
-                    'created_task_id' => null,
+                    'created_task_id' => $manualTask?->id,
                     'context_json' => [
                         'mode' => 'commit_manual_whatsapp_task',
                         'execution_action' => $executionAction,
@@ -1235,6 +1243,7 @@ class RemarketingLinearExecuteCommand extends Command
                         'fallback_used' => (bool) ($actualDelivery['fallback_used'] ?? false),
                         'fallback_reason' => $actualDelivery['fallback_reason'] ?? null,
                         'template_key' => $templateKey !== '' ? $templateKey : null,
+                        'manual_task_id' => $manualTask?->id,
                         'note' => 'outbound_whatsapp_manual_task',
                     ],
                 ],
@@ -1260,6 +1269,75 @@ class RemarketingLinearExecuteCommand extends Command
                 'commit_action' => $advanced ? 'manual_task_created_and_advanced' : 'manual_task_created_waiting',
             ];
         });
+    }
+
+    private function upsertPendingWhatsAppTask(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        string $renderedBody,
+        string $templateKey
+    ): ?RemarketingTask {
+        if (! Schema::hasTable('remarketing_tasks')) {
+            return null;
+        }
+
+        $lead = Lead::query()->find((int) $progress->lead_id);
+        if ($lead === null) {
+            $lead = Lead::query()->where('vicidial_lead_id', (int) $progress->lead_id)->first();
+        }
+
+        $phoneData = $this->resolveSmsPhoneData((int) $progress->lead_id);
+        $rawPhone = trim((string) ($phoneData['raw_phone'] ?? ''));
+
+        $leadName = trim((string) ($lead?->first_name ?? '').' '.(string) ($lead?->last_name ?? ''));
+        if ($leadName === '') {
+            $leadName = 'Lead #'.(string) ($lead?->id ?? $progress->lead_id);
+        }
+
+        $taskLeadId = $lead?->vicidial_lead_id !== null
+            ? (int) $lead->vicidial_lead_id
+            : (int) $progress->lead_id;
+        $reason = trim((string) ($currentStep->step_name ?? $currentStep->step_key ?? 'WhatsApp follow-up'));
+        $stage = trim((string) ($currentStep->stage ?? 'fresh'));
+        if (! in_array($stage, ['fresh', 'cooling', 'cold', 'dormant'], true)) {
+            $stage = 'fresh';
+        }
+        $whatsAppUrl = self::WHATSAPP_LINK;
+        if (trim($renderedBody) !== '') {
+            $whatsAppUrl .= '?text='.urlencode($renderedBody);
+        }
+
+        $existing = RemarketingTask::query()
+            ->where('lead_id', $taskLeadId)
+            ->where('task_type', 'whatsapp')
+            ->where('status', RemarketingTask::STATUS_PENDING)
+            ->where('reason', $reason)
+            ->first();
+
+        if ($existing !== null) {
+            $existing->update([
+                'lead_name' => $leadName,
+                'phone' => $rawPhone !== '' ? $rawPhone : ($existing->phone ?? ''),
+                'stage' => $stage,
+                'whatsapp_url' => $whatsAppUrl,
+                'time_waiting_text' => '0h',
+            ]);
+
+            return $existing->fresh();
+        }
+
+        return RemarketingTask::query()->create([
+            'lead_id' => $taskLeadId,
+            'lead_name' => $leadName,
+            'phone' => $rawPhone !== '' ? $rawPhone : '-',
+            'campaign_id' => null,
+            'task_type' => 'whatsapp',
+            'reason' => $reason,
+            'stage' => $stage,
+            'status' => RemarketingTask::STATUS_PENDING,
+            'time_waiting_text' => '0h',
+            'whatsapp_url' => $whatsAppUrl,
+        ]);
     }
 
     private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body): array
