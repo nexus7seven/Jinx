@@ -131,12 +131,14 @@ class RemarketingSeedCbnaJourneyCommand extends Command
             if ($existing === null) {
                 $payload['step_date_added'] = $now;
                 $payload['created_at'] = $now;
-                DB::table('remarketing_steps')->insert(array_merge($criteria, $payload));
+                $insertPayload = $this->normalizePayloadForDatabase(array_merge($criteria, $payload));
+                DB::table('remarketing_steps')->insert($insertPayload);
                 $stepStats['created']++;
                 continue;
             }
 
             $payload['step_date_added'] = $existing->step_date_added ?? $now;
+            $payload = $this->normalizePayloadForDatabase($payload);
             DB::table('remarketing_steps')->where($criteria)->update($payload);
             $stepStats['updated']++;
         }
@@ -348,6 +350,17 @@ class RemarketingSeedCbnaJourneyCommand extends Command
             'click_to_call_tel' => self::CLICK_TO_CALL_TEL,
             'whatsapp_number' => self::WHATSAPP_NUMBER,
         ];
+    }
+
+    private function normalizePayloadForDatabase(array $payload): array
+    {
+        foreach ($payload as $key => $value) {
+            if (is_array($value) || is_object($value)) {
+                $payload[$key] = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
+        return $payload;
     }
 
     private function stepPayload(
