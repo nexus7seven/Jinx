@@ -9,6 +9,7 @@ use App\Models\Lead;
 use App\Models\RemarketingStep;
 use App\Services\RemarketingScheduleWindowService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -138,11 +139,22 @@ class RemarketingLinearExecuteCommand extends Command
             $summary['total_checked']++;
 
             $currentStepOrder = $progress->current_step_order;
+            $currentStep = null;
+            if ($progress->current_step_id !== null) {
+                $currentStep = $steps->firstWhere('id', $progress->current_step_id);
+            }
             if ($currentStepOrder === null && $progress->current_step_id !== null) {
-                $currentStepOrder = optional($steps->firstWhere('id', $progress->current_step_id))->step_order;
+                $currentStepOrder = optional($currentStep)->step_order;
+            }
+            if ($currentStep === null && $currentStepOrder !== null) {
+                $currentStep = $steps->firstWhere('step_order', $currentStepOrder);
             }
 
-            $nextStep = $this->previewCommand->getNextStep($steps, $currentStepOrder);
+            $journeyScopedSteps = $this->resolveJourneyScopedSteps($steps, $currentStep);
+            $journeyScope = $currentStep !== null && str_starts_with((string) $currentStep->step_key, 'cbna_')
+                ? 'cbna_'
+                : 'default';
+            $nextStep = $this->previewCommand->getNextStep($journeyScopedSteps, $currentStepOrder);
             $baseTime = $this->previewCommand->resolveBaseTime($progress);
 
             $dueAt = null;
@@ -212,7 +224,7 @@ class RemarketingLinearExecuteCommand extends Command
                     $commitResult = $this->commitStepDecision(
                         progress: $progress,
                         currentStep: $nextStep,
-                        allSteps: $steps,
+                        allSteps: $journeyScopedSteps,
                         executionAction: $executionAction,
                         dueAt: $dueAt,
                             now: $now,
@@ -236,7 +248,7 @@ class RemarketingLinearExecuteCommand extends Command
                         $sendResult = $this->commitSmsStepDecision(
                             progress: $progress,
                             currentStep: $nextStep,
-                            allSteps: $steps,
+                            allSteps: $journeyScopedSteps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
                             now: $now,
@@ -272,7 +284,7 @@ class RemarketingLinearExecuteCommand extends Command
                         $sendResult = $this->commitEmailStepDecision(
                             progress: $progress,
                             currentStep: $nextStep,
-                            allSteps: $steps,
+                            allSteps: $journeyScopedSteps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
                             now: $now,
@@ -307,6 +319,7 @@ class RemarketingLinearExecuteCommand extends Command
                 'progress_status' => $progress->status,
                 'next_step_order' => $nextStep?->step_order,
                 'next_step_key' => $nextStep?->step_key,
+                'journey_scope' => $journeyScope,
                 'medium' => $nextStep?->medium,
                 'planned_medium' => $plannedDelivery['planned_medium'] ?? null,
                 'actual_medium' => $actualDelivery['actual_medium'] ?? null,
@@ -336,6 +349,7 @@ class RemarketingLinearExecuteCommand extends Command
             foreach ($rows as $row) {
                 $this->line('Lead ID: '.$row['lead_id']);
                 $this->line('Progress status: '.$row['progress_status']);
+                $this->line('Journey scope: '.$row['journey_scope']);
                 $this->line('Next step: '.($row['next_step_order'] !== null ? $row['next_step_order'].' '.$row['next_step_key'] : 'none'));
                 $this->line('Medium: '.($row['medium'] ?? 'n/a'));
                 $this->line('Planned medium: '.($row['planned_medium'] ?? 'n/a'));
@@ -1437,5 +1451,30 @@ class RemarketingLinearExecuteCommand extends Command
         $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
 
         return true;
+    }
+
+    private function resolveJourneyStepQuery(RemarketingStep $currentStep): Builder
+    {
+        if (str_starts_with((string) $currentStep->step_key, 'cbna_')) {
+            return RemarketingStep::query()->where('step_key', 'like', 'cbna_%');
+        }
+
+        return RemarketingStep::query();
+    }
+
+    private function resolveJourneyScopedSteps($allSteps, ?RemarketingStep $currentStep)
+    {
+        if ($currentStep === null) {
+            return $allSteps;
+        }
+
+        if (str_starts_with((string) $currentStep->step_key, 'cbna_')) {
+            return $this->resolveJourneyStepQuery($currentStep)
+                ->where('is_active', true)
+                ->orderBy('step_order')
+                ->get();
+        }
+
+        return $allSteps;
     }
 }
