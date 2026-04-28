@@ -12,15 +12,21 @@ class RemarketingTemplate extends Model
         'template_name',
         'medium',
         'provider',
+        'provider_template_id',
         'subject',
+        'preview_text',
         'body',
+        'body_text',
+        'body_html',
         'external_template_id',
         'variables_json',
+        'metadata_json',
         'is_active',
     ];
 
     protected $casts = [
         'variables_json' => 'array',
+        'metadata_json' => 'array',
         'is_active' => 'boolean',
     ];
 
