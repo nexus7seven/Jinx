@@ -27,6 +27,7 @@ class RemarketingLinearExecuteCommand extends Command
         {--json : Output JSON instead of human report}
         {--commit : Commit planner decisions to linear progress/log tables}
         {--only-log : Commit mode guard to ensure no external actions are used}
+        {--ignore-send-window : Bypass send window checks for testing}
         {--send-sms : Send SMS only for explicit single-lead commit mode}
         {--send-email : Send email only for explicit single-lead commit mode}';
 
@@ -45,6 +46,7 @@ class RemarketingLinearExecuteCommand extends Command
         $onlyLog = (bool) $this->option('only-log');
         $sendSms = (bool) $this->option('send-sms');
         $sendEmail = (bool) $this->option('send-email');
+        $ignoreSendWindow = (bool) $this->option('ignore-send-window');
         $leadId = $this->option('lead_id');
 
         if ($sendSms && ! $commit) {
@@ -182,9 +184,15 @@ class RemarketingLinearExecuteCommand extends Command
                 } else {
                     $dueAt = $baseTime->copy()->addMinutes((int) $stepToExecute->delay_minutes);
                 }
-                $nextAllowedTime = $this->scheduleWindowService->nextAllowedTime($stepToExecute, $dueAt->copy());
-                $isDueNow = $now->greaterThanOrEqualTo($nextAllowedTime);
-                $isAllowedNow = $this->scheduleWindowService->isAllowedNow($stepToExecute, $now->copy());
+                if ($ignoreSendWindow) {
+                    $nextAllowedTime = $dueAt->copy();
+                    $isDueNow = $now->greaterThanOrEqualTo($dueAt);
+                    $isAllowedNow = true;
+                } else {
+                    $nextAllowedTime = $this->scheduleWindowService->nextAllowedTime($stepToExecute, $dueAt->copy());
+                    $isDueNow = $now->greaterThanOrEqualTo($nextAllowedTime);
+                    $isAllowedNow = $this->scheduleWindowService->isAllowedNow($stepToExecute, $now->copy());
+                }
             }
 
             $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
