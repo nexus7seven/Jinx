@@ -137,6 +137,7 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
                 LeadRemarketingProgress::query()->create($this->buildProgressPayload(
                     leadId: (int) $lead->id,
                     firstStepId: (int) $firstCbnaStep->id,
+                    firstStepOrder: (int) $firstCbnaStep->step_order,
                     now: $now
                 ));
 
@@ -308,11 +309,11 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
         return $payload;
     }
 
-    private function buildProgressPayload(int $leadId, int $firstStepId, Carbon $now): array
+    private function buildProgressPayload(int $leadId, int $firstStepId, int $firstStepOrder, Carbon $now): array
     {
         $payload = [
             'lead_id' => $leadId,
-            'current_step_order' => 1,
+            'current_step_order' => $firstStepOrder,
             'status' => 'active',
         ];
 
