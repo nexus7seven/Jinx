@@ -84,12 +84,6 @@ class RemarketingLinearExecuteCommand extends Command
             return self::FAILURE;
         }
 
-        if ($commit && ! $onlyLog && ! $sendSms && ! $sendEmail) {
-            $this->error('Live execution not implemented yet. Use --only-log, --send-sms, or --send-email.');
-
-            return self::FAILURE;
-        }
-
         $steps = RemarketingStep::query()
             ->where('is_active', true)
             ->orderBy('step_order')
@@ -265,41 +259,35 @@ class RemarketingLinearExecuteCommand extends Command
                     if ($commitResult['advanced']) {
                         $summary['advanced']++;
                     }
-                } elseif ($sendSms) {
-                    if ($executionAction !== 'would_send_sms') {
-                        $commitAction = 'skipped_non_sms_step';
-                        $smsAction = 'skipped';
-                        $errorMessage = 'execution_action is not would_send_sms';
-                    } else {
-                        $sendResult = $this->commitSmsStepDecision(
-                            progress: $progress,
-                            currentStep: $stepToExecute,
-                            allSteps: $journeyScopedSteps,
-                            executionAction: $executionAction,
-                            dueAt: $dueAt,
-                            now: $now,
-                            plannedDelivery: $plannedDelivery ?? [],
-                            actualDelivery: $actualDelivery ?? []
-                        );
+                } elseif ($executionAction === 'would_send_sms') {
+                    $sendResult = $this->commitSmsStepDecision(
+                        progress: $progress,
+                        currentStep: $stepToExecute,
+                        allSteps: $journeyScopedSteps,
+                        executionAction: $executionAction,
+                        dueAt: $dueAt,
+                        now: $now,
+                        plannedDelivery: $plannedDelivery ?? [],
+                        actualDelivery: $actualDelivery ?? []
+                    );
 
-                        $commitAction = $sendResult['commit_action'];
-                        $smsAction = $sendResult['sms_action'];
-                        $smsTo = $sendResult['sms_to'];
-                        $providerMessageId = $sendResult['provider_message_id'];
-                        $errorMessage = $sendResult['error_message'];
+                    $commitAction = $sendResult['commit_action'];
+                    $smsAction = $sendResult['sms_action'];
+                    $smsTo = $sendResult['sms_to'];
+                    $providerMessageId = $sendResult['provider_message_id'];
+                    $errorMessage = $sendResult['error_message'];
 
-                        if ($sendResult['committed']) {
-                            $summary['committed']++;
-                        }
-                        if ($sendResult['advanced']) {
-                            $summary['advanced']++;
-                        }
-                        if ($smsAction === 'sent') {
-                            $summary['sms_sent']++;
-                        }
-                        if ($smsAction === 'failed') {
-                            $summary['sms_failed']++;
-                        }
+                    if ($sendResult['committed']) {
+                        $summary['committed']++;
+                    }
+                    if ($sendResult['advanced']) {
+                        $summary['advanced']++;
+                    }
+                    if ($smsAction === 'sent') {
+                        $summary['sms_sent']++;
+                    }
+                    if ($smsAction === 'failed') {
+                        $summary['sms_failed']++;
                     }
                 } elseif ($sendEmail) {
                     if ($executionAction !== 'would_send_email') {
@@ -337,6 +325,8 @@ class RemarketingLinearExecuteCommand extends Command
                             $summary['email_failed']++;
                         }
                     }
+                } else {
+                    $commitAction = 'skipped_live_non_sms_step';
                 }
             }
 
