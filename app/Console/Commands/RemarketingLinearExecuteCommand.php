@@ -21,7 +21,7 @@ class RemarketingLinearExecuteCommand extends Command
 {
     private const DEFAULT_AGENT_NAME = 'Alex';
     private const DEFAULT_COMPANY_NAME = 'Clear My Credit';
-    private const DEFAULT_WHATSAPP_LINK = 'https://wa.me/441617685416?text=Hi%20I%20missed%20your%20call%20earlier%20about%20getting%20some%20help';
+    private const WHATSAPP_LINK = 'https://whatsapp.clearmycredit.co.uk';
     private const DEFAULT_PORTAL_LINK = '#PORTAL_LINK_PENDING#';
 
     private array $stepLogColumnCache = [];
@@ -903,7 +903,7 @@ class RemarketingLinearExecuteCommand extends Command
             '{{lead_id}}' => (string) ($variables['lead_id'] ?? ''),
             '{{agent_name}}' => (string) ($variables['agent_name'] ?? self::DEFAULT_AGENT_NAME),
             '{{company_name}}' => (string) ($variables['company_name'] ?? self::DEFAULT_COMPANY_NAME),
-            '{{whatsapp_link}}' => (string) ($variables['whatsapp_link'] ?? self::DEFAULT_WHATSAPP_LINK),
+            '{{whatsapp_link}}' => (string) ($variables['whatsapp_link'] ?? self::WHATSAPP_LINK),
             '{{portal_link}}' => (string) ($variables['portal_link'] ?? self::DEFAULT_PORTAL_LINK),
         ];
 
@@ -1451,7 +1451,7 @@ class RemarketingLinearExecuteCommand extends Command
             'lead_id' => $jinxLeadId,
             'agent_name' => self::DEFAULT_AGENT_NAME,
             'company_name' => self::DEFAULT_COMPANY_NAME,
-            'whatsapp_link' => self::DEFAULT_WHATSAPP_LINK,
+            'whatsapp_link' => self::WHATSAPP_LINK,
             'portal_link' => self::DEFAULT_PORTAL_LINK,
         ];
     }
