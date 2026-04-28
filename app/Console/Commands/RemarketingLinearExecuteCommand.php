@@ -599,17 +599,17 @@ class RemarketingLinearExecuteCommand extends Command
         if ($normalizedPhone === null) {
             $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
             $this->logFailedSmsStep(
-                $progress,
-                $currentStep,
-                $executionAction,
-                $dueAt,
-                $now,
-                null,
-                $error,
-                $plannedDelivery,
-                $actualDelivery,
-                $rawPhone,
-                null
+                progress: $progress,
+                currentStep: $currentStep,
+                executionAction: $executionAction,
+                dueAt: $dueAt,
+                now: $now,
+                to: null,
+                error: $error,
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery,
+                rawPhone: $rawPhone ?? null,
+                normalizedPhone: $normalizedPhone ?? null
             );
 
             return [
@@ -627,17 +627,17 @@ class RemarketingLinearExecuteCommand extends Command
         if ($templateBody === '') {
             $error = 'SMS template body is empty for step.';
             $this->logFailedSmsStep(
-                $progress,
-                $currentStep,
-                $executionAction,
-                $dueAt,
-                $now,
-                $normalizedPhone,
-                $error,
-                $plannedDelivery,
-                $actualDelivery,
-                $rawPhone,
-                $normalizedPhone
+                progress: $progress,
+                currentStep: $currentStep,
+                executionAction: $executionAction,
+                dueAt: $dueAt,
+                now: $now,
+                to: $normalizedPhone,
+                error: $error,
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery,
+                rawPhone: $rawPhone ?? null,
+                normalizedPhone: $normalizedPhone ?? null
             );
 
             return [
@@ -660,17 +660,17 @@ class RemarketingLinearExecuteCommand extends Command
         $sendResult = $this->sendSmsViaTwilio($normalizedPhone, $messageBody);
         if (! $sendResult['success']) {
             $this->logFailedSmsStep(
-                $progress,
-                $currentStep,
-                $executionAction,
-                $dueAt,
-                $now,
-                $normalizedPhone,
-                $sendResult['error'] ?? 'Unknown Twilio error.',
-                $plannedDelivery,
-                $actualDelivery,
-                $rawPhone,
-                $normalizedPhone
+                progress: $progress,
+                currentStep: $currentStep,
+                executionAction: $executionAction,
+                dueAt: $dueAt,
+                now: $now,
+                to: $normalizedPhone,
+                error: $sendResult['error'] ?? 'Unknown Twilio error.',
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery,
+                rawPhone: $rawPhone ?? null,
+                normalizedPhone: $normalizedPhone ?? null
             );
 
             return [
@@ -1270,7 +1270,9 @@ class RemarketingLinearExecuteCommand extends Command
         ?string $to,
         string $error,
         array $plannedDelivery = [],
-        array $actualDelivery = []
+        array $actualDelivery = [],
+        ?string $rawPhone = null,
+        ?string $normalizedPhone = null
     ): void {
         $this->createStepLog(
             progress: $progress,
