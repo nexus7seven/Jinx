@@ -591,10 +591,18 @@ class RemarketingLinearExecuteCommand extends Command
             ];
         }
 
-        $leadData = $this->fetchVicidialLeadData((int) $progress->lead_id);
         $phoneData = $this->resolveSmsPhoneData((int) $progress->lead_id);
         $rawPhone = (string) ($phoneData['raw_phone'] ?? '');
-        $normalizedPhone = $this->normalizeUkPhone($rawPhone);
+        $normalizedPhone = $phoneData['normalized_phone'] ?? $this->normalizeUkPhone($rawPhone);
+        $phoneSource = (string) ($phoneData['phone_source'] ?? 'none');
+        $vicidialLeadId = $phoneData['vicidial_lead_id'] ?? null;
+        $leadData = $vicidialLeadId !== null
+            ? $this->fetchVicidialLeadData((int) $vicidialLeadId)
+            : ['first_name' => ''];
+
+        $this->line('SMS raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)'));
+        $this->line('SMS normalized phone: '.($normalizedPhone ?? '(invalid)'));
+        $this->line('SMS phone source: '.$phoneSource);
 
         if ($normalizedPhone === null) {
             $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
@@ -1307,10 +1315,13 @@ class RemarketingLinearExecuteCommand extends Command
         );
     }
 
-    private function resolveSmsPhoneData(int $vicidialLeadId): array
+    private function resolveSmsPhoneData(int $jinxLeadId): array
     {
-        $leadPhone = null;
-        if (Schema::hasTable('leads')) {
+        $rawPhone = null;
+        $phoneSource = 'none';
+        $vicidialLeadId = null;
+
+        if (Schema::hasTable('leads') && Schema::hasColumn('leads', 'id')) {
             $leadSelect = ['id'];
             if (Schema::hasColumn('leads', 'phone_number')) {
                 $leadSelect[] = 'phone_number';
@@ -1318,35 +1329,47 @@ class RemarketingLinearExecuteCommand extends Command
             if (Schema::hasColumn('leads', 'phone')) {
                 $leadSelect[] = 'phone';
             }
-
             if (Schema::hasColumn('leads', 'vicidial_lead_id')) {
-                $leadRow = DB::table('leads')
-                    ->select($leadSelect)
-                    ->where('vicidial_lead_id', $vicidialLeadId)
-                    ->first();
+                $leadSelect[] = 'vicidial_lead_id';
+            }
 
-                if ($leadRow !== null) {
-                    $leadPhone = $this->pickFirstNonEmptyValue([
-                        $leadRow->phone_number ?? null,
-                        $leadRow->phone ?? null,
-                    ]);
+            $leadRow = DB::table('leads')
+                ->select($leadSelect)
+                ->where('id', $jinxLeadId)
+                ->first();
+
+            if ($leadRow !== null) {
+                $rawLeadPhoneNumber = trim((string) ($leadRow->phone_number ?? ''));
+                $rawLeadPhone = trim((string) ($leadRow->phone ?? ''));
+                $vicidialLeadId = isset($leadRow->vicidial_lead_id) && $leadRow->vicidial_lead_id !== null
+                    ? (int) $leadRow->vicidial_lead_id
+                    : null;
+
+                if ($rawLeadPhoneNumber !== '') {
+                    $rawPhone = $rawLeadPhoneNumber;
+                    $phoneSource = 'leads.phone_number';
+                } elseif ($rawLeadPhone !== '') {
+                    $rawPhone = $rawLeadPhone;
+                    $phoneSource = 'leads.phone';
                 }
             }
         }
 
-        $vicidialData = $this->fetchVicidialLeadData($vicidialLeadId);
-        $vicidialPhone = $this->pickFirstNonEmptyValue([
-            $vicidialData['phone_number'] ?? null,
-        ]);
-
-        $rawPhone = $this->pickFirstNonEmptyValue([
-            $leadPhone,
-            $vicidialPhone,
-            $vicidialData['phone_number'] ?? null,
-        ]);
+        if (($rawPhone === null || $rawPhone === '') && $vicidialLeadId !== null) {
+            $vicidialData = $this->fetchVicidialLeadData($vicidialLeadId);
+            $vicidialPhone = trim((string) ($vicidialData['phone_number'] ?? ''));
+            if ($vicidialPhone !== '') {
+                $rawPhone = $vicidialPhone;
+                $phoneSource = 'vicidial_list.phone_number';
+            }
+        }
 
         return [
             'raw_phone' => $rawPhone,
+            'normalized_phone' => $this->normalizeUkPhone((string) ($rawPhone ?? '')),
+            'phone_source' => $phoneSource,
+            'jinx_lead_id' => $jinxLeadId,
+            'vicidial_lead_id' => $vicidialLeadId,
         ];
     }
 
