@@ -1303,9 +1303,8 @@ class RemarketingLinearExecuteCommand extends Command
             $stage = 'fresh';
         }
         $whatsAppUrl = self::WHATSAPP_LINK;
-        if (trim($renderedBody) !== '') {
-            $whatsAppUrl .= '?text='.urlencode($renderedBody);
-        }
+        $supportsMessageBody = Schema::hasColumn('remarketing_tasks', 'message_body');
+        $supportsMetadataJson = Schema::hasColumn('remarketing_tasks', 'metadata_json');
 
         $existing = RemarketingTask::query()
             ->where('lead_id', $taskLeadId)
@@ -1315,18 +1314,28 @@ class RemarketingLinearExecuteCommand extends Command
             ->first();
 
         if ($existing !== null) {
-            $existing->update([
+            $updatePayload = [
                 'lead_name' => $leadName,
                 'phone' => $rawPhone !== '' ? $rawPhone : ($existing->phone ?? ''),
                 'stage' => $stage,
                 'whatsapp_url' => $whatsAppUrl,
                 'time_waiting_text' => '0h',
-            ]);
+            ];
+            if ($supportsMessageBody) {
+                $updatePayload['message_body'] = $renderedBody !== '' ? $renderedBody : null;
+            }
+            if ($supportsMetadataJson) {
+                $updatePayload['metadata_json'] = array_merge((array) ($existing->metadata_json ?? []), [
+                    'rendered_body' => $renderedBody !== '' ? $renderedBody : null,
+                    'template_key' => $templateKey !== '' ? $templateKey : null,
+                ]);
+            }
+            $existing->update($updatePayload);
 
             return $existing->fresh();
         }
 
-        return RemarketingTask::query()->create([
+        $createPayload = [
             'lead_id' => $taskLeadId,
             'lead_name' => $leadName,
             'phone' => $rawPhone !== '' ? $rawPhone : '-',
@@ -1337,7 +1346,18 @@ class RemarketingLinearExecuteCommand extends Command
             'status' => RemarketingTask::STATUS_PENDING,
             'time_waiting_text' => '0h',
             'whatsapp_url' => $whatsAppUrl,
-        ]);
+        ];
+        if ($supportsMessageBody) {
+            $createPayload['message_body'] = $renderedBody !== '' ? $renderedBody : null;
+        }
+        if ($supportsMetadataJson) {
+            $createPayload['metadata_json'] = [
+                'rendered_body' => $renderedBody !== '' ? $renderedBody : null,
+                'template_key' => $templateKey !== '' ? $templateKey : null,
+            ];
+        }
+
+        return RemarketingTask::query()->create($createPayload);
     }
 
     private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body): array

@@ -194,12 +194,21 @@ class RemarketingController extends Controller
                 $whatsappUrl = $task->whatsapp_url;
                 if ($task->task_type === 'whatsapp') {
                     $whatsappUrl = $whatsappUrl ?: 'https://whatsapp.clearmycredit.co.uk';
-                    $query = parse_url((string) $whatsappUrl, PHP_URL_QUERY);
-                    if (is_string($query) && $query !== '') {
-                        parse_str($query, $queryParams);
-                        $rawText = $queryParams['text'] ?? null;
-                        if (is_string($rawText) && trim($rawText) !== '') {
-                            $messageBody = urldecode($rawText);
+                    $messageBody = trim((string) ($task->message_body ?? ''));
+                    if ($messageBody === '') {
+                        $renderedFromMetadata = trim((string) data_get($task->metadata_json, 'rendered_body', ''));
+                        if ($renderedFromMetadata !== '') {
+                            $messageBody = $renderedFromMetadata;
+                        }
+                    }
+                    if ($messageBody === '') {
+                        $query = parse_url((string) $whatsappUrl, PHP_URL_QUERY);
+                        if (is_string($query) && $query !== '') {
+                            parse_str($query, $queryParams);
+                            $rawText = $queryParams['text'] ?? null;
+                            if (is_string($rawText) && trim($rawText) !== '') {
+                                $messageBody = urldecode($rawText);
+                            }
                         }
                     }
                 }

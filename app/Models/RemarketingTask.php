@@ -22,5 +22,11 @@ class RemarketingTask extends Model
         'status',
         'time_waiting_text',
         'whatsapp_url',
+        'message_body',
+        'metadata_json',
+    ];
+
+    protected $casts = [
+        'metadata_json' => 'array',
     ];
 }
