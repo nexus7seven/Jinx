@@ -12,7 +12,11 @@ use Illuminate\Support\Facades\Schema;
 
 class RemarketingInitCbnaFromVicidialCommand extends Command
 {
-    protected $signature = 'remarketing:init-cbna {--dry-run} {--limit=100}';
+    protected $signature = 'remarketing:init-cbna
+        {--dry-run}
+        {--limit=100}
+        {--move-list-id=5555555555}
+        {--new-vicidial-status=HOLD}';
 
     protected $description = 'Initialize CBNA leads from VICIdial into remarketing progress.';
 
@@ -20,7 +24,22 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
     {
         $dryRun = (bool) $this->option('dry-run');
         $limit = max(1, (int) $this->option('limit'));
+        $moveListId = trim((string) $this->option('move-list-id'));
+        $newVicidialStatus = trim((string) $this->option('new-vicidial-status'));
         $now = Carbon::now();
+
+        if ($newVicidialStatus === '') {
+            $this->error('Option --new-vicidial-status cannot be empty.');
+
+            return self::FAILURE;
+        }
+
+        $preflightError = $this->validateVicidialMoveTarget($moveListId);
+        if ($preflightError !== null) {
+            $this->error($preflightError);
+
+            return self::FAILURE;
+        }
 
         $firstCbnaStep = RemarketingStep::query()
             ->where('step_key', 'cbna_sms_instant')
@@ -45,6 +64,8 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
             'skipped_existing' => 0,
             'would_initialize' => 0,
             'would_create_lead' => 0,
+            'vicidial_moved' => 0,
+            'would_move_vicidial' => 0,
         ];
 
         foreach ($candidates as $candidate) {
@@ -70,10 +91,12 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
             if ($dryRun) {
                 $summary['would_initialize']++;
                 $this->line('[CBNA INIT] Lead '.($lead?->id ?? 'new(vicidial '.$vicidialLeadId.')').' would initialize -> step 1');
+                $summary['would_move_vicidial']++;
+                $this->line('[CBNA INIT] Would move VICIdial lead_id '.$vicidialLeadId.' to status '.$newVicidialStatus.' list_id '.$moveListId);
                 continue;
             }
 
-            DB::transaction(function () use (
+            $initializedInRun = DB::transaction(function () use (
                 &$lead,
                 $isNewLead,
                 $vicidialLeadId,
@@ -83,7 +106,7 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
                 $email,
                 $firstCbnaStep,
                 $now
-            ): void {
+            ): bool {
                 if ($isNewLead) {
                     $lead = Lead::query()->create($this->buildNewLeadPayload(
                         vicidialLeadId: $vicidialLeadId,
@@ -108,7 +131,7 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
                 }
 
                 if ($this->hasActiveOrPendingProgress((int) $lead->id)) {
-                    return;
+                    return false;
                 }
 
                 LeadRemarketingProgress::query()->create($this->buildProgressPayload(
@@ -116,11 +139,24 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
                     firstStepId: (int) $firstCbnaStep->id,
                     now: $now
                 ));
+
+                return true;
             });
 
-            if ($lead !== null && $this->hasActiveOrPendingProgress((int) $lead->id)) {
+            if ($initializedInRun && $lead !== null) {
                 $summary['initialized']++;
                 $this->line('[CBNA INIT] Lead '.(int) $lead->id.' initialized -> step 1');
+                $moved = $this->moveVicidialLeadAfterInit(
+                    vicidialLeadId: $vicidialLeadId,
+                    newStatus: $newVicidialStatus,
+                    moveListId: $moveListId
+                );
+                if ($moved) {
+                    $summary['vicidial_moved']++;
+                    $this->line('[CBNA INIT] VICIdial lead_id '.$vicidialLeadId.' moved to status '.$newVicidialStatus.' list_id '.$moveListId);
+                } else {
+                    $this->warn('[CBNA INIT] VICIdial lead_id '.$vicidialLeadId.' not moved (row not in CBNA state).');
+                }
             } else {
                 $summary['skipped_existing']++;
                 $this->line('[CBNA INIT] Lead '.($lead?->id ?? 'unknown').' skipped (existing active/pending progress)');
@@ -128,12 +164,17 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
         }
 
         $this->newLine();
+        if ($dryRun) {
+            $this->line('Dry-run mode: no writes were performed.');
+        }
         $this->line('Checked: '.$summary['checked']);
         if ($dryRun) {
             $this->line('Would create lead: '.$summary['would_create_lead']);
             $this->line('Would initialize: '.$summary['would_initialize']);
+            $this->line('Would move VICIdial: '.$summary['would_move_vicidial']);
         } else {
             $this->line('Initialized: '.$summary['initialized']);
+            $this->line('VICIdial moved: '.$summary['vicidial_moved']);
         }
         $this->line('Skipped existing: '.$summary['skipped_existing']);
 
@@ -292,5 +333,73 @@ class RemarketingInitCbnaFromVicidialCommand extends Command
         }
 
         return $payload;
+    }
+
+    private function moveVicidialLeadAfterInit(int $vicidialLeadId, string $newStatus, string $moveListId): bool
+    {
+        $updatePayload = ['status' => $newStatus];
+        if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'list_id')) {
+            $updatePayload['list_id'] = $moveListId;
+        }
+
+        $updated = DB::connection('asterisk')
+            ->table('vicidial_list')
+            ->where('lead_id', $vicidialLeadId)
+            ->where('status', 'CBNA')
+            ->update($updatePayload);
+
+        return $updated > 0;
+    }
+
+    private function validateVicidialMoveTarget(string $moveListId): ?string
+    {
+        if (! Schema::connection('asterisk')->hasColumn('vicidial_list', 'list_id')) {
+            return 'Preflight failed: vicidial_list.list_id column not found.';
+        }
+
+        $column = DB::connection('asterisk')
+            ->select("SHOW COLUMNS FROM vicidial_list LIKE 'list_id'");
+
+        $definition = $column[0] ?? null;
+        $type = strtolower((string) ($definition->Type ?? $definition->type ?? ''));
+        if ($type === '') {
+            return 'Preflight failed: unable to inspect vicidial_list.list_id type.';
+        }
+
+        if (str_contains($type, 'int')) {
+            if (! preg_match('/^\d+$/', $moveListId)) {
+                return 'Preflight failed: --move-list-id must be numeric for vicidial_list.list_id type '.$type.'.';
+            }
+
+            $max = $this->maxValueForIntegerType($type);
+            if ($max !== null && (float) $moveListId > $max) {
+                return 'Preflight failed: --move-list-id '.$moveListId.' exceeds vicidial_list.list_id max '.$max.' for type '.$type.'.';
+            }
+        }
+
+        return null;
+    }
+
+    private function maxValueForIntegerType(string $mysqlType): ?float
+    {
+        $unsigned = str_contains($mysqlType, 'unsigned');
+
+        if (str_starts_with($mysqlType, 'tinyint')) {
+            return $unsigned ? 255.0 : 127.0;
+        }
+        if (str_starts_with($mysqlType, 'smallint')) {
+            return $unsigned ? 65535.0 : 32767.0;
+        }
+        if (str_starts_with($mysqlType, 'mediumint')) {
+            return $unsigned ? 16777215.0 : 8388607.0;
+        }
+        if (str_starts_with($mysqlType, 'int')) {
+            return $unsigned ? 4294967295.0 : 2147483647.0;
+        }
+        if (str_starts_with($mysqlType, 'bigint')) {
+            return $unsigned ? 18446744073709551615.0 : 9223372036854775807.0;
+        }
+
+        return null;
     }
 }
