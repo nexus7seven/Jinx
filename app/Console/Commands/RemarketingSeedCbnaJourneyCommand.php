@@ -81,7 +81,7 @@ class RemarketingSeedCbnaJourneyCommand extends Command
                 $criteria['flow_key'] = self::FLOW_KEY;
             }
 
-            $now = now();
+            $now = now()->toDateTimeString();
             $existing = DB::table('remarketing_steps')->where($criteria)->first();
             $primaryTemplateKey = $step['primary_template_key'];
             $templateId = $primaryTemplateKey !== null ? ($templateIdMap[$primaryTemplateKey] ?? null) : null;
@@ -355,6 +355,11 @@ class RemarketingSeedCbnaJourneyCommand extends Command
     private function normalizePayloadForDatabase(array $payload): array
     {
         foreach ($payload as $key => $value) {
+            if ($value instanceof \DateTimeInterface) {
+                $payload[$key] = $value->format('Y-m-d H:i:s');
+                continue;
+            }
+
             if (is_array($value) || is_object($value)) {
                 $payload[$key] = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             }
