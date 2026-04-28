@@ -592,12 +592,25 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         $leadData = $this->fetchVicidialLeadData((int) $progress->lead_id);
-        $rawPhone = (string) ($leadData['phone_number'] ?? '');
+        $phoneData = $this->resolveSmsPhoneData((int) $progress->lead_id);
+        $rawPhone = (string) ($phoneData['raw_phone'] ?? '');
         $normalizedPhone = $this->normalizeUkPhone($rawPhone);
 
         if ($normalizedPhone === null) {
             $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
-            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error, $plannedDelivery, $actualDelivery);
+            $this->logFailedSmsStep(
+                $progress,
+                $currentStep,
+                $executionAction,
+                $dueAt,
+                $now,
+                null,
+                $error,
+                $plannedDelivery,
+                $actualDelivery,
+                $rawPhone,
+                null
+            );
 
             return [
                 'committed' => true,
@@ -613,7 +626,19 @@ class RemarketingLinearExecuteCommand extends Command
         $templateBody = trim((string) optional($currentStep->template)->body);
         if ($templateBody === '') {
             $error = 'SMS template body is empty for step.';
-            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, $normalizedPhone, $error, $plannedDelivery, $actualDelivery);
+            $this->logFailedSmsStep(
+                $progress,
+                $currentStep,
+                $executionAction,
+                $dueAt,
+                $now,
+                $normalizedPhone,
+                $error,
+                $plannedDelivery,
+                $actualDelivery,
+                $rawPhone,
+                $normalizedPhone
+            );
 
             return [
                 'committed' => true,
@@ -643,7 +668,9 @@ class RemarketingLinearExecuteCommand extends Command
                 $normalizedPhone,
                 $sendResult['error'] ?? 'Unknown Twilio error.',
                 $plannedDelivery,
-                $actualDelivery
+                $actualDelivery,
+                $rawPhone,
+                $normalizedPhone
             );
 
             return [
@@ -671,7 +698,8 @@ class RemarketingLinearExecuteCommand extends Command
             $providerSid,
             $from,
             $plannedDelivery,
-            $actualDelivery
+            $actualDelivery,
+            $rawPhone
         ): array {
             $this->createStepLog(
                 progress: $progress,
@@ -696,7 +724,10 @@ class RemarketingLinearExecuteCommand extends Command
                         'from' => $from,
                         'execution_action' => $executionAction,
                     ],
-                    'metadata_json' => [],
+                    'metadata_json' => [
+                        'raw_phone' => $rawPhone !== '' ? $rawPhone : null,
+                        'normalized_phone' => $normalizedPhone,
+                    ],
                 ],
                 plannedDelivery: $plannedDelivery,
                 actualDelivery: $actualDelivery
@@ -837,6 +868,8 @@ class RemarketingLinearExecuteCommand extends Command
 
         if (str_starts_with($digits, '44') && strlen($digits) === 12) {
             $normalized = '+' . $digits;
+        } elseif (str_starts_with($digits, '07') && strlen($digits) === 11) {
+            $normalized = '+44' . substr($digits, 1);
         } elseif (str_starts_with($digits, '0') && strlen($digits) === 11) {
             $normalized = '+44' . substr($digits, 1);
         } elseif (str_starts_with($digits, '7') && strlen($digits) === 10) {
@@ -1137,7 +1170,9 @@ class RemarketingLinearExecuteCommand extends Command
         ?string $to,
         string $error,
         array $plannedDelivery = [],
-        array $actualDelivery = []
+        array $actualDelivery = [],
+        ?string $rawPhone = null,
+        ?string $normalizedPhone = null
     ): void {
         $this->createStepLog(
             progress: $progress,
@@ -1260,11 +1295,69 @@ class RemarketingLinearExecuteCommand extends Command
                     'execution_action' => $executionAction,
                     'note' => 'sms send failed; no progress advance',
                 ],
-                'metadata_json' => [],
+                'metadata_json' => [
+                    'raw_phone' => $rawPhone,
+                    'normalized_phone' => $normalizedPhone,
+                ],
             ],
             plannedDelivery: $plannedDelivery,
             actualDelivery: $actualDelivery
         );
+    }
+
+    private function resolveSmsPhoneData(int $vicidialLeadId): array
+    {
+        $leadPhone = null;
+        if (Schema::hasTable('leads')) {
+            $leadSelect = ['id'];
+            if (Schema::hasColumn('leads', 'phone_number')) {
+                $leadSelect[] = 'phone_number';
+            }
+            if (Schema::hasColumn('leads', 'phone')) {
+                $leadSelect[] = 'phone';
+            }
+
+            if (Schema::hasColumn('leads', 'vicidial_lead_id')) {
+                $leadRow = DB::table('leads')
+                    ->select($leadSelect)
+                    ->where('vicidial_lead_id', $vicidialLeadId)
+                    ->first();
+
+                if ($leadRow !== null) {
+                    $leadPhone = $this->pickFirstNonEmptyValue([
+                        $leadRow->phone_number ?? null,
+                        $leadRow->phone ?? null,
+                    ]);
+                }
+            }
+        }
+
+        $vicidialData = $this->fetchVicidialLeadData($vicidialLeadId);
+        $vicidialPhone = $this->pickFirstNonEmptyValue([
+            $vicidialData['phone_number'] ?? null,
+        ]);
+
+        $rawPhone = $this->pickFirstNonEmptyValue([
+            $leadPhone,
+            $vicidialPhone,
+            $vicidialData['phone_number'] ?? null,
+        ]);
+
+        return [
+            'raw_phone' => $rawPhone,
+        ];
+    }
+
+    private function pickFirstNonEmptyValue(array $candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            $value = trim((string) ($candidate ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow, ?array $actualDelivery = null): string
