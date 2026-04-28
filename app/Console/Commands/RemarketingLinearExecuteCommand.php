@@ -19,6 +19,11 @@ use Throwable;
 
 class RemarketingLinearExecuteCommand extends Command
 {
+    private const DEFAULT_AGENT_NAME = 'Alex';
+    private const DEFAULT_COMPANY_NAME = 'Clear My Credit';
+    private const DEFAULT_WHATSAPP_LINK = 'https://wa.me/441617685416?text=Hi%20I%20missed%20your%20call%20earlier%20about%20getting%20some%20help';
+    private const DEFAULT_PORTAL_LINK = '#PORTAL_LINK_PENDING#';
+
     private array $stepLogColumnCache = [];
 
     protected $signature = 'remarketing:linear-execute
@@ -659,11 +664,8 @@ class RemarketingLinearExecuteCommand extends Command
             ];
         }
 
-        $messageBody = $this->renderTemplateBody(
-            $templateBody,
-            (string) ($leadData['first_name'] ?? ''),
-            (int) $progress->lead_id
-        );
+        $templateVariables = $this->resolveTemplateVariables((int) $progress->lead_id, $leadData);
+        $messageBody = $this->renderTemplateBody($templateBody, $templateVariables);
 
         $sendResult = $this->sendSmsViaTwilio($normalizedPhone, $messageBody);
         if (! $sendResult['success']) {
@@ -893,13 +895,24 @@ class RemarketingLinearExecuteCommand extends Command
         return $normalized;
     }
 
-    private function renderTemplateBody(string $templateBody, string $firstName, int $leadId): string
+    private function renderTemplateBody(string $templateBody, array $variables): string
     {
-        return str_replace(
-            ['{{first_name}}', '{{lead_id}}', '{{portal_link}}'],
-            [$firstName, (string) $leadId, (string) (config('app.url') ?? '')],
-            $templateBody
-        );
+        $replacements = [
+            '{{first_name}}' => (string) ($variables['first_name'] ?? ''),
+            '{{last_name}}' => (string) ($variables['last_name'] ?? ''),
+            '{{lead_id}}' => (string) ($variables['lead_id'] ?? ''),
+            '{{agent_name}}' => (string) ($variables['agent_name'] ?? self::DEFAULT_AGENT_NAME),
+            '{{company_name}}' => (string) ($variables['company_name'] ?? self::DEFAULT_COMPANY_NAME),
+            '{{whatsapp_link}}' => (string) ($variables['whatsapp_link'] ?? self::DEFAULT_WHATSAPP_LINK),
+            '{{portal_link}}' => (string) ($variables['portal_link'] ?? self::DEFAULT_PORTAL_LINK),
+        ];
+
+        $rendered = str_replace(array_keys($replacements), array_values($replacements), $templateBody);
+        if (preg_match('/\{\{[^}]+\}\}/', $rendered) === 1) {
+            $this->warn('Template rendering warning: unresolved placeholders remain in rendered body.');
+        }
+
+        return $rendered;
     }
 
     private function commitEmailStepDecision(
@@ -1017,11 +1030,11 @@ class RemarketingLinearExecuteCommand extends Command
             ];
         }
 
-        $firstName = (string) ($leadData['first_name'] ?? '');
+        $templateVariables = $this->resolveTemplateVariables((int) $progress->lead_id, $leadData);
         $subject = $subjectTemplate !== ''
-            ? $this->renderTemplateBody($subjectTemplate, $firstName, (int) $progress->lead_id)
+            ? $this->renderTemplateBody($subjectTemplate, $templateVariables)
             : (string) ($template?->template_name ?? 'Remarketing update');
-        $body = $this->renderTemplateBody($bodyTemplate, $firstName, (int) $progress->lead_id);
+        $body = $this->renderTemplateBody($bodyTemplate, $templateVariables);
 
         $sendResult = $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body);
         if (! $sendResult['success']) {
@@ -1383,6 +1396,64 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         return null;
+    }
+
+    private function resolveTemplateVariables(int $jinxLeadId, array $fallback = []): array
+    {
+        $leadFirstName = '';
+        $leadLastName = '';
+        $vicidialLeadId = null;
+
+        if (Schema::hasTable('leads')) {
+            $select = ['id'];
+            if (Schema::hasColumn('leads', 'first_name')) {
+                $select[] = 'first_name';
+            }
+            if (Schema::hasColumn('leads', 'last_name')) {
+                $select[] = 'last_name';
+            }
+            if (Schema::hasColumn('leads', 'vicidial_lead_id')) {
+                $select[] = 'vicidial_lead_id';
+            }
+
+            $lead = DB::table('leads')->select($select)->where('id', $jinxLeadId)->first();
+            if ($lead !== null) {
+                $leadFirstName = trim((string) ($lead->first_name ?? ''));
+                $leadLastName = trim((string) ($lead->last_name ?? ''));
+                $vicidialLeadId = isset($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
+            }
+        }
+
+        $vicidialFirstName = '';
+        $vicidialLastName = '';
+        if ($vicidialLeadId !== null) {
+            $selectColumns = ['lead_id'];
+            if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'first_name')) {
+                $selectColumns[] = 'first_name';
+            }
+            if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'last_name')) {
+                $selectColumns[] = 'last_name';
+            }
+
+            $vicidial = DB::connection('asterisk')
+                ->table('vicidial_list')
+                ->select($selectColumns)
+                ->where('lead_id', $vicidialLeadId)
+                ->first();
+
+            $vicidialFirstName = trim((string) ($vicidial->first_name ?? ''));
+            $vicidialLastName = trim((string) ($vicidial->last_name ?? ''));
+        }
+
+        return [
+            'first_name' => $leadFirstName !== '' ? $leadFirstName : (string) ($fallback['first_name'] ?? $vicidialFirstName),
+            'last_name' => $leadLastName !== '' ? $leadLastName : (string) ($fallback['last_name'] ?? $vicidialLastName),
+            'lead_id' => $jinxLeadId,
+            'agent_name' => self::DEFAULT_AGENT_NAME,
+            'company_name' => self::DEFAULT_COMPANY_NAME,
+            'whatsapp_link' => self::DEFAULT_WHATSAPP_LINK,
+            'portal_link' => self::DEFAULT_PORTAL_LINK,
+        ];
     }
 
     private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow, ?array $actualDelivery = null): string
