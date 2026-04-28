@@ -155,6 +155,18 @@ class RemarketingLinearExecuteCommand extends Command
                 ? 'cbna_'
                 : 'default';
             $nextStep = $this->previewCommand->getNextStep($journeyScopedSteps, $currentStepOrder);
+            $stepToExecute = $nextStep;
+
+            $currentDueAt = $progress->next_step_due_at;
+            $shouldExecuteCurrentStep = $currentStep !== null
+                && $currentDueAt !== null
+                && $progress->last_step_completed_at === null
+                && Carbon::parse((string) $currentDueAt, RemarketingScheduleWindowService::TIMEZONE)->lessThanOrEqualTo($now);
+
+            if ($shouldExecuteCurrentStep) {
+                $stepToExecute = $currentStep;
+            }
+
             $baseTime = $this->previewCommand->resolveBaseTime($progress);
 
             $dueAt = null;
@@ -162,17 +174,23 @@ class RemarketingLinearExecuteCommand extends Command
             $isDueNow = false;
             $isAllowedNow = false;
 
-            if ($nextStep !== null) {
-                $dueAt = $baseTime->copy()->addMinutes((int) $nextStep->delay_minutes);
-                $nextAllowedTime = $this->scheduleWindowService->nextAllowedTime($nextStep, $dueAt->copy());
+            if ($stepToExecute !== null) {
+                if ($shouldExecuteCurrentStep) {
+                    $dueAt = $currentDueAt !== null
+                        ? Carbon::parse((string) $currentDueAt, RemarketingScheduleWindowService::TIMEZONE)
+                        : $now->copy();
+                } else {
+                    $dueAt = $baseTime->copy()->addMinutes((int) $stepToExecute->delay_minutes);
+                }
+                $nextAllowedTime = $this->scheduleWindowService->nextAllowedTime($stepToExecute, $dueAt->copy());
                 $isDueNow = $now->greaterThanOrEqualTo($nextAllowedTime);
-                $isAllowedNow = $this->scheduleWindowService->isAllowedNow($nextStep, $now->copy());
+                $isAllowedNow = $this->scheduleWindowService->isAllowedNow($stepToExecute, $now->copy());
             }
 
             $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
-            $plannedDelivery = $nextStep !== null ? $this->resolvePlannedDelivery($nextStep) : null;
-            $actualDelivery = $nextStep !== null
-                ? $this->resolveActualDelivery($nextStep, $progress, $lead)
+            $plannedDelivery = $stepToExecute !== null ? $this->resolvePlannedDelivery($stepToExecute) : null;
+            $actualDelivery = $stepToExecute !== null
+                ? $this->resolveActualDelivery($stepToExecute, $progress, $lead)
                 : null;
 
             $hasNeedsReviewResponse = RemarketingResponseEvent::query()
@@ -196,7 +214,7 @@ class RemarketingLinearExecuteCommand extends Command
             } else {
                 $executionAction = $this->resolveExecutionAction(
                     progressStatus: (string) $progress->status,
-                    nextStep: $nextStep,
+                    nextStep: $stepToExecute,
                     isDueNow: $isDueNow,
                     actualDelivery: $actualDelivery
                 );
@@ -219,11 +237,11 @@ class RemarketingLinearExecuteCommand extends Command
                 $summary['skipped']++;
             }
 
-            if ($commit && $this->isCommitEligible($executionAction, $isDueNow) && $nextStep !== null) {
+            if ($commit && $this->isCommitEligible($executionAction, $isDueNow) && $stepToExecute !== null) {
                 if ($onlyLog) {
                     $commitResult = $this->commitStepDecision(
                         progress: $progress,
-                        currentStep: $nextStep,
+                        currentStep: $stepToExecute,
                         allSteps: $journeyScopedSteps,
                         executionAction: $executionAction,
                         dueAt: $dueAt,
@@ -247,7 +265,7 @@ class RemarketingLinearExecuteCommand extends Command
                     } else {
                         $sendResult = $this->commitSmsStepDecision(
                             progress: $progress,
-                            currentStep: $nextStep,
+                            currentStep: $stepToExecute,
                             allSteps: $journeyScopedSteps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
@@ -283,7 +301,7 @@ class RemarketingLinearExecuteCommand extends Command
                     } else {
                         $sendResult = $this->commitEmailStepDecision(
                             progress: $progress,
-                            currentStep: $nextStep,
+                            currentStep: $stepToExecute,
                             allSteps: $journeyScopedSteps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
@@ -317,10 +335,10 @@ class RemarketingLinearExecuteCommand extends Command
             $rows[] = [
                 'lead_id' => (int) $progress->lead_id,
                 'progress_status' => $progress->status,
-                'next_step_order' => $nextStep?->step_order,
-                'next_step_key' => $nextStep?->step_key,
+                'next_step_order' => $stepToExecute?->step_order,
+                'next_step_key' => $stepToExecute?->step_key,
                 'journey_scope' => $journeyScope,
-                'medium' => $nextStep?->medium,
+                'medium' => $stepToExecute?->medium,
                 'planned_medium' => $plannedDelivery['planned_medium'] ?? null,
                 'actual_medium' => $actualDelivery['actual_medium'] ?? null,
                 'planned_template_key' => $plannedDelivery['planned_template_key'] ?? null,
