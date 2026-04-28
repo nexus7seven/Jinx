@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\LeadRemarketingProgress;
 use App\Models\RemarketingResponseEvent;
 use App\Models\LeadRemarketingStepLog;
+use App\Models\Lead;
 use App\Models\RemarketingStep;
 use App\Services\RemarketingScheduleWindowService;
 use Carbon\Carbon;
@@ -17,6 +18,8 @@ use Throwable;
 
 class RemarketingLinearExecuteCommand extends Command
 {
+    private array $stepLogColumnCache = [];
+
     protected $signature = 'remarketing:linear-execute
         {--lead_id= : Optional single vicidial lead_id}
         {--limit=50 : Max number of progress rows to inspect}
@@ -154,6 +157,12 @@ class RemarketingLinearExecuteCommand extends Command
                 $isAllowedNow = $this->scheduleWindowService->isAllowedNow($nextStep, $now->copy());
             }
 
+            $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
+            $plannedDelivery = $nextStep !== null ? $this->resolvePlannedDelivery($nextStep) : null;
+            $actualDelivery = $nextStep !== null
+                ? $this->resolveActualDelivery($nextStep, $progress, $lead)
+                : null;
+
             $hasNeedsReviewResponse = RemarketingResponseEvent::query()
                 ->where('lead_id', (int) $progress->lead_id)
                 ->where('status', RemarketingResponseEvent::STATUS_NEEDS_REVIEW)
@@ -176,7 +185,8 @@ class RemarketingLinearExecuteCommand extends Command
                 $executionAction = $this->resolveExecutionAction(
                     progressStatus: (string) $progress->status,
                     nextStep: $nextStep,
-                    isDueNow: $isDueNow
+                    isDueNow: $isDueNow,
+                    actualDelivery: $actualDelivery
                 );
             }
             $commitAction = 'dry_run_no_change';
@@ -205,7 +215,9 @@ class RemarketingLinearExecuteCommand extends Command
                         allSteps: $steps,
                         executionAction: $executionAction,
                         dueAt: $dueAt,
-                        now: $now
+                            now: $now,
+                            plannedDelivery: $plannedDelivery ?? [],
+                            actualDelivery: $actualDelivery ?? []
                     );
 
                     $commitAction = $commitResult['commit_action'];
@@ -227,7 +239,9 @@ class RemarketingLinearExecuteCommand extends Command
                             allSteps: $steps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
-                            now: $now
+                            now: $now,
+                            plannedDelivery: $plannedDelivery ?? [],
+                            actualDelivery: $actualDelivery ?? []
                         );
 
                         $commitAction = $sendResult['commit_action'];
@@ -261,7 +275,9 @@ class RemarketingLinearExecuteCommand extends Command
                             allSteps: $steps,
                             executionAction: $executionAction,
                             dueAt: $dueAt,
-                            now: $now
+                            now: $now,
+                            plannedDelivery: $plannedDelivery ?? [],
+                            actualDelivery: $actualDelivery ?? []
                         );
 
                         $commitAction = $sendResult['commit_action'];
@@ -292,6 +308,12 @@ class RemarketingLinearExecuteCommand extends Command
                 'next_step_order' => $nextStep?->step_order,
                 'next_step_key' => $nextStep?->step_key,
                 'medium' => $nextStep?->medium,
+                'planned_medium' => $plannedDelivery['planned_medium'] ?? null,
+                'actual_medium' => $actualDelivery['actual_medium'] ?? null,
+                'planned_template_key' => $plannedDelivery['planned_template_key'] ?? null,
+                'actual_template_key' => $actualDelivery['actual_template_key'] ?? null,
+                'fallback_used' => (bool) ($actualDelivery['fallback_used'] ?? false),
+                'fallback_reason' => $actualDelivery['fallback_reason'] ?? null,
                 'due_at' => $dueAt?->format('Y-m-d H:i:s'),
                 'next_allowed_time' => $nextAllowedTime?->format('Y-m-d H:i:s'),
                 'is_due_now' => $isDueNow,
@@ -316,6 +338,14 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('Progress status: '.$row['progress_status']);
                 $this->line('Next step: '.($row['next_step_order'] !== null ? $row['next_step_order'].' '.$row['next_step_key'] : 'none'));
                 $this->line('Medium: '.($row['medium'] ?? 'n/a'));
+                $this->line('Planned medium: '.($row['planned_medium'] ?? 'n/a'));
+                $this->line('Actual medium: '.($row['actual_medium'] ?? 'n/a'));
+                $this->line('Planned template key: '.($row['planned_template_key'] ?? 'n/a'));
+                $this->line('Actual template key: '.($row['actual_template_key'] ?? 'n/a'));
+                if ($row['fallback_used']) {
+                    $this->line('Fallback: '.($row['fallback_reason'] ?? 'used'));
+                    $this->line('Step '.($row['next_step_order'] ?? '?').' '.($row['next_step_key'] ?? 'unknown').': planned='.($row['planned_medium'] ?? 'n/a').' actual='.($row['actual_medium'] ?? 'n/a').' fallback='.($row['fallback_reason'] ?? 'used'));
+                }
                 $this->line('Due at: '.($row['due_at'] ?? 'n/a'));
                 $this->line('Next allowed time: '.($row['next_allowed_time'] ?? 'n/a'));
                 $this->line('Due now: '.($row['is_due_now'] ? 'yes' : 'no'));
@@ -371,38 +401,89 @@ class RemarketingLinearExecuteCommand extends Command
         $allSteps,
         string $executionAction,
         ?Carbon $dueAt,
-        Carbon $now
+        Carbon $now,
+        array $plannedDelivery,
+        array $actualDelivery
     ): array {
-        return DB::transaction(function () use ($progress, $currentStep, $allSteps, $executionAction, $dueAt, $now): array {
+        return DB::transaction(function () use ($progress, $currentStep, $allSteps, $executionAction, $dueAt, $now, $plannedDelivery, $actualDelivery): array {
             $startedAt = $now->copy();
             $completedAt = $now->copy();
-
-            if ($currentStep->requires_manual_completion) {
-                LeadRemarketingStepLog::query()->create([
-                    'lead_id' => $progress->lead_id,
-                    'remarketing_step_id' => $currentStep->id,
-                    'step_order' => $currentStep->step_order,
-                    'medium' => $currentStep->medium,
-                    'template_id' => $currentStep->template_id,
-                    'status' => 'queued_task',
-                    'due_at' => $dueAt,
-                    'started_at' => $startedAt,
-                    'completed_at' => null,
-                    'failed_at' => null,
-                    'provider_message_id' => null,
-                    'error_message' => null,
-                    'created_task_id' => null,
-                    'context_json' => [
-                        'mode' => 'commit_only_log',
-                        'execution_action' => $executionAction,
-                        'note' => 'no external action performed',
+            if (($actualDelivery['execution_error'] ?? null) !== null) {
+                $error = (string) $actualDelivery['execution_error'];
+                $this->createStepLog(
+                    progress: $progress,
+                    currentStep: $currentStep,
+                    payload: [
+                        'medium' => $currentStep->medium,
+                        'status' => 'failed',
+                        'execution_status' => 'failed_preflight',
+                        'due_at' => $dueAt,
+                        'executed_at' => $startedAt,
+                        'started_at' => $startedAt,
+                        'completed_at' => null,
+                        'failed_at' => $startedAt,
+                        'provider_message_id' => null,
+                        'error_message' => $error,
+                        'execution_error' => $error,
+                        'created_task_id' => null,
+                        'context_json' => [
+                            'mode' => 'commit_only_log',
+                            'execution_action' => $executionAction,
+                            'note' => 'step skipped due to delivery resolution error',
+                        ],
+                        'metadata_json' => [],
                     ],
-                ]);
+                    plannedDelivery: $plannedDelivery,
+                    actualDelivery: $actualDelivery
+                );
+
+                return [
+                    'committed' => true,
+                    'advanced' => false,
+                    'commit_action' => 'failed_preflight_no_advance',
+                ];
+            }
+
+            $isManualCallStep = ($actualDelivery['actual_medium'] ?? null) === 'call'
+                || (bool) ($currentStep->is_manual ?? false)
+                || (bool) $currentStep->requires_manual_completion;
+
+            if ($isManualCallStep) {
+                $this->createStepLog(
+                    progress: $progress,
+                    currentStep: $currentStep,
+                    payload: [
+                        'medium' => $currentStep->medium,
+                        'status' => 'queued_task',
+                        'execution_status' => 'queued_manual_call',
+                        'due_at' => $dueAt,
+                        'executed_at' => $startedAt,
+                        'started_at' => $startedAt,
+                        'completed_at' => null,
+                        'failed_at' => null,
+                        'provider_message_id' => null,
+                        'error_message' => null,
+                        'execution_error' => null,
+                        'created_task_id' => null,
+                        'context_json' => [
+                            'mode' => 'commit_only_log',
+                            'execution_action' => $executionAction,
+                            'note' => 'manual call step queued; no external action performed',
+                        ],
+                        'metadata_json' => [
+                            'call_window_label' => $currentStep->call_window_label,
+                            'call_window_start' => $currentStep->call_window_start,
+                            'call_window_end' => $currentStep->call_window_end,
+                        ],
+                    ],
+                    plannedDelivery: $plannedDelivery,
+                    actualDelivery: $actualDelivery
+                );
 
                 $progress->update([
                     'current_step_id' => $currentStep->id,
                     'current_step_order' => $currentStep->step_order,
-                    'status' => 'pending_manual_task',
+                    'status' => $currentStep->requires_manual_completion ? 'pending_manual_task' : 'active',
                     'next_step_due_at' => $dueAt,
                 ]);
 
@@ -413,29 +494,31 @@ class RemarketingLinearExecuteCommand extends Command
                 ];
             }
 
-            LeadRemarketingStepLog::query()->create([
-                'lead_id' => $progress->lead_id,
-                'remarketing_step_id' => $currentStep->id,
-                'step_order' => $currentStep->step_order,
-                'medium' => $currentStep->medium,
-                'template_id' => $currentStep->template_id,
-                'status' => 'completed',
-                'due_at' => $dueAt,
-                'started_at' => $startedAt,
-                'completed_at' => $completedAt,
-                'failed_at' => null,
-                'provider_message_id' => null,
-                'error_message' => null,
-                'created_task_id' => null,
-                'context_json' => [
-                    'mode' => 'commit_only_log',
-                    'execution_action' => $executionAction,
-                    'note' => 'no external action performed',
+            $this->createStepLog(
+                progress: $progress,
+                currentStep: $currentStep,
+                payload: [
+                    'medium' => $currentStep->medium,
+                    'status' => 'completed',
+                    'execution_status' => 'logged',
+                    'due_at' => $dueAt,
+                    'executed_at' => $completedAt,
+                    'started_at' => $startedAt,
+                    'completed_at' => $completedAt,
+                    'failed_at' => null,
+                    'provider_message_id' => null,
+                    'error_message' => null,
+                    'execution_error' => null,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_only_log',
+                        'execution_action' => $executionAction,
+                        'note' => 'no external action performed',
+                    ],
+                    'metadata_json' => [],
                 ],
-            ]);
-
-            $followingStep = $allSteps->first(
-                static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery
             );
 
             $updates = [
@@ -444,21 +527,14 @@ class RemarketingLinearExecuteCommand extends Command
                 'last_step_completed_at' => $completedAt,
                 'status' => 'active',
             ];
-
-            if ($followingStep === null) {
-                $updates['status'] = 'completed';
-                $updates['next_step_due_at'] = null;
-            } else {
-                $rawNextDue = $completedAt->copy()->addMinutes((int) $followingStep->delay_minutes);
-                $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
-            }
+            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $completedAt, $updates);
 
             $progress->update($updates);
 
             return [
                 'committed' => true,
-                'advanced' => true,
-                'commit_action' => 'logged_and_advanced',
+                'advanced' => $advanced,
+                'commit_action' => $advanced ? 'logged_and_advanced' : 'logged_no_advance',
             ];
         });
     }
@@ -469,16 +545,18 @@ class RemarketingLinearExecuteCommand extends Command
         $allSteps,
         string $executionAction,
         ?Carbon $dueAt,
-        Carbon $now
+        Carbon $now,
+        array $plannedDelivery,
+        array $actualDelivery
     ): array {
-        if ($currentStep->medium !== 'sms') {
+        if (($actualDelivery['actual_medium'] ?? null) !== 'sms') {
             return [
                 'committed' => false,
                 'advanced' => false,
                 'sms_action' => 'skipped',
                 'sms_to' => null,
                 'provider_message_id' => null,
-                'error_message' => 'next step medium is not sms',
+                'error_message' => 'next step actual medium is not sms',
                 'commit_action' => 'skipped_non_sms_step',
             ];
         }
@@ -489,7 +567,7 @@ class RemarketingLinearExecuteCommand extends Command
 
         if ($normalizedPhone === null) {
             $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
-            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error);
+            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error, $plannedDelivery, $actualDelivery);
 
             return [
                 'committed' => true,
@@ -505,7 +583,7 @@ class RemarketingLinearExecuteCommand extends Command
         $templateBody = trim((string) optional($currentStep->template)->body);
         if ($templateBody === '') {
             $error = 'SMS template body is empty for step.';
-            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, $normalizedPhone, $error);
+            $this->logFailedSmsStep($progress, $currentStep, $executionAction, $dueAt, $now, $normalizedPhone, $error, $plannedDelivery, $actualDelivery);
 
             return [
                 'committed' => true,
@@ -533,7 +611,9 @@ class RemarketingLinearExecuteCommand extends Command
                 $dueAt,
                 $now,
                 $normalizedPhone,
-                $sendResult['error'] ?? 'Unknown Twilio error.'
+                $sendResult['error'] ?? 'Unknown Twilio error.',
+                $plannedDelivery,
+                $actualDelivery
             );
 
             return [
@@ -559,32 +639,37 @@ class RemarketingLinearExecuteCommand extends Command
             $now,
             $normalizedPhone,
             $providerSid,
-            $from
+            $from,
+            $plannedDelivery,
+            $actualDelivery
         ): array {
-            LeadRemarketingStepLog::query()->create([
-                'lead_id' => $progress->lead_id,
-                'remarketing_step_id' => $currentStep->id,
-                'step_order' => $currentStep->step_order,
-                'medium' => $currentStep->medium,
-                'template_id' => $currentStep->template_id,
-                'status' => 'sent',
-                'due_at' => $dueAt,
-                'started_at' => $now->copy(),
-                'completed_at' => $now->copy(),
-                'failed_at' => null,
-                'provider_message_id' => $providerSid,
-                'error_message' => null,
-                'created_task_id' => null,
-                'context_json' => [
-                    'mode' => 'commit_send_sms',
-                    'to' => $normalizedPhone,
-                    'from' => $from,
-                    'execution_action' => $executionAction,
+            $this->createStepLog(
+                progress: $progress,
+                currentStep: $currentStep,
+                payload: [
+                    'medium' => $currentStep->medium,
+                    'status' => 'sent',
+                    'execution_status' => 'sent',
+                    'due_at' => $dueAt,
+                    'executed_at' => $now->copy(),
+                    'started_at' => $now->copy(),
+                    'completed_at' => $now->copy(),
+                    'failed_at' => null,
+                    'provider' => 'twilio',
+                    'provider_message_id' => $providerSid,
+                    'error_message' => null,
+                    'execution_error' => null,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_send_sms',
+                        'to' => $normalizedPhone,
+                        'from' => $from,
+                        'execution_action' => $executionAction,
+                    ],
+                    'metadata_json' => [],
                 ],
-            ]);
-
-            $followingStep = $allSteps->first(
-                static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery
             );
 
             $updates = [
@@ -593,25 +678,18 @@ class RemarketingLinearExecuteCommand extends Command
                 'last_step_completed_at' => $now->copy(),
                 'status' => 'active',
             ];
-
-            if ($followingStep === null) {
-                $updates['status'] = 'completed';
-                $updates['next_step_due_at'] = null;
-            } else {
-                $rawNextDue = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
-                $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
-            }
+            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
 
             $progress->update($updates);
 
             return [
                 'committed' => true,
-                'advanced' => true,
+                'advanced' => $advanced,
                 'sms_action' => 'sent',
                 'sms_to' => $normalizedPhone,
                 'provider_message_id' => $providerSid,
                 'error_message' => null,
-                'commit_action' => 'sent_logged_and_advanced',
+                'commit_action' => $advanced ? 'sent_logged_and_advanced' : 'sent_logged_no_advance',
             ];
         });
     }
@@ -759,17 +837,34 @@ class RemarketingLinearExecuteCommand extends Command
         $allSteps,
         string $executionAction,
         ?Carbon $dueAt,
-        Carbon $now
+        Carbon $now,
+        array $plannedDelivery,
+        array $actualDelivery
     ): array {
-        if ($currentStep->medium !== 'email') {
+        if (($actualDelivery['actual_medium'] ?? null) !== 'email') {
             return [
                 'committed' => false,
                 'advanced' => false,
                 'email_action' => 'skipped',
                 'email_to' => null,
                 'provider_message_id' => null,
-                'error_message' => 'next step medium is not email',
+                'error_message' => 'next step actual medium is not email',
                 'commit_action' => 'skipped_non_email_step',
+            ];
+        }
+
+        if (($actualDelivery['execution_error'] ?? null) !== null) {
+            $error = (string) $actualDelivery['execution_error'];
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error, $plannedDelivery, $actualDelivery);
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'failed',
+                'email_to' => null,
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'commit_action' => 'failed_logged_no_advance',
             ];
         }
 
@@ -777,7 +872,7 @@ class RemarketingLinearExecuteCommand extends Command
         $emailTo = $leadData['email'] ?? null;
         if ($emailTo === null) {
             $error = 'Missing or invalid email for lead.';
-            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error);
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, null, $error, $plannedDelivery, $actualDelivery);
 
             return [
                 'committed' => true,
@@ -793,9 +888,52 @@ class RemarketingLinearExecuteCommand extends Command
         $template = $currentStep->template;
         $subjectTemplate = trim((string) ($template?->subject ?? ''));
         $bodyTemplate = trim((string) ($template?->body ?? ''));
+        if (($plannedDelivery['provider'] ?? null) === 'sendgrid'
+            && (($plannedDelivery['provider_template_id'] ?? null) === null)
+            && $bodyTemplate === '') {
+            $error = 'pending_template';
+            $this->createStepLog(
+                progress: $progress,
+                currentStep: $currentStep,
+                payload: [
+                    'medium' => $currentStep->medium,
+                    'status' => 'skipped',
+                    'execution_status' => 'skipped_pending_template',
+                    'due_at' => $dueAt,
+                    'executed_at' => $now->copy(),
+                    'started_at' => $now->copy(),
+                    'completed_at' => null,
+                    'failed_at' => null,
+                    'provider' => 'sendgrid',
+                    'provider_message_id' => null,
+                    'error_message' => $error,
+                    'execution_error' => $error,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_send_email',
+                        'execution_action' => $executionAction,
+                        'note' => 'email step skipped because provider template is pending',
+                    ],
+                    'metadata_json' => [],
+                ],
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery
+            );
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'skipped',
+                'email_to' => $emailTo,
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'commit_action' => 'skipped_pending_template_no_advance',
+            ];
+        }
+
         if ($bodyTemplate === '') {
             $error = 'Email template body is empty for step.';
-            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, $emailTo, $error);
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, $emailTo, $error, $plannedDelivery, $actualDelivery);
 
             return [
                 'committed' => true,
@@ -823,7 +961,9 @@ class RemarketingLinearExecuteCommand extends Command
                 $dueAt,
                 $now,
                 $emailTo,
-                $sendResult['error'] ?? 'Unknown SendGrid error.'
+                $sendResult['error'] ?? 'Unknown SendGrid error.',
+                $plannedDelivery,
+                $actualDelivery
             );
 
             return [
@@ -849,32 +989,37 @@ class RemarketingLinearExecuteCommand extends Command
             $now,
             $emailTo,
             $providerMessageId,
-            $fromEmail
+            $fromEmail,
+            $plannedDelivery,
+            $actualDelivery
         ): array {
-            LeadRemarketingStepLog::query()->create([
-                'lead_id' => $progress->lead_id,
-                'remarketing_step_id' => $currentStep->id,
-                'step_order' => $currentStep->step_order,
-                'medium' => $currentStep->medium,
-                'template_id' => $currentStep->template_id,
-                'status' => 'sent',
-                'due_at' => $dueAt,
-                'started_at' => $now->copy(),
-                'completed_at' => $now->copy(),
-                'failed_at' => null,
-                'provider_message_id' => $providerMessageId,
-                'error_message' => null,
-                'created_task_id' => null,
-                'context_json' => [
-                    'mode' => 'commit_send_email',
-                    'to' => $emailTo,
-                    'from' => $fromEmail,
-                    'execution_action' => $executionAction,
+            $this->createStepLog(
+                progress: $progress,
+                currentStep: $currentStep,
+                payload: [
+                    'medium' => $currentStep->medium,
+                    'status' => 'sent',
+                    'execution_status' => 'sent',
+                    'due_at' => $dueAt,
+                    'executed_at' => $now->copy(),
+                    'started_at' => $now->copy(),
+                    'completed_at' => $now->copy(),
+                    'failed_at' => null,
+                    'provider' => 'sendgrid',
+                    'provider_message_id' => $providerMessageId,
+                    'error_message' => null,
+                    'execution_error' => null,
+                    'created_task_id' => null,
+                    'context_json' => [
+                        'mode' => 'commit_send_email',
+                        'to' => $emailTo,
+                        'from' => $fromEmail,
+                        'execution_action' => $executionAction,
+                    ],
+                    'metadata_json' => [],
                 ],
-            ]);
-
-            $followingStep = $allSteps->first(
-                static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery
             );
 
             $updates = [
@@ -883,25 +1028,18 @@ class RemarketingLinearExecuteCommand extends Command
                 'last_step_completed_at' => $now->copy(),
                 'status' => 'active',
             ];
-
-            if ($followingStep === null) {
-                $updates['status'] = 'completed';
-                $updates['next_step_due_at'] = null;
-            } else {
-                $rawNextDue = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
-                $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
-            }
+            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
 
             $progress->update($updates);
 
             return [
                 'committed' => true,
-                'advanced' => true,
+                'advanced' => $advanced,
                 'email_action' => 'sent',
                 'email_to' => $emailTo,
                 'provider_message_id' => $providerMessageId,
                 'error_message' => null,
-                'commit_action' => 'sent_logged_and_advanced',
+                'commit_action' => $advanced ? 'sent_logged_and_advanced' : 'sent_logged_no_advance',
             ];
         });
     }
@@ -967,29 +1105,38 @@ class RemarketingLinearExecuteCommand extends Command
         ?Carbon $dueAt,
         Carbon $now,
         ?string $to,
-        string $error
+        string $error,
+        array $plannedDelivery = [],
+        array $actualDelivery = []
     ): void {
-        LeadRemarketingStepLog::query()->create([
-            'lead_id' => $progress->lead_id,
-            'remarketing_step_id' => $currentStep->id,
-            'step_order' => $currentStep->step_order,
-            'medium' => $currentStep->medium,
-            'template_id' => $currentStep->template_id,
-            'status' => 'failed',
-            'due_at' => $dueAt,
-            'started_at' => $now->copy(),
-            'completed_at' => null,
-            'failed_at' => $now->copy(),
-            'provider_message_id' => null,
-            'error_message' => $error,
-            'created_task_id' => null,
-            'context_json' => [
-                'mode' => 'commit_send_email',
-                'to' => $to,
-                'execution_action' => $executionAction,
-                'note' => 'email send failed; no progress advance',
+        $this->createStepLog(
+            progress: $progress,
+            currentStep: $currentStep,
+            payload: [
+                'medium' => $currentStep->medium,
+                'status' => 'failed',
+                'execution_status' => 'failed',
+                'due_at' => $dueAt,
+                'executed_at' => $now->copy(),
+                'started_at' => $now->copy(),
+                'completed_at' => null,
+                'failed_at' => $now->copy(),
+                'provider' => 'sendgrid',
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'execution_error' => $error,
+                'created_task_id' => null,
+                'context_json' => [
+                    'mode' => 'commit_send_email',
+                    'to' => $to,
+                    'execution_action' => $executionAction,
+                    'note' => 'email send failed; no progress advance',
+                ],
+                'metadata_json' => [],
             ],
-        ]);
+            plannedDelivery: $plannedDelivery,
+            actualDelivery: $actualDelivery
+        );
     }
 
     private function sendSmsViaTwilio(string $to, string $body): array
@@ -1056,32 +1203,41 @@ class RemarketingLinearExecuteCommand extends Command
         ?Carbon $dueAt,
         Carbon $now,
         ?string $to,
-        string $error
+        string $error,
+        array $plannedDelivery = [],
+        array $actualDelivery = []
     ): void {
-        LeadRemarketingStepLog::query()->create([
-            'lead_id' => $progress->lead_id,
-            'remarketing_step_id' => $currentStep->id,
-            'step_order' => $currentStep->step_order,
-            'medium' => $currentStep->medium,
-            'template_id' => $currentStep->template_id,
-            'status' => 'failed',
-            'due_at' => $dueAt,
-            'started_at' => $now->copy(),
-            'completed_at' => null,
-            'failed_at' => $now->copy(),
-            'provider_message_id' => null,
-            'error_message' => $error,
-            'created_task_id' => null,
-            'context_json' => [
-                'mode' => 'commit_send_sms',
-                'to' => $to,
-                'execution_action' => $executionAction,
-                'note' => 'sms send failed; no progress advance',
+        $this->createStepLog(
+            progress: $progress,
+            currentStep: $currentStep,
+            payload: [
+                'medium' => $currentStep->medium,
+                'status' => 'failed',
+                'execution_status' => 'failed',
+                'due_at' => $dueAt,
+                'executed_at' => $now->copy(),
+                'started_at' => $now->copy(),
+                'completed_at' => null,
+                'failed_at' => $now->copy(),
+                'provider' => 'twilio',
+                'provider_message_id' => null,
+                'error_message' => $error,
+                'execution_error' => $error,
+                'created_task_id' => null,
+                'context_json' => [
+                    'mode' => 'commit_send_sms',
+                    'to' => $to,
+                    'execution_action' => $executionAction,
+                    'note' => 'sms send failed; no progress advance',
+                ],
+                'metadata_json' => [],
             ],
-        ]);
+            plannedDelivery: $plannedDelivery,
+            actualDelivery: $actualDelivery
+        );
     }
 
-    private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow): string
+    private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow, ?array $actualDelivery = null): string
     {
         if ($progressStatus === 'pending_manual_task') {
             return 'skip_manual_pending';
@@ -1095,12 +1251,191 @@ class RemarketingLinearExecuteCommand extends Command
             return 'skip_not_due';
         }
 
-        return match ($nextStep->medium) {
+        $resolvedMedium = $actualDelivery['actual_medium'] ?? $nextStep->medium;
+
+        return match ($resolvedMedium) {
             'call' => 'would_queue_call_task',
             'sms' => 'would_send_sms',
             'email' => 'would_send_email',
             'whatsapp' => 'would_send_or_queue_whatsapp',
             default => 'unknown_medium',
         };
+    }
+
+    private function resolvePlannedDelivery(RemarketingStep $step): array
+    {
+        $plannedMedium = trim((string) ($step->primary_medium ?? '')) !== ''
+            ? (string) $step->primary_medium
+            : (string) $step->medium;
+
+        $plannedTemplateKey = trim((string) ($step->primary_template_key ?? ''));
+        if ($plannedTemplateKey === '') {
+            $plannedTemplateKey = trim((string) ($step->template?->template_key ?? ''));
+        }
+        if ($plannedTemplateKey === '') {
+            $plannedTemplateKey = trim((string) ($step->template_name ?? ''));
+        }
+
+        $provider = trim((string) ($step->template?->provider ?? '')) ?: null;
+        $providerTemplateId = $step->sendgrid_template_id
+            ?? ($step->template?->provider_template_id ?? null);
+
+        return [
+            'planned_medium' => $plannedMedium !== '' ? $plannedMedium : null,
+            'planned_template_key' => $plannedTemplateKey !== '' ? $plannedTemplateKey : null,
+            'provider' => $provider,
+            'provider_template_id' => $providerTemplateId,
+        ];
+    }
+
+    private function resolveActualDelivery(RemarketingStep $step, LeadRemarketingProgress $progress, ?Lead $lead): array
+    {
+        $planned = $this->resolvePlannedDelivery($step);
+        $actual = [
+            'actual_medium' => $planned['planned_medium'],
+            'actual_template_key' => $planned['planned_template_key'],
+            'fallback_used' => false,
+            'fallback_reason' => null,
+            'execution_error' => null,
+            'provider' => $planned['provider'],
+            'provider_template_id' => $planned['provider_template_id'],
+        ];
+
+        $fallbackCondition = (string) ($step->fallback_condition ?? '');
+        if ($actual['actual_medium'] === 'email'
+            && $fallbackCondition === 'lead_email_missing'
+            && ! $this->leadHasUsableEmail($lead)
+        ) {
+            $fallbackMedium = trim((string) ($step->fallback_medium ?? ''));
+            $fallbackTemplateKey = trim((string) ($step->fallback_template_key ?? ''));
+
+            if ($fallbackMedium === '' || $fallbackTemplateKey === '') {
+                $actual['execution_error'] = 'fallback_config_missing_for_lead_email_missing';
+
+                return $actual;
+            }
+
+            $actual['actual_medium'] = $fallbackMedium;
+            $actual['actual_template_key'] = $fallbackTemplateKey;
+            $actual['fallback_used'] = true;
+            $actual['fallback_reason'] = 'lead_email_missing';
+
+            if ($fallbackMedium !== 'email') {
+                $actual['provider'] = null;
+                $actual['provider_template_id'] = null;
+            }
+        }
+
+        return $actual;
+    }
+
+    private function leadHasUsableEmail(?Lead $lead): bool
+    {
+        if ($lead === null) {
+            return false;
+        }
+
+        $candidates = [
+            $lead->email ?? null,
+            $lead->getAttribute('email_address'),
+        ];
+        foreach ($candidates as $candidate) {
+            $email = trim((string) ($candidate ?? ''));
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function findLeadByVicidialLeadId(int $vicidialLeadId): ?Lead
+    {
+        if (! Schema::hasTable('leads') || ! Schema::hasColumn('leads', 'vicidial_lead_id')) {
+            return null;
+        }
+
+        $query = Lead::query()->where('vicidial_lead_id', $vicidialLeadId);
+        if (Schema::hasColumn('leads', 'email')) {
+            $query->addSelect('email');
+        }
+        if (Schema::hasColumn('leads', 'email_address')) {
+            $query->addSelect('email_address');
+        }
+
+        return $query->first();
+    }
+
+    private function createStepLog(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        array $payload,
+        array $plannedDelivery = [],
+        array $actualDelivery = []
+    ): LeadRemarketingStepLog {
+        $merged = array_merge([
+            'lead_id' => $progress->lead_id,
+            'remarketing_step_id' => $currentStep->id,
+            'step_order' => $currentStep->step_order,
+            'template_id' => $currentStep->template_id,
+            'planned_medium' => $plannedDelivery['planned_medium'] ?? null,
+            'actual_medium' => $actualDelivery['actual_medium'] ?? null,
+            'planned_template_key' => $plannedDelivery['planned_template_key'] ?? null,
+            'actual_template_key' => $actualDelivery['actual_template_key'] ?? null,
+            'fallback_used' => (bool) ($actualDelivery['fallback_used'] ?? false),
+            'fallback_reason' => $actualDelivery['fallback_reason'] ?? null,
+            'provider' => $actualDelivery['provider'] ?? ($plannedDelivery['provider'] ?? null),
+            'provider_template_id' => $actualDelivery['provider_template_id'] ?? ($plannedDelivery['provider_template_id'] ?? null),
+            'execution_error' => $actualDelivery['execution_error'] ?? null,
+        ], $payload);
+
+        return LeadRemarketingStepLog::query()->create($this->columnSafeLogPayload($merged));
+    }
+
+    private function columnSafeLogPayload(array $payload): array
+    {
+        $allowed = [];
+        foreach ($payload as $column => $value) {
+            if (! isset($this->stepLogColumnCache[$column])) {
+                $this->stepLogColumnCache[$column] = Schema::hasColumn('lead_remarketing_step_logs', $column);
+            }
+
+            if ($this->stepLogColumnCache[$column]) {
+                $allowed[$column] = $value;
+            }
+        }
+
+        return $allowed;
+    }
+
+    private function applyProgressAdvance(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        Carbon $completedAt,
+        array &$updates
+    ): bool {
+        if (! (bool) $currentStep->auto_advance_on_send) {
+            $updates['status'] = 'waiting';
+            $updates['next_step_due_at'] = $progress->next_step_due_at;
+
+            return false;
+        }
+
+        $followingStep = $allSteps->first(
+            static fn (RemarketingStep $step): bool => $step->step_order > $currentStep->step_order
+        );
+
+        if ($followingStep === null) {
+            $updates['status'] = 'completed';
+            $updates['next_step_due_at'] = null;
+
+            return true;
+        }
+
+        $rawNextDue = $completedAt->copy()->addMinutes((int) $followingStep->delay_minutes);
+        $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
+
+        return true;
     }
 }
