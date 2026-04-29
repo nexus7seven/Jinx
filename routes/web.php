@@ -23,6 +23,7 @@ use App\Services\LeadChecklistService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
+use App\Http\Controllers\Portal\LeadPortalController;
 use App\Services\FinancialStatementService;
 use App\Services\VicidialDialActivityService;
 use App\Http\Controllers\ClickToCallController;
@@ -33,6 +34,9 @@ use App\Http\Controllers\Webhooks\SendGridInboundEmailWebhookController;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
+
+Route::get('/portal/{token}', [LeadPortalController::class, 'show'])
+    ->name('portal.entry');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
