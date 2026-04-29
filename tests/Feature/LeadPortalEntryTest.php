@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Lead;
+use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalProgress;
 use App\Models\LeadPortalToken;
 use App\Services\LeadPortalTokenService;
@@ -482,6 +483,121 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('debts', $progress->current_step);
     }
 
+    public function test_debts_page_appears_after_details_completion(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeAndDetails($issued['token']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Let&rsquo;s look at what you owe', false)
+            ->assertSee('A rough estimate is absolutely fine.', false)
+            ->assertSee('Save and continue');
+    }
+
+    public function test_saving_rough_total_updates_lead(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeAndDetails($issued['token']);
+
+        $this->post(route('portal.debts.save', ['token' => $issued['token']]), [
+            'estimated_total_debt' => '12345.67',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame('12345.67', (string) $lead->estimated_total_debt);
+    }
+
+    public function test_saving_optional_creditor_rows_stores_rows_and_ignores_blanks(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeAndDetails($issued['token']);
+
+        $this->post(route('portal.debts.save', ['token' => $issued['token']]), [
+            'estimated_total_debt' => '3000',
+            'creditors' => [
+                ['creditor_name' => 'Lender One', 'balance' => '1000'],
+                ['creditor_name' => '', 'balance' => ''],
+                ['creditor_name' => 'Lender Two', 'balance' => '2000'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $rows = LeadPortalDebt::where('lead_id', $lead->id)->where('source', 'portal')->orderBy('id')->get();
+        $this->assertCount(2, $rows);
+        $this->assertSame('Lender One', $rows[0]->creditor_name);
+        $this->assertSame('1000.00', (string) $rows[0]->balance);
+        $this->assertSame('Lender Two', $rows[1]->creditor_name);
+        $this->assertSame('2000.00', (string) $rows[1]->balance);
+    }
+
+    public function test_saving_debts_advances_progress_to_income(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeAndDetails($issued['token']);
+
+        $this->post(route('portal.debts.save', ['token' => $issued['token']]), [
+            'estimated_total_debt' => '5000',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('debts', $progress->last_completed_step);
+        $this->assertSame('income', $progress->current_step);
+    }
+
+    public function test_unverified_users_cannot_save_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.debts.save', ['token' => $issued['token']]), [
+            'estimated_total_debt' => '1000',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertNull($lead->estimated_total_debt);
+    }
+
+    public function test_invalid_or_expired_token_cannot_save_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('debts-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.debts.save', ['token' => 'debts-expired-token']), [
+            'estimated_total_debt' => '1000',
+        ])
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
     public function test_unverified_users_cannot_save_details(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -524,5 +640,22 @@ class LeadPortalEntryTest extends TestCase
         return Lead::create(array_merge([
             'vicidial_lead_id' => 'portal-entry-test-'.uniqid('', true),
         ], $overrides));
+    }
+
+    private function verifyThenCompleteWelcomeAndDetails(string $rawToken): void
+    {
+        $this->post(route('portal.verify', ['token' => $rawToken]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+
+        $this->post(route('portal.welcome.complete', ['token' => $rawToken]))
+            ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+
+        $this->post(route('portal.details.save', ['token' => $rawToken]), [
+            'first_name' => 'Alex',
+            'last_name' => 'Stone',
+            'dob' => '1985-06-15',
+            'postcode' => 'SW1A 1AA',
+        ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 }

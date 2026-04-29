@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
+use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalToken;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
@@ -103,6 +104,63 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function saveDebts(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $lead = $portalToken->lead;
+
+        $validated = $request->validate([
+            'estimated_total_debt' => ['nullable', 'numeric', 'min:0'],
+            'creditors' => ['nullable', 'array'],
+            'creditors.*.creditor_name' => ['nullable', 'string', 'max:255'],
+            'creditors.*.balance' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $lead->estimated_total_debt = array_key_exists('estimated_total_debt', $validated)
+            ? $validated['estimated_total_debt']
+            : $lead->estimated_total_debt;
+        $lead->save();
+
+        LeadPortalDebt::query()
+            ->where('lead_id', $lead->id)
+            ->where('source', 'portal')
+            ->delete();
+
+        foreach ((array) ($validated['creditors'] ?? []) as $row) {
+            $name = $this->nullableString($row['creditor_name'] ?? null);
+            $balance = $row['balance'] ?? null;
+            $balance = $balance === '' ? null : $balance;
+
+            if ($name === null && $balance === null) {
+                continue;
+            }
+
+            LeadPortalDebt::create([
+                'lead_id' => $lead->id,
+                'creditor_name' => $name,
+                'balance' => $balance,
+                'source' => 'portal',
+            ]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'debts';
+        $progress->current_step = 'income';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -162,6 +220,9 @@ class LeadPortalController extends Controller
         return view('portal.entry', [
             'progress' => $progress,
             'lead' => $lead,
+            'portalDebts' => $lead->portalDebts()
+                ->where('source', 'portal')
+                ->get(),
             'rawToken' => $rawToken,
         ]);
     }

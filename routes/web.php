@@ -43,6 +43,8 @@ Route::post('/portal/{token}/welcome', [LeadPortalController::class, 'completeWe
     ->name('portal.welcome.complete');
 Route::post('/portal/{token}/details', [LeadPortalController::class, 'saveDetails'])
     ->name('portal.details.save');
+Route::post('/portal/{token}/debts', [LeadPortalController::class, 'saveDebts'])
+    ->name('portal.debts.save');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');

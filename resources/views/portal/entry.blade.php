@@ -126,6 +126,64 @@
                     Save and continue
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'debts')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Debts step
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                Let&rsquo;s look at what you owe
+            </h1>
+
+            <p style="margin:0 0 8px 0; color:#475569; font-size:16px; line-height:1.6;">
+                A rough estimate is absolutely fine.
+            </p>
+            <p style="margin:0 0 22px 0; color:#64748b; font-size:14px; line-height:1.6;">
+                Add lenders if you know them, or skip this for now.
+            </p>
+
+            @php
+                $existingDebtRows = old('creditors', ($portalDebts ?? collect())->map(function ($row) {
+                    return ['creditor_name' => $row->creditor_name, 'balance' => $row->balance];
+                })->values()->all());
+                $debtRows = array_pad($existingDebtRows, 3, ['creditor_name' => '', 'balance' => '']);
+            @endphp
+
+            <form method="POST" action="{{ route('portal.debts.save', ['token' => $rawToken]) }}">
+                @csrf
+
+                <div style="margin-bottom:18px;">
+                    <label for="estimated_total_debt" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Estimated total debt</label>
+                    <input id="estimated_total_debt" name="estimated_total_debt" type="number" step="0.01" min="0"
+                           value="{{ old('estimated_total_debt', $lead->estimated_total_debt) }}"
+                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                    @error('estimated_total_debt')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <div style="font-size:14px; color:#334155; margin-bottom:8px;">Optional lenders</div>
+                    @foreach ($debtRows as $i => $row)
+                        <div style="display:grid; grid-template-columns:1.6fr 1fr; gap:10px; margin-bottom:10px;">
+                            <input name="creditors[{{ $i }}][creditor_name]" type="text"
+                                   value="{{ $row['creditor_name'] ?? '' }}"
+                                   placeholder="Creditor name"
+                                   style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                            <input name="creditors[{{ $i }}][balance]" type="number" step="0.01" min="0"
+                                   value="{{ $row['balance'] ?? '' }}"
+                                   placeholder="Balance"
+                                   style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                        </div>
+                    @endforeach
+                    @error('creditors')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    @error('creditors.*.creditor_name')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    @error('creditors.*.balance')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                </div>
+
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Save and continue
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step

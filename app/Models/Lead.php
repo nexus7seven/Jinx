@@ -81,6 +81,7 @@ class Lead extends Model
         'from_vicidial_webform',
         'wip_status',
         'financial_statement',
+        'estimated_total_debt',
         'portal_credit_check_started_at',
         'portal_credit_check_completed_at',
         'portal_credit_check_last_run_at',
@@ -90,6 +91,7 @@ class Lead extends Model
         'temp_mail_created_at' => 'datetime',
         'temp_mail_last_checked_at' => 'datetime',
         'financial_statement' => 'array',
+        'estimated_total_debt' => 'decimal:2',
         'from_vicidial_webform' => 'boolean',
         'portal_credit_check_started_at' => 'datetime',
         'portal_credit_check_completed_at' => 'datetime',
@@ -175,6 +177,11 @@ class Lead extends Model
     public function portalSnapshots()
     {
         return $this->hasMany(LeadPortalSnapshot::class)->latest('id');
+    }
+
+    public function portalDebts()
+    {
+        return $this->hasMany(LeadPortalDebt::class)->latest('id');
     }
 
     public function actionPoints()
