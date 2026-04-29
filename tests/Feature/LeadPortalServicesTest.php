@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Lead;
 use App\Models\LeadPortalProgress;
 use App\Models\LeadPortalToken;
+use App\Services\LeadPortalLinkService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -166,6 +167,45 @@ class LeadPortalServicesTest extends TestCase
         $this->assertSame('welcome', $first->current_step);
         $this->assertNotNull($first->started_at);
         $this->assertSame(1, LeadPortalProgress::where('lead_id', $lead->id)->count());
+    }
+
+    public function test_generate_for_lead_uses_portal_base_url_when_configured(): void
+    {
+        config()->set('services.portal.base_url', 'https://portal.example.test/');
+        config()->set('app.url', 'https://app.example.test');
+
+        $lead = $this->makeLead();
+        $service = app(LeadPortalLinkService::class);
+
+        $generated = $service->generateForLead($lead, '127.0.0.1');
+
+        $this->assertArrayHasKey('token', $generated);
+        $this->assertArrayHasKey('portal_token', $generated);
+        $this->assertArrayHasKey('portal_url', $generated);
+        $this->assertSame(
+            'https://portal.example.test/portal/'.$generated['token'],
+            $generated['portal_url']
+        );
+        $this->assertSame(
+            hash('sha256', $generated['token']),
+            $generated['portal_token']->fresh()->token_hash
+        );
+    }
+
+    public function test_generate_for_lead_falls_back_to_app_url(): void
+    {
+        config()->set('services.portal.base_url', null);
+        config()->set('app.url', 'https://app.example.test/');
+
+        $lead = $this->makeLead();
+        $service = app(LeadPortalLinkService::class);
+
+        $generated = $service->generateForLead($lead);
+
+        $this->assertSame(
+            'https://app.example.test/portal/'.$generated['token'],
+            $generated['portal_url']
+        );
     }
 
     private function makeLead(): Lead

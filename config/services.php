@@ -72,6 +72,10 @@ return [
         'base_url' => env('CREDIT_CHECK_V3_LISTENER_BASE_URL', 'http://127.0.0.1:17171'),
     ],
 
+    'portal' => [
+        'base_url' => env('PORTAL_BASE_URL'),
+    ],
+
     'local_worker' => [
         'token' => env('LOCAL_WORKER_TOKEN'),
     ],
