@@ -110,6 +110,35 @@ class LeadPortalEntryTest extends TestCase
             ]);
     }
 
+    public function test_invalid_attempts_become_rate_limited_after_threshold(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->from(route('portal.entry', ['token' => $issued['token']]))
+                ->post(route('portal.verify', ['token' => $issued['token']]), [
+                    'dob' => '2000-01-01',
+                ])
+                ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+                ->assertSessionHasErrors([
+                    'verification' => 'That doesn’t look quite right. Please check and try again.',
+                ]);
+        }
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '2000-01-01',
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'verification' => 'Too many attempts. Please wait a little while and try again.',
+            ]);
+    }
+
     public function test_once_verified_get_portal_token_goes_straight_to_entry(): void
     {
         Carbon::setTestNow('2026-04-29 10:00:00');
@@ -141,6 +170,41 @@ class LeadPortalEntryTest extends TestCase
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_successful_verification_clears_attempt_counter(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $this->from(route('portal.entry', ['token' => $issued['token']]))
+                ->post(route('portal.verify', ['token' => $issued['token']]), [
+                    'dob' => '2000-01-01',
+                ])
+                ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+                ->assertSessionHasErrors([
+                    'verification' => 'That doesn’t look quite right. Please check and try again.',
+                ]);
+        }
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->flushSession();
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '2000-01-01',
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'verification' => 'That doesn’t look quite right. Please check and try again.',
+            ]);
     }
 
     public function test_revoked_completed_and_expired_tokens_show_expired_page(): void

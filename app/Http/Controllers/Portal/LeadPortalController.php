@@ -8,9 +8,15 @@ use App\Models\LeadPortalToken;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 class LeadPortalController extends Controller
 {
+    private const VERIFY_MAX_ATTEMPTS = 5;
+    private const VERIFY_DECAY_SECONDS = 600;
+    private const VERIFY_GENERIC_ERROR = 'That doesn’t look quite right. Please check and try again.';
+    private const VERIFY_RATE_LIMIT_ERROR = 'Too many attempts. Please wait a little while and try again.';
+
     public function __construct(
         private readonly LeadPortalTokenService $leadPortalTokenService,
         private readonly LeadPortalProgressService $leadPortalProgressService
@@ -40,25 +46,40 @@ class LeadPortalController extends Controller
             return $this->expiredResponse();
         }
 
+        $rateLimitKey = $this->verificationRateLimitKey($token, $request->ip());
+
+        if (RateLimiter::tooManyAttempts($rateLimitKey, self::VERIFY_MAX_ATTEMPTS)) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'verification' => self::VERIFY_RATE_LIMIT_ERROR,
+                ]);
+        }
+
         $dobInput = trim((string) $request->input('dob', ''));
         $postcodeInput = trim((string) $request->input('postcode', ''));
 
         if ($dobInput === '' && $postcodeInput === '') {
+            RateLimiter::hit($rateLimitKey, self::VERIFY_DECAY_SECONDS);
+
             return back()
                 ->withInput()
                 ->withErrors([
-                    'verification' => 'That doesn’t look quite right. Please check and try again.',
+                    'verification' => self::VERIFY_GENERIC_ERROR,
                 ]);
         }
 
         if (! $this->passesSoftVerification($portalToken->lead, $dobInput, $postcodeInput)) {
+            RateLimiter::hit($rateLimitKey, self::VERIFY_DECAY_SECONDS);
+
             return back()
                 ->withInput()
                 ->withErrors([
-                    'verification' => 'That doesn’t look quite right. Please check and try again.',
+                    'verification' => self::VERIFY_GENERIC_ERROR,
                 ]);
         }
 
+        RateLimiter::clear($rateLimitKey);
         $request->session()->put($this->verificationSessionKey($portalToken), true);
 
         return redirect()->route('portal.entry', ['token' => $token]);
@@ -108,5 +129,10 @@ class LeadPortalController extends Controller
     private function normalizePostcode(string $postcode): string
     {
         return strtoupper(str_replace(' ', '', trim($postcode)));
+    }
+
+    private function verificationRateLimitKey(string $rawToken, ?string $ip): string
+    {
+        return 'portal-verify|'.$this->leadPortalTokenService->hashRawToken($rawToken).'|'.($ip ?? 'unknown');
     }
 }
