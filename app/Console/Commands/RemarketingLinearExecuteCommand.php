@@ -1303,7 +1303,7 @@ class RemarketingLinearExecuteCommand extends Command
         if (! in_array($stage, ['fresh', 'cooling', 'cold', 'dormant'], true)) {
             $stage = 'fresh';
         }
-        $cleanBody = mb_convert_encoding($renderedBody, 'UTF-8', 'UTF-8');
+        $cleanBody = $this->sanitizeManualWhatsAppBody($renderedBody);
         $whatsAppUrl = 'https://wa.me/'.self::MANUAL_TASK_WHATSAPP_NUMBER;
         if (trim($cleanBody) !== '') {
             $whatsAppUrl .= '?text='.rawurlencode($cleanBody);
@@ -1327,11 +1327,11 @@ class RemarketingLinearExecuteCommand extends Command
                 'time_waiting_text' => '0h',
             ];
             if ($supportsMessageBody) {
-                $updatePayload['message_body'] = $renderedBody !== '' ? $renderedBody : null;
+                $updatePayload['message_body'] = $cleanBody !== '' ? $cleanBody : null;
             }
             if ($supportsMetadataJson) {
                 $updatePayload['metadata_json'] = array_merge((array) ($existing->metadata_json ?? []), [
-                    'rendered_body' => $renderedBody !== '' ? $renderedBody : null,
+                    'rendered_body' => $cleanBody !== '' ? $cleanBody : null,
                     'template_key' => $templateKey !== '' ? $templateKey : null,
                 ]);
             }
@@ -1353,16 +1353,24 @@ class RemarketingLinearExecuteCommand extends Command
             'whatsapp_url' => $whatsAppUrl,
         ];
         if ($supportsMessageBody) {
-            $createPayload['message_body'] = $renderedBody !== '' ? $renderedBody : null;
+            $createPayload['message_body'] = $cleanBody !== '' ? $cleanBody : null;
         }
         if ($supportsMetadataJson) {
             $createPayload['metadata_json'] = [
-                'rendered_body' => $renderedBody !== '' ? $renderedBody : null,
+                'rendered_body' => $cleanBody !== '' ? $cleanBody : null,
                 'template_key' => $templateKey !== '' ? $templateKey : null,
             ];
         }
 
         return RemarketingTask::query()->create($createPayload);
+    }
+
+    private function sanitizeManualWhatsAppBody(string $renderedBody): string
+    {
+        $cleanBody = mb_convert_encoding($renderedBody, 'UTF-8', 'UTF-8');
+        $cleanBody = str_replace(["\u{1F44D}", "\u{FFFD}"], '', $cleanBody);
+
+        return rtrim($cleanBody);
     }
 
     private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body): array

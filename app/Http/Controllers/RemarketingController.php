@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class RemarketingController extends Controller
 {
@@ -215,6 +216,7 @@ class RemarketingController extends Controller
 
                 return [
                     'id' => 'task-'.$task->id,
+                    'task_id' => $task->id,
                     'lead_id' => $task->lead_id,
                     'lead_name' => $task->lead_name ?: ('Lead #'.$task->lead_id),
                     'phone' => $task->phone ?: '-',
@@ -339,7 +341,12 @@ class RemarketingController extends Controller
 
         if ($task) {
             $task->status = RemarketingTask::STATUS_COMPLETED;
+            if (Schema::hasColumn('remarketing_tasks', 'completed_at')) {
+                $task->completed_at = $task->completed_at ?? now();
+            }
             $task->save();
+
+            $this->completeLinkedManualStepLog($task);
 
             if ($task->task_type === 'call') {
                 $this->remarketingStepTwoAfterCallCompleted($task);
@@ -547,6 +554,25 @@ class RemarketingController extends Controller
         });
 
         return redirect()->back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    private function completeLinkedManualStepLog(RemarketingTask $task): void
+    {
+        $log = LeadRemarketingStepLog::query()
+            ->where('created_task_id', $task->id)
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $log) {
+            return;
+        }
+
+        $completedAt = $log->completed_at ?? now();
+        $log->status = 'completed';
+        $log->execution_status = 'completed_manual_task';
+        $log->completed_at = $completedAt;
+        $log->updated_at = now();
+        $log->save();
     }
 
     /**
