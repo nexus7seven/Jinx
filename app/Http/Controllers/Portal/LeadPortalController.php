@@ -161,6 +161,39 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function saveIncome(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $validated = $request->validate([
+            'employment_status' => ['nullable', 'string', 'max:255'],
+            'monthly_income' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $lead = $portalToken->lead;
+        $lead->employment_status = $this->nullableString($validated['employment_status'] ?? null);
+        $lead->monthly_income = array_key_exists('monthly_income', $validated)
+            ? $validated['monthly_income']
+            : $lead->monthly_income;
+        $lead->save();
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'income';
+        $progress->current_step = 'costs';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());

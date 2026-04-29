@@ -184,6 +184,43 @@
                     Save and continue
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'income')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Income step
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                What&rsquo;s coming in each month?
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                After tax if possible &mdash; a rough estimate is fine.
+            </p>
+
+            <form method="POST" action="{{ route('portal.income.save', ['token' => $rawToken]) }}">
+                @csrf
+
+                <div style="margin-bottom:14px;">
+                    <label for="employment_status" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Employment status</label>
+                    <input id="employment_status" name="employment_status" type="text"
+                           value="{{ old('employment_status', $lead->employment_status) }}"
+                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                    @error('employment_status')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <label for="monthly_income" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Monthly income</label>
+                    <input id="monthly_income" name="monthly_income" type="number" step="0.01" min="0"
+                           value="{{ old('monthly_income', $lead->monthly_income) }}"
+                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                    @error('monthly_income')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                </div>
+
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Save and continue
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step
