@@ -4,13 +4,13 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
-use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalToken;
 use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\Rule;
 
 class LeadPortalController extends Controller
 {
@@ -18,6 +18,17 @@ class LeadPortalController extends Controller
     private const VERIFY_DECAY_SECONDS = 600;
     private const VERIFY_GENERIC_ERROR = 'That doesn’t look quite right. Please check and try again.';
     private const VERIFY_RATE_LIMIT_ERROR = 'Too many attempts. Please wait a little while and try again.';
+    private const EMPLOYMENT_STATUS_OPTIONS = [
+        'Employed full-time',
+        'Employed part-time',
+        'Self-employed',
+        'Benefits',
+        'Pension',
+        'Student',
+        'Unemployed',
+        'Homemaker / caring responsibilities',
+        'Other',
+    ];
 
     public function __construct(
         private readonly LeadPortalTokenService $leadPortalTokenService,
@@ -84,7 +95,6 @@ class LeadPortalController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'postcode' => array_merge($this->requiredIfMissingRule($lead->postcode), ['string', 'max:20']),
             'house_number' => ['nullable', 'string', 'max:255'],
-            'address_line_1' => ['nullable', 'string', 'max:255'],
         ]);
 
         $lead->first_name = $this->nullableString($validated['first_name'] ?? null);
@@ -94,7 +104,6 @@ class LeadPortalController extends Controller
         $lead->phone_number = $this->nullableString($validated['phone'] ?? null);
         $lead->postcode = $this->normalizePostcodeForStorage($validated['postcode'] ?? null);
         $lead->house_number = $this->nullableString($validated['house_number'] ?? null);
-        $lead->address_line_1 = $this->nullableString($validated['address_line_1'] ?? null);
         $lead->save();
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
@@ -118,41 +127,20 @@ class LeadPortalController extends Controller
             return redirect()->route('portal.entry', ['token' => $token]);
         }
 
+        $request->merge([
+            'estimated_total_debt' => $this->normalizeMoneyInput($request->input('estimated_total_debt')),
+        ]);
+
         $lead = $portalToken->lead;
 
         $validated = $request->validate([
             'estimated_total_debt' => ['nullable', 'numeric', 'min:0'],
-            'creditors' => ['nullable', 'array'],
-            'creditors.*.creditor_name' => ['nullable', 'string', 'max:255'],
-            'creditors.*.balance' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $lead->estimated_total_debt = array_key_exists('estimated_total_debt', $validated)
             ? $validated['estimated_total_debt']
             : $lead->estimated_total_debt;
         $lead->save();
-
-        LeadPortalDebt::query()
-            ->where('lead_id', $lead->id)
-            ->where('source', 'portal')
-            ->delete();
-
-        foreach ((array) ($validated['creditors'] ?? []) as $row) {
-            $name = $this->nullableString($row['creditor_name'] ?? null);
-            $balance = $row['balance'] ?? null;
-            $balance = $balance === '' ? null : $balance;
-
-            if ($name === null && $balance === null) {
-                continue;
-            }
-
-            LeadPortalDebt::create([
-                'lead_id' => $lead->id,
-                'creditor_name' => $name,
-                'balance' => $balance,
-                'source' => 'portal',
-            ]);
-        }
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $progress->last_completed_step = 'debts';
@@ -175,8 +163,12 @@ class LeadPortalController extends Controller
             return redirect()->route('portal.entry', ['token' => $token]);
         }
 
+        $request->merge([
+            'monthly_income' => $this->normalizeMoneyInput($request->input('monthly_income')),
+        ]);
+
         $validated = $request->validate([
-            'employment_status' => ['nullable', 'string', 'max:255'],
+            'employment_status' => ['nullable', 'string', Rule::in(self::EMPLOYMENT_STATUS_OPTIONS)],
             'monthly_income' => ['nullable', 'numeric', 'min:0'],
         ]);
 
@@ -207,6 +199,13 @@ class LeadPortalController extends Controller
         if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
             return redirect()->route('portal.entry', ['token' => $token]);
         }
+
+        $request->merge([
+            'monthly_housing_cost' => $this->normalizeMoneyInput($request->input('monthly_housing_cost')),
+            'monthly_council_tax' => $this->normalizeMoneyInput($request->input('monthly_council_tax')),
+            'monthly_utilities_cost' => $this->normalizeMoneyInput($request->input('monthly_utilities_cost')),
+            'monthly_food_travel_cost' => $this->normalizeMoneyInput($request->input('monthly_food_travel_cost')),
+        ]);
 
         $validated = $request->validate([
             'monthly_housing_cost' => ['nullable', 'numeric', 'min:0'],
@@ -253,6 +252,7 @@ class LeadPortalController extends Controller
 
         $lead = $portalToken->lead;
 
+        // This is currently a placeholder. Real credit-check job dispatch will be wired in a later step.
         if ($lead->portal_credit_check_last_run_at === null) {
             $lead->portal_credit_check_started_at = now();
             $lead->portal_credit_check_last_run_at = now();
@@ -383,6 +383,7 @@ class LeadPortalController extends Controller
             'maskedDob' => $this->maskDob($lead->dob),
             'maskedPostcode' => $this->maskPostcode($lead->postcode),
             'maskedAddress' => $this->maskAddress($lead->house_number, $lead->address_line_1),
+            'employmentStatusOptions' => self::EMPLOYMENT_STATUS_OPTIONS,
             'rawToken' => $rawToken,
         ]);
     }
@@ -452,6 +453,22 @@ class LeadPortalController extends Controller
         }
 
         return strtoupper($trimmed);
+    }
+
+    private function normalizeMoneyInput(mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value;
+        }
+
+        $normalized = str_replace([',', ' '], '', trim((string) $value));
+        $normalized = str_replace(['£', '$'], '', $normalized);
+
+        return $normalized === '' ? null : $normalized;
     }
 
     private function verificationRateLimitKey(string $rawToken, ?string $ip): string

@@ -442,6 +442,7 @@ class LeadPortalEntryTest extends TestCase
             ->assertOk()
             ->assertSee('A few details to get started')
             ->assertSee('We use this to match the right information to you.')
+            ->assertDontSee('Address line 1')
             ->assertSee('Save and continue');
     }
 
@@ -450,6 +451,7 @@ class LeadPortalEntryTest extends TestCase
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
             'dob' => '1985-06-15',
+            'address_line_1' => 'Existing Street',
         ]);
         $issued = $service->issueForLead($lead);
 
@@ -468,7 +470,6 @@ class LeadPortalEntryTest extends TestCase
             'phone' => '07123456789',
             'postcode' => 'sw1a 1aa',
             'house_number' => '10',
-            'address_line_1' => 'Test Street',
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
@@ -479,7 +480,7 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('07123456789', $lead->phone_number);
         $this->assertSame('SW1A 1AA', $lead->postcode);
         $this->assertSame('10', $lead->house_number);
-        $this->assertSame('Test Street', $lead->address_line_1);
+        $this->assertSame('Existing Street', $lead->address_line_1);
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertNotNull($progress);
@@ -501,6 +502,9 @@ class LeadPortalEntryTest extends TestCase
             ->assertOk()
             ->assertSee('Let&rsquo;s look at what you owe', false)
             ->assertSee('A rough estimate is absolutely fine.', false)
+            ->assertSee('We&rsquo;ll use the credit check to help fill in anything you may have missed.', false)
+            ->assertDontSee('Optional lenders')
+            ->assertDontSee('Creditor name')
             ->assertSee('Save and continue');
     }
 
@@ -522,7 +526,7 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('12345.67', (string) $lead->estimated_total_debt);
     }
 
-    public function test_saving_optional_creditor_rows_stores_rows_and_ignores_blanks(): void
+    public function test_saving_debts_does_not_wipe_existing_portal_debts_when_rows_not_submitted(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -532,21 +536,21 @@ class LeadPortalEntryTest extends TestCase
 
         $this->verifyThenCompleteWelcomeAndDetails($issued['token']);
 
+        LeadPortalDebt::create([
+            'lead_id' => $lead->id,
+            'creditor_name' => 'Existing Lender',
+            'balance' => '1000.00',
+            'source' => 'portal',
+        ]);
+
         $this->post(route('portal.debts.save', ['token' => $issued['token']]), [
             'estimated_total_debt' => '3000',
-            'creditors' => [
-                ['creditor_name' => 'Lender One', 'balance' => '1000'],
-                ['creditor_name' => '', 'balance' => ''],
-                ['creditor_name' => 'Lender Two', 'balance' => '2000'],
-            ],
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $rows = LeadPortalDebt::where('lead_id', $lead->id)->where('source', 'portal')->orderBy('id')->get();
-        $this->assertCount(2, $rows);
-        $this->assertSame('Lender One', $rows[0]->creditor_name);
+        $this->assertCount(1, $rows);
+        $this->assertSame('Existing Lender', $rows[0]->creditor_name);
         $this->assertSame('1000.00', (string) $rows[0]->balance);
-        $this->assertSame('Lender Two', $rows[1]->creditor_name);
-        $this->assertSame('2000.00', (string) $rows[1]->balance);
     }
 
     public function test_saving_debts_advances_progress_to_income(): void
@@ -615,7 +619,10 @@ class LeadPortalEntryTest extends TestCase
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
             ->assertSee('What&rsquo;s coming in each month?', false)
-            ->assertSee('After tax if possible &mdash; a rough estimate is fine.', false)
+            ->assertSee('Monthly income after tax', false)
+            ->assertSee('Estimate is fine.', false)
+            ->assertSee('Employed full-time')
+            ->assertSee('Self-employed')
             ->assertSee('Save and continue');
     }
 
@@ -637,6 +644,44 @@ class LeadPortalEntryTest extends TestCase
         $lead->refresh();
         $this->assertSame('Employed full-time', $lead->employment_status);
         $this->assertSame('2450.50', (string) $lead->monthly_income);
+    }
+
+    public function test_saving_income_rejects_invalid_employment_status_option(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.income.save', ['token' => $issued['token']]), [
+                'employment_status' => 'Invalid option',
+                'monthly_income' => '2000',
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors('employment_status');
+    }
+
+    public function test_monthly_income_accepts_currency_string_format_and_saves_decimal_value(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->post(route('portal.income.save', ['token' => $issued['token']]), [
+            'employment_status' => 'Employed full-time',
+            'monthly_income' => '£1,500.50',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame('1500.50', (string) $lead->monthly_income);
     }
 
     public function test_saving_income_advances_progress_to_costs(): void
@@ -806,7 +851,7 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('Let&rsquo;s fill in the gaps', false)
             ->assertSee('We can securely check your credit file to help find anything you may have missed.', false)
             ->assertSee('This won&rsquo;t affect your credit score.', false)
-            ->assertSee('Continue');
+            ->assertSee('Start check');
     }
 
     public function test_credit_check_start_placeholder_sets_started_and_last_run_timestamps(): void
