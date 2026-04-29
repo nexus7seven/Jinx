@@ -81,6 +81,9 @@ class Lead extends Model
         'from_vicidial_webform',
         'wip_status',
         'financial_statement',
+        'portal_credit_check_started_at',
+        'portal_credit_check_completed_at',
+        'portal_credit_check_last_run_at',
     ];
 
     protected $casts = [
@@ -88,6 +91,9 @@ class Lead extends Model
         'temp_mail_last_checked_at' => 'datetime',
         'financial_statement' => 'array',
         'from_vicidial_webform' => 'boolean',
+        'portal_credit_check_started_at' => 'datetime',
+        'portal_credit_check_completed_at' => 'datetime',
+        'portal_credit_check_last_run_at' => 'datetime',
     ];
 
     public function isPriorityWip(): bool
@@ -149,6 +155,26 @@ class Lead extends Model
     public function creditCheckJobLogs()
     {
         return $this->hasMany(CreditCheckJobLog::class)->latest('id');
+    }
+
+    public function portalTokens()
+    {
+        return $this->hasMany(LeadPortalToken::class)->latest('id');
+    }
+
+    public function latestPortalToken()
+    {
+        return $this->hasOne(LeadPortalToken::class)->latestOfMany();
+    }
+
+    public function portalProgress()
+    {
+        return $this->hasOne(LeadPortalProgress::class);
+    }
+
+    public function portalSnapshots()
+    {
+        return $this->hasMany(LeadPortalSnapshot::class)->latest('id');
     }
 
     public function actionPoints()
