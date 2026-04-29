@@ -208,6 +208,37 @@ class LeadPortalServicesTest extends TestCase
         );
     }
 
+    public function test_portal_link_generate_command_prints_pending_link_without_activation(): void
+    {
+        config()->set('services.portal.base_url', 'https://portal.example.test');
+
+        $lead = $this->makeLead();
+
+        $this->artisan('portal:link-generate', ['leadId' => $lead->id])
+            ->expectsOutput('lead_id: '.$lead->id)
+            ->expectsOutputToContain('Admin/internal diagnostic only')
+            ->expectsOutputToContain('token_status: pending')
+            ->expectsOutput('activated_at: null')
+            ->expectsOutput('expires_at: null')
+            ->expectsOutputToContain('portal_url: https://portal.example.test/portal/')
+            ->assertExitCode(0);
+
+        $portalToken = LeadPortalToken::query()->where('lead_id', $lead->id)->latest('id')->first();
+
+        $this->assertNotNull($portalToken);
+        $this->assertSame(LeadPortalToken::STATUS_PENDING, $portalToken->status);
+        $this->assertNull($portalToken->activated_at);
+        $this->assertNull($portalToken->expires_at);
+    }
+
+    public function test_portal_link_generate_command_can_return_json_and_fail_for_missing_lead(): void
+    {
+        $this->artisan('portal:link-generate', ['leadId' => 999999, '--json' => true])
+            ->expectsOutputToContain('"ok": false')
+            ->expectsOutputToContain('"message": "Lead not found for ID 999999."')
+            ->assertExitCode(1);
+    }
+
     private function makeLead(): Lead
     {
         return Lead::create([
