@@ -24,6 +24,7 @@ class RemarketingLinearExecuteCommand extends Command
     private const DEFAULT_AGENT_NAME = 'Alex';
     private const DEFAULT_COMPANY_NAME = 'Clear My Credit';
     private const WHATSAPP_LINK = 'https://whatsapp.clearmycredit.co.uk';
+    private const MANUAL_TASK_WHATSAPP_NUMBER = '441617685416';
     private const DEFAULT_PORTAL_LINK = '#PORTAL_LINK_PENDING#';
 
     private array $stepLogColumnCache = [];
@@ -1302,7 +1303,7 @@ class RemarketingLinearExecuteCommand extends Command
         if (! in_array($stage, ['fresh', 'cooling', 'cold', 'dormant'], true)) {
             $stage = 'fresh';
         }
-        $whatsAppUrl = self::WHATSAPP_LINK;
+        $whatsAppUrl = 'https://wa.me/'.self::MANUAL_TASK_WHATSAPP_NUMBER.'?text='.rawurlencode($renderedBody);
         $supportsMessageBody = Schema::hasColumn('remarketing_tasks', 'message_body');
         $supportsMetadataJson = Schema::hasColumn('remarketing_tasks', 'metadata_json');
 
