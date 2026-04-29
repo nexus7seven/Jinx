@@ -35,7 +35,28 @@ class LeadPortalController extends Controller
             return view('portal.verify');
         }
 
-        return $this->entryResponse($portalToken->lead);
+        return $this->entryResponse($portalToken->lead, $token);
+    }
+
+    public function completeWelcome(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($portalToken->lead);
+        $progress->last_completed_step = 'welcome';
+        $progress->current_step = 'details';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
     }
 
     public function verify(Request $request, string $token)
@@ -85,14 +106,18 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
-    private function entryResponse(Lead $lead)
+    private function entryResponse(Lead $lead, string $rawToken)
     {
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        if (blank($progress->current_step)) {
+            $progress->current_step = 'welcome';
+        }
         $progress->last_seen_at = now();
         $progress->save();
 
         return view('portal.entry', [
             'progress' => $progress,
+            'rawToken' => $rawToken,
         ]);
     }
 

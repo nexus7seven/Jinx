@@ -39,6 +39,8 @@ Route::get('/portal/{token}', [LeadPortalController::class, 'show'])
     ->name('portal.entry');
 Route::post('/portal/{token}/verify', [LeadPortalController::class, 'verify'])
     ->name('portal.verify');
+Route::post('/portal/{token}/welcome', [LeadPortalController::class, 'completeWelcome'])
+    ->name('portal.welcome.complete');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
