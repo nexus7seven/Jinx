@@ -20,15 +20,16 @@ class LeadPortalEntryTest extends TestCase
 
         try {
             $service = app(LeadPortalTokenService::class);
-            $lead = $this->makeLead();
+            $lead = $this->makeLead([
+                'dob' => '1985-06-15',
+            ]);
             $issued = $service->issueForLead($lead);
 
             $response = $this->get(route('portal.entry', ['token' => $issued['token']]));
 
             $response->assertOk()
-                ->assertSee('Let&rsquo;s build a clear picture of your situation', false)
-                ->assertSee('This secure link lets you continue your details.', false)
-                ->assertSee('welcome');
+                ->assertSee('Let&rsquo;s keep your details private', false)
+                ->assertSee('Before we continue, please confirm one detail so we know it&rsquo;s you.', false);
 
             $token = $issued['portal_token']->fresh();
             $this->assertSame(LeadPortalToken::STATUS_ACTIVE, $token->status);
@@ -40,16 +41,89 @@ class LeadPortalEntryTest extends TestCase
         }
     }
 
-    public function test_active_token_can_revisit(): void
+    public function test_valid_dob_verifies_and_shows_entry(): void
     {
         Carbon::setTestNow('2026-04-29 10:00:00');
 
         try {
             $service = app(LeadPortalTokenService::class);
-            $lead = $this->makeLead();
+            $lead = $this->makeLead([
+                'dob' => '1985-06-15',
+                'postcode' => 'SW1A 1AA',
+            ]);
             $issued = $service->issueForLead($lead);
 
-            $this->get(route('portal.entry', ['token' => $issued['token']]))->assertOk();
+            $response = $this->from(route('portal.entry', ['token' => $issued['token']]))
+                ->post(route('portal.verify', ['token' => $issued['token']]), [
+                    'dob' => '1985-06-15',
+                ]);
+
+            $response->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+            $this->get(route('portal.entry', ['token' => $issued['token']]))
+                ->assertOk()
+                ->assertSee('Let&rsquo;s build a clear picture of your situation', false)
+                ->assertSee('welcome');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_valid_normalized_postcode_verifies_and_shows_entry(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'postcode' => 'sw1a 1aa',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $response = $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'postcode' => 'SW1A1AA',
+            ]);
+
+        $response->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Let&rsquo;s build a clear picture of your situation', false)
+            ->assertSee('welcome');
+    }
+
+    public function test_invalid_verification_returns_generic_error(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'postcode' => 'SW1A 1AA',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $response = $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '2000-01-01',
+            ]);
+
+        $response->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'verification' => 'That doesn’t look quite right. Please check and try again.',
+            ]);
+    }
+
+    public function test_once_verified_get_portal_token_goes_straight_to_entry(): void
+    {
+        Carbon::setTestNow('2026-04-29 10:00:00');
+
+        try {
+            $service = app(LeadPortalTokenService::class);
+            $lead = $this->makeLead([
+                'dob' => '1985-06-15',
+            ]);
+            $issued = $service->issueForLead($lead);
+
+            $this->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '1985-06-15',
+            ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
             Carbon::setTestNow('2026-05-01 12:00:00');
 
@@ -109,16 +183,22 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame(LeadPortalToken::STATUS_EXPIRED, $expired->fresh()->status);
     }
 
-    public function test_portal_progress_row_is_created_and_last_seen_is_updated(): void
+    public function test_portal_progress_row_is_created_and_last_seen_is_updated_after_verification(): void
     {
         Carbon::setTestNow('2026-04-29 10:00:00');
 
         try {
             $service = app(LeadPortalTokenService::class);
-            $lead = $this->makeLead();
+            $lead = $this->makeLead([
+                'dob' => '1985-06-15',
+            ]);
             $issued = $service->issueForLead($lead);
 
             $this->assertSame(0, LeadPortalProgress::where('lead_id', $lead->id)->count());
+
+            $this->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '1985-06-15',
+            ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
             $this->get(route('portal.entry', ['token' => $issued['token']]))->assertOk();
 
@@ -133,6 +213,46 @@ class LeadPortalEntryTest extends TestCase
         }
     }
 
+    public function test_verify_route_rejects_invalid_and_non_usable_tokens(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('revoked-token'),
+            'status' => LeadPortalToken::STATUS_REVOKED,
+            'revoked_at' => now(),
+        ]);
+
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('completed-token'),
+            'status' => LeadPortalToken::STATUS_COMPLETED,
+            'completed_at' => now(),
+            'revoked_at' => now(),
+        ]);
+
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        foreach (['not-a-real-token', 'revoked-token', 'completed-token', 'expired-token'] as $rawToken) {
+            $this->post(route('portal.verify', ['token' => $rawToken]), [
+                'dob' => '1985-06-15',
+            ])
+                ->assertStatus(410)
+                ->assertSee('This link is no longer active')
+                ->assertSee('For security, you&rsquo;ll need a new link.', false);
+        }
+    }
+
     public function test_invalid_token_shows_expired_page(): void
     {
         $this->get(route('portal.entry', ['token' => 'not-a-real-token']))
@@ -141,10 +261,25 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('For security, you&rsquo;ll need a new link.', false);
     }
 
-    private function makeLead(): Lead
+    public function test_lead_with_no_dob_or_postcode_can_verify_gently(): void
     {
-        return Lead::create([
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'postcode' => 'anything',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Let&rsquo;s build a clear picture of your situation', false);
+    }
+
+    private function makeLead(array $overrides = []): Lead
+    {
+        return Lead::create(array_merge([
             'vicidial_lead_id' => 'portal-entry-test-'.uniqid('', true),
-        ]);
+        ], $overrides));
     }
 }
