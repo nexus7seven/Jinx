@@ -1,0 +1,136 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Lead;
+use App\Models\LeadPortalToken;
+use Illuminate\Support\Str;
+
+class LeadPortalTokenService
+{
+    /**
+     * @return array{token: string, portal_token: LeadPortalToken, reused: bool}
+     */
+    public function issueForLead(Lead $lead, ?string $createdIp = null): array
+    {
+        $usableTokens = $lead->portalTokens()
+            ->whereNull('revoked_at')
+            ->whereNull('completed_at')
+            ->where(function ($query) {
+                $query->where('status', LeadPortalToken::STATUS_PENDING)
+                    ->orWhere(function ($activeQuery) {
+                        $activeQuery->where('status', LeadPortalToken::STATUS_ACTIVE)
+                            ->where('expires_at', '>', now());
+                    });
+            })
+            ->get();
+
+        if ($usableTokens->isNotEmpty()) {
+            // The raw token is intentionally never stored, so an existing pending/active
+            // token cannot be safely re-shown or recovered here. Instead, revoke any
+            // currently usable tokens and mint a fresh raw token for one-time return.
+            foreach ($usableTokens as $existingToken) {
+                $this->revoke($existingToken);
+            }
+        }
+
+        $rawToken = Str::random(64);
+
+        $portalToken = LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $this->hashRawToken($rawToken),
+            'status' => LeadPortalToken::STATUS_PENDING,
+            'created_ip' => $createdIp,
+        ]);
+
+        return [
+            'token' => $rawToken,
+            'portal_token' => $portalToken,
+            'reused' => false,
+        ];
+    }
+
+    public function resolveRawToken(string $rawToken, ?string $ip = null): ?LeadPortalToken
+    {
+        $token = LeadPortalToken::query()
+            ->where('token_hash', $this->hashRawToken($rawToken))
+            ->first();
+
+        if (! $token) {
+            return null;
+        }
+
+        if ($token->revoked_at !== null || $token->completed_at !== null) {
+            return null;
+        }
+
+        if ($token->status === LeadPortalToken::STATUS_EXPIRED) {
+            return null;
+        }
+
+        if ($token->expires_at !== null && $token->expires_at->isPast()) {
+            $token->status = LeadPortalToken::STATUS_EXPIRED;
+            $token->save();
+
+            return null;
+        }
+
+        if ($token->status === LeadPortalToken::STATUS_PENDING) {
+            $token->status = LeadPortalToken::STATUS_ACTIVE;
+            $token->activated_at = now();
+            $token->expires_at = now()->addDays(30);
+        } elseif (
+            $token->status !== LeadPortalToken::STATUS_ACTIVE
+            || $token->expires_at === null
+            || ! $token->expires_at->isFuture()
+        ) {
+            return null;
+        }
+
+        $token->last_used_at = now();
+        $token->last_used_ip = $ip;
+        $token->save();
+
+        return $token->load('lead');
+    }
+
+    public function revoke(
+        LeadPortalToken $token,
+        string $status = LeadPortalToken::STATUS_REVOKED
+    ): LeadPortalToken {
+        $token->status = $status;
+        $token->revoked_at = now();
+        $token->save();
+
+        return $token;
+    }
+
+    public function complete(LeadPortalToken $token): LeadPortalToken
+    {
+        $token->status = LeadPortalToken::STATUS_COMPLETED;
+        $token->completed_at = now();
+        $token->revoked_at = now();
+        $token->save();
+
+        return $token;
+    }
+
+    public function expireOldTokens(): int
+    {
+        return LeadPortalToken::query()
+            ->where('status', LeadPortalToken::STATUS_ACTIVE)
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<', now())
+            ->whereNull('revoked_at')
+            ->whereNull('completed_at')
+            ->update([
+                'status' => LeadPortalToken::STATUS_EXPIRED,
+                'updated_at' => now(),
+            ]);
+    }
+
+    public function hashRawToken(string $rawToken): string
+    {
+        return hash('sha256', $rawToken);
+    }
+}
