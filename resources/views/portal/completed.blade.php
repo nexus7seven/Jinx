@@ -18,9 +18,19 @@
     <p style="margin:0 0 8px 0; color:#475569; font-size:16px; line-height:1.6;">
         We&rsquo;ve securely closed this link.
     </p>
-    <p style="margin:0; color:#475569; font-size:16px; line-height:1.6;">
-        We&rsquo;ll send your summary by email shortly.
-    </p>
+    @if(!empty($emailedAt))
+        <p style="margin:0; color:#475569; font-size:16px; line-height:1.6;">
+            We&rsquo;ve sent your summary by email.
+        </p>
+    @elseif(!empty($hadEmailAddress))
+        <p style="margin:0; color:#475569; font-size:16px; line-height:1.6;">
+            We&rsquo;ve saved your summary and will send it by email shortly.
+        </p>
+    @else
+        <p style="margin:0; color:#475569; font-size:16px; line-height:1.6;">
+            We&rsquo;ve saved your summary. We couldn&rsquo;t send an email because no email address was provided.
+        </p>
+    @endif
 </div>
 </body>
 </html>

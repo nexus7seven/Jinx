@@ -74,6 +74,7 @@ return [
 
     'portal' => [
         'base_url' => env('PORTAL_BASE_URL'),
+        'whatsapp_url' => env('PORTAL_WHATSAPP_URL'),
     ],
 
     'local_worker' => [

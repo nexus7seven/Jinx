@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Mail\LeadPortalSummaryMail;
 use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mime\Email;
 
 class LeadPortalCompletionService
 {
@@ -16,7 +19,7 @@ class LeadPortalCompletionService
 
     public function complete(LeadPortalToken $portalToken): LeadPortalSnapshot
     {
-        return DB::transaction(function () use ($portalToken): LeadPortalSnapshot {
+        $snapshot = DB::transaction(function () use ($portalToken): LeadPortalSnapshot {
             $portalToken->loadMissing([
                 'lead.portalDebts',
                 'lead.portalProgress',
@@ -75,5 +78,35 @@ class LeadPortalCompletionService
 
             return $snapshot;
         });
+
+        $this->sendSummaryEmailIfPossible($snapshot, $portalToken);
+
+        return $snapshot;
+    }
+
+    private function sendSummaryEmailIfPossible(LeadPortalSnapshot $snapshot, LeadPortalToken $portalToken): void
+    {
+        if ($snapshot->emailed_at !== null) {
+            return;
+        }
+
+        $lead = $portalToken->lead;
+        if (blank($lead->email)) {
+            return;
+        }
+
+        $mail = (new LeadPortalSummaryMail($snapshot))
+            ->withSymfonyMessage(function (Email $message) use ($lead, $snapshot, $portalToken): void {
+                $headers = $message->getHeaders();
+                $headers->addTextHeader('X-Portal-Lead-Id', (string) $lead->id);
+                $headers->addTextHeader('X-Portal-Snapshot-Id', (string) $snapshot->id);
+                $headers->addTextHeader('X-Portal-Token-Id', (string) $portalToken->id);
+            });
+
+        Mail::to($lead->email)->send($mail);
+
+        $snapshot->forceFill([
+            'emailed_at' => now(),
+        ])->save();
     }
 }

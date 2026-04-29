@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\LeadPortalSummaryMail;
 use App\Models\Lead;
 use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalProgress;
@@ -10,6 +11,7 @@ use App\Models\LeadPortalToken;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class LeadPortalEntryTest extends TestCase
@@ -1022,8 +1024,13 @@ class LeadPortalEntryTest extends TestCase
 
     public function test_completing_from_complete_pending_creates_snapshot(): void
     {
+        Mail::fake();
+
         $service = app(LeadPortalTokenService::class);
-        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+        ]);
         $issued = $service->issueForLead($lead);
 
         $this->verifyThenCompleteToCompletePending($issued['token']);
@@ -1037,13 +1044,64 @@ class LeadPortalEntryTest extends TestCase
         ]);
     }
 
+    public function test_completion_sends_summary_email_when_lead_has_email_and_sets_emailed_at(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We&rsquo;ve sent your summary by email.', false);
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail) use ($lead) {
+            return $mail->hasTo($lead->email);
+        });
+
+        $snapshot = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->first();
+        $this->assertNotNull($snapshot?->emailed_at);
+    }
+
+    public function test_completion_does_not_fail_when_lead_email_is_missing(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => null,
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We couldn&rsquo;t send an email because no email address was provided.', false);
+
+        Mail::assertNothingSent();
+
+        $snapshot = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->first();
+        $this->assertNull($snapshot?->emailed_at);
+    }
+
     public function test_snapshot_contains_expected_sections(): void
     {
+        Mail::fake();
+
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
             'first_name' => 'Alice',
             'last_name' => 'Baker',
             'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+            'house_number' => '10',
+            'address_line_1' => 'Downing Street',
         ]);
         $issued = $service->issueForLead($lead);
 
@@ -1077,6 +1135,83 @@ class LeadPortalEntryTest extends TestCase
         $this->assertNotNull($json['credit_check']['portal_credit_check_started_at'] ?? null);
         $this->assertNotNull($json['credit_check']['portal_credit_check_last_run_at'] ?? null);
         $this->assertSame('Example Lender', $json['debts']['portal_debts'][0]['creditor_name'] ?? null);
+    }
+
+    public function test_summary_email_content_includes_financial_sections_and_omits_full_dob_and_address(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'first_name' => 'Alice',
+            'last_name' => 'Baker',
+            'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+            'postcode' => 'SW1A 1AA',
+            'house_number' => '10',
+            'address_line_1' => 'Downing Street',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        LeadPortalDebt::create([
+            'lead_id' => $lead->id,
+            'creditor_name' => 'Example Lender',
+            'balance' => '1234.56',
+            'source' => 'portal',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'Here&rsquo;s the summary we put together from the details you provided.')
+                && str_contains($html, 'Estimated total debt:')
+                && str_contains($html, 'Monthly picture')
+                && str_contains($html, '£5,000.00')
+                && str_contains($html, '£2,000.00')
+                && ! str_contains($html, '1985-06-15')
+                && ! str_contains($html, 'Downing Street');
+        });
+    }
+
+    public function test_summary_email_whatsapp_cta_appears_only_when_configured(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        config(['services.portal.whatsapp_url' => null]);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            return ! str_contains($mail->render(), 'Message us on WhatsApp');
+        });
+
+        Mail::fake();
+        $leadWithCta = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => 'portal-cta@example.com',
+        ]);
+        $issuedWithCta = $service->issueForLead($leadWithCta);
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
+
+        $this->verifyThenCompleteToCompletePending($issuedWithCta['token']);
+        $this->post(route('portal.complete', ['token' => $issuedWithCta['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'Message us on WhatsApp')
+                && str_contains($html, 'https://wa.me/441234567890');
+        });
     }
 
     public function test_completing_marks_progress_complete_and_token_completed(): void

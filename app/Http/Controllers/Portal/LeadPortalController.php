@@ -301,9 +301,12 @@ class LeadPortalController extends Controller
             return redirect()->route('portal.entry', ['token' => $token]);
         }
 
-        $this->leadPortalCompletionService->complete($portalToken);
+        $snapshot = $this->leadPortalCompletionService->complete($portalToken);
 
-        return view('portal.completed');
+        return view('portal.completed', [
+            'emailedAt' => $snapshot->emailed_at,
+            'hadEmailAddress' => filled($portalToken->lead->email),
+        ]);
     }
 
     public function verify(Request $request, string $token)
