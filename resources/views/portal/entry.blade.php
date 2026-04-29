@@ -357,12 +357,20 @@
             </div>
 
             <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
-                Nearly done
+                You&rsquo;re all set
             </h1>
 
-            <p style="margin:0; color:#475569; font-size:16px; line-height:1.6;">
-                We&rsquo;re preparing your summary.
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                We&rsquo;ve saved your summary and securely closed this session.
             </p>
+
+            <form method="POST" action="{{ route('portal.complete', ['token' => $rawToken]) }}">
+                @csrf
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Finish
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step

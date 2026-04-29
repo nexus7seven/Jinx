@@ -35,12 +35,12 @@ class LeadPortalProgressService
         return $progress;
     }
 
-    public function complete(Lead $lead): LeadPortalProgress
+    public function complete(Lead $lead, string $lastCompletedStep = 'review'): LeadPortalProgress
     {
         $progress = $this->ensureForLead($lead);
 
         $progress->current_step = 'complete';
-        $progress->last_completed_step = 'review';
+        $progress->last_completed_step = $lastCompletedStep;
         $progress->completed_at = now();
         $progress->last_seen_at = now();
         $progress->save();

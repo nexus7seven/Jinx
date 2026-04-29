@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalToken;
+use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\Request;
@@ -20,7 +21,8 @@ class LeadPortalController extends Controller
 
     public function __construct(
         private readonly LeadPortalTokenService $leadPortalTokenService,
-        private readonly LeadPortalProgressService $leadPortalProgressService
+        private readonly LeadPortalProgressService $leadPortalProgressService,
+        private readonly LeadPortalCompletionService $leadPortalCompletionService
     ) {
     }
 
@@ -285,6 +287,23 @@ class LeadPortalController extends Controller
         $progress->save();
 
         return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
+    public function complete(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $this->leadPortalCompletionService->complete($portalToken);
+
+        return view('portal.completed');
     }
 
     public function verify(Request $request, string $token)

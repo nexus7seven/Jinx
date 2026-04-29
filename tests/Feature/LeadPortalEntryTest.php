@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Lead;
 use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalProgress;
+use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -985,8 +986,8 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('Nearly done')
-            ->assertSee('We&rsquo;re preparing your summary.', false);
+            ->assertSee('You&rsquo;re all set', false)
+            ->assertSee('Finish');
     }
 
     public function test_unverified_cannot_finish_review(): void
@@ -1015,6 +1016,130 @@ class LeadPortalEntryTest extends TestCase
         ]);
 
         $this->post(route('portal.review.finish', ['token' => 'review-expired-token']))
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
+    public function test_completing_from_complete_pending_creates_snapshot(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('All done');
+
+        $this->assertDatabaseHas('lead_portal_snapshots', [
+            'lead_id' => $lead->id,
+        ]);
+    }
+
+    public function test_snapshot_contains_expected_sections(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'first_name' => 'Alice',
+            'last_name' => 'Baker',
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        LeadPortalDebt::create([
+            'lead_id' => $lead->id,
+            'creditor_name' => 'Example Lender',
+            'balance' => '1234.56',
+            'source' => 'portal',
+        ]);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $snapshot = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->first();
+        $this->assertNotNull($snapshot);
+        $json = $snapshot->snapshot_json;
+        $this->assertIsArray($json);
+        $this->assertArrayHasKey('details', $json);
+        $this->assertArrayHasKey('debts', $json);
+        $this->assertArrayHasKey('income', $json);
+        $this->assertArrayHasKey('costs', $json);
+        $this->assertArrayHasKey('credit_check', $json);
+        $this->assertSame('Alice', $json['details']['first_name'] ?? null);
+        $this->assertSame('Baker', $json['details']['last_name'] ?? null);
+        $this->assertSame('5000.00', (string) ($json['debts']['estimated_total_debt'] ?? ''));
+        $this->assertSame('Employed full-time', $json['income']['employment_status'] ?? null);
+        $this->assertSame('2000.00', (string) ($json['income']['monthly_income'] ?? ''));
+        $this->assertSame('900.00', (string) ($json['costs']['monthly_housing_cost'] ?? ''));
+        $this->assertSame('100.00', (string) ($json['costs']['monthly_council_tax'] ?? ''));
+        $this->assertSame('150.00', (string) ($json['costs']['monthly_utilities_cost'] ?? ''));
+        $this->assertSame('300.00', (string) ($json['costs']['monthly_food_travel_cost'] ?? ''));
+        $this->assertNotNull($json['credit_check']['portal_credit_check_started_at'] ?? null);
+        $this->assertNotNull($json['credit_check']['portal_credit_check_last_run_at'] ?? null);
+        $this->assertSame('Example Lender', $json['debts']['portal_debts'][0]['creditor_name'] ?? null);
+    }
+
+    public function test_completing_marks_progress_complete_and_token_completed(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('complete', $progress->current_step);
+        $this->assertNotNull($progress->completed_at);
+
+        $token = $issued['portal_token']->fresh();
+        $this->assertSame(LeadPortalToken::STATUS_COMPLETED, $token->status);
+        $this->assertNotNull($token->completed_at);
+        $this->assertNotNull($token->revoked_at);
+    }
+
+    public function test_after_completion_get_portal_token_shows_expired_page(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
+    public function test_unverified_cannot_complete_portal(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertDatabaseMissing('lead_portal_snapshots', [
+            'lead_id' => $lead->id,
+        ]);
+    }
+
+    public function test_invalid_or_expired_token_cannot_complete_portal(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('complete-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.complete', ['token' => 'complete-expired-token']))
             ->assertStatus(410)
             ->assertSee('This link is no longer active');
     }
@@ -1116,6 +1241,14 @@ class LeadPortalEntryTest extends TestCase
         $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($rawToken);
 
         $this->post(route('portal.credit-check.start', ['token' => $rawToken]))
+            ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+    }
+
+    private function verifyThenCompleteToCompletePending(string $rawToken): void
+    {
+        $this->verifyThenCompleteToReview($rawToken);
+
+        $this->post(route('portal.review.finish', ['token' => $rawToken]))
             ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 }
