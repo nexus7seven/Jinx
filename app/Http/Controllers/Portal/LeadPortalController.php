@@ -237,6 +237,35 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function startCreditCheck(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $lead = $portalToken->lead;
+
+        if ($lead->portal_credit_check_last_run_at === null) {
+            $lead->portal_credit_check_started_at = now();
+            $lead->portal_credit_check_last_run_at = now();
+            $lead->save();
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'credit_check';
+        $progress->current_step = 'review';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());

@@ -787,6 +787,120 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('This link is no longer active');
     }
 
+    public function test_credit_check_intro_appears_after_costs_completion(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Let&rsquo;s fill in the gaps', false)
+            ->assertSee('We can securely check your credit file to help find anything you may have missed.', false)
+            ->assertSee('This won&rsquo;t affect your credit score.', false)
+            ->assertSee('Continue');
+    }
+
+    public function test_credit_check_start_placeholder_sets_started_and_last_run_timestamps(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $this->assertNull($lead->portal_credit_check_started_at);
+        $this->assertNull($lead->portal_credit_check_last_run_at);
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertNotNull($lead->portal_credit_check_started_at);
+        $this->assertNotNull($lead->portal_credit_check_last_run_at);
+    }
+
+    public function test_credit_check_start_advances_progress_to_review(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check', $progress->last_completed_step);
+        $this->assertSame('review', $progress->current_step);
+    }
+
+    public function test_second_credit_check_start_does_not_reset_timestamps(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $firstStartedAt = $lead->portal_credit_check_started_at?->copy();
+        $firstLastRunAt = $lead->portal_credit_check_last_run_at?->copy();
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertTrue($lead->portal_credit_check_started_at?->equalTo($firstStartedAt));
+        $this->assertTrue($lead->portal_credit_check_last_run_at?->equalTo($firstLastRunAt));
+    }
+
+    public function test_unverified_users_cannot_start_credit_check(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertNull($lead->portal_credit_check_started_at);
+        $this->assertNull($lead->portal_credit_check_last_run_at);
+    }
+
+    public function test_invalid_or_expired_token_cannot_start_credit_check(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('credit-check-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.credit-check.start', ['token' => 'credit-check-expired-token']))
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
     public function test_unverified_users_cannot_save_details(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -864,6 +978,18 @@ class LeadPortalEntryTest extends TestCase
         $this->post(route('portal.income.save', ['token' => $rawToken]), [
             'employment_status' => 'Employed full-time',
             'monthly_income' => '2000',
+        ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+    }
+
+    private function verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts(string $rawToken): void
+    {
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($rawToken);
+
+        $this->post(route('portal.costs.save', ['token' => $rawToken]), [
+            'monthly_housing_cost' => '900',
+            'monthly_council_tax' => '100',
+            'monthly_utilities_cost' => '150',
+            'monthly_food_travel_cost' => '300',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 }

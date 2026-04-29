@@ -276,6 +276,29 @@
                     Save and continue
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'credit_check')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Credit check
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                Let&rsquo;s fill in the gaps
+            </h1>
+
+            <p style="margin:0 0 8px 0; color:#475569; font-size:16px; line-height:1.6;">
+                We can securely check your credit file to help find anything you may have missed.
+            </p>
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                This won&rsquo;t affect your credit score.
+            </p>
+
+            <form method="POST" action="{{ route('portal.credit-check.start', ['token' => $rawToken]) }}">
+                @csrf
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Continue
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step
