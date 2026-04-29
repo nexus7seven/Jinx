@@ -59,6 +59,50 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function saveDetails(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $lead = $portalToken->lead;
+
+        $validated = $request->validate([
+            'first_name' => $this->requiredIfMissingRule($lead->first_name),
+            'last_name' => $this->requiredIfMissingRule($lead->last_name),
+            'dob' => ['nullable', 'date'],
+            'email' => ['nullable', 'email'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'postcode' => array_merge($this->requiredIfMissingRule($lead->postcode), ['string', 'max:20']),
+            'house_number' => ['nullable', 'string', 'max:255'],
+            'address_line_1' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $lead->first_name = $this->nullableString($validated['first_name'] ?? null);
+        $lead->last_name = $this->nullableString($validated['last_name'] ?? null);
+        $lead->dob = $this->nullableString($validated['dob'] ?? null);
+        $lead->email = $this->nullableString($validated['email'] ?? null);
+        $lead->phone_number = $this->nullableString($validated['phone'] ?? null);
+        $lead->postcode = $this->normalizePostcodeForStorage($validated['postcode'] ?? null);
+        $lead->house_number = $this->nullableString($validated['house_number'] ?? null);
+        $lead->address_line_1 = $this->nullableString($validated['address_line_1'] ?? null);
+        $lead->save();
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'details';
+        $progress->current_step = 'debts';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -117,6 +161,7 @@ class LeadPortalController extends Controller
 
         return view('portal.entry', [
             'progress' => $progress,
+            'lead' => $lead,
             'rawToken' => $rawToken,
         ]);
     }
@@ -146,14 +191,46 @@ class LeadPortalController extends Controller
         $dobMatches = $dobInput !== '' && $hasDobOnLead && $dobInput === $leadDob;
         $postcodeMatches = $postcodeInput !== ''
             && $hasPostcodeOnLead
-            && $this->normalizePostcode($postcodeInput) === $this->normalizePostcode($leadPostcode);
+            && $this->normalizePostcodeForMatch($postcodeInput) === $this->normalizePostcodeForMatch($leadPostcode);
 
         return $dobMatches || $postcodeMatches;
     }
 
-    private function normalizePostcode(string $postcode): string
+    private function normalizePostcodeForMatch(string $postcode): string
     {
         return strtoupper(str_replace(' ', '', trim($postcode)));
+    }
+
+    private function requiredIfMissingRule(?string $existing): array
+    {
+        return blank($existing)
+            ? ['required', 'string', 'max:255']
+            : ['nullable', 'string', 'max:255'];
+    }
+
+    private function nullableString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $trimmed = trim((string) $value);
+
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function normalizePostcodeForStorage(?string $postcode): ?string
+    {
+        if ($postcode === null) {
+            return null;
+        }
+
+        $trimmed = trim($postcode);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return strtoupper($trimmed);
     }
 
     private function verificationRateLimitKey(string $rawToken, ?string $ip): string

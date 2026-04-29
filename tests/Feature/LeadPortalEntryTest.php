@@ -397,8 +397,8 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('Your next step is coming soon')
-            ->assertSee('Current step:');
+            ->assertSee('A few details to get started')
+            ->assertSee('Save and continue');
     }
 
     public function test_invalid_expired_token_cannot_complete_welcome(): void
@@ -414,6 +414,107 @@ class LeadPortalEntryTest extends TestCase
         ]);
 
         $this->post(route('portal.welcome.complete', ['token' => 'expired-welcome-token']))
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
+    public function test_details_page_appears_after_welcome_completion(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.welcome.complete', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('A few details to get started')
+            ->assertSee('We use this to match the right information to you.')
+            ->assertSee('Save and continue');
+    }
+
+    public function test_saving_valid_details_updates_lead_and_advances_progress_to_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.welcome.complete', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.details.save', ['token' => $issued['token']]), [
+            'first_name' => 'Alex',
+            'last_name' => 'Stone',
+            'dob' => '1985-06-15',
+            'email' => 'alex@example.test',
+            'phone' => '07123456789',
+            'postcode' => 'sw1a 1aa',
+            'house_number' => '10',
+            'address_line_1' => 'Test Street',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame('Alex', $lead->first_name);
+        $this->assertSame('Stone', $lead->last_name);
+        $this->assertSame('1985-06-15', $lead->dob);
+        $this->assertSame('alex@example.test', $lead->email);
+        $this->assertSame('07123456789', $lead->phone_number);
+        $this->assertSame('SW1A 1AA', $lead->postcode);
+        $this->assertSame('10', $lead->house_number);
+        $this->assertSame('Test Street', $lead->address_line_1);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('details', $progress->last_completed_step);
+        $this->assertSame('debts', $progress->current_step);
+    }
+
+    public function test_unverified_users_cannot_save_details(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.details.save', ['token' => $issued['token']]), [
+            'first_name' => 'Alex',
+            'last_name' => 'Stone',
+            'postcode' => 'SW1A 1AA',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertNotSame('Alex', $lead->first_name);
+    }
+
+    public function test_invalid_or_expired_token_cannot_save_details(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('details-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.details.save', ['token' => 'details-expired-token']), [
+            'first_name' => 'Alex',
+            'last_name' => 'Stone',
+            'postcode' => 'SW1A 1AA',
+        ])
             ->assertStatus(410)
             ->assertSee('This link is no longer active');
     }
