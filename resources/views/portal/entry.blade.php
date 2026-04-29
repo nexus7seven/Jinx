@@ -221,6 +221,61 @@
                     Save and continue
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'costs')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Costs step
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                What are your main monthly costs?
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                Estimates are fine &mdash; this just helps build a clearer picture.
+            </p>
+
+            <form method="POST" action="{{ route('portal.costs.save', ['token' => $rawToken]) }}">
+                @csrf
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                    <div>
+                        <label for="monthly_housing_cost" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Rent or mortgage</label>
+                        <input id="monthly_housing_cost" name="monthly_housing_cost" type="number" step="0.01" min="0"
+                               value="{{ old('monthly_housing_cost', $lead->monthly_housing_cost) }}"
+                               style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                        @error('monthly_housing_cost')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    </div>
+                    <div>
+                        <label for="monthly_council_tax" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Council tax</label>
+                        <input id="monthly_council_tax" name="monthly_council_tax" type="number" step="0.01" min="0"
+                               value="{{ old('monthly_council_tax', $lead->monthly_council_tax) }}"
+                               style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                        @error('monthly_council_tax')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:20px;">
+                    <div>
+                        <label for="monthly_utilities_cost" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Utilities</label>
+                        <input id="monthly_utilities_cost" name="monthly_utilities_cost" type="number" step="0.01" min="0"
+                               value="{{ old('monthly_utilities_cost', $lead->monthly_utilities_cost) }}"
+                               style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                        @error('monthly_utilities_cost')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    </div>
+                    <div>
+                        <label for="monthly_food_travel_cost" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Food and travel</label>
+                        <input id="monthly_food_travel_cost" name="monthly_food_travel_cost" type="number" step="0.01" min="0"
+                               value="{{ old('monthly_food_travel_cost', $lead->monthly_food_travel_cost) }}"
+                               style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                        @error('monthly_food_travel_cost')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    </div>
+                </div>
+
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Save and continue
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step

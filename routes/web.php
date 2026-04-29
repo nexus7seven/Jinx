@@ -47,6 +47,8 @@ Route::post('/portal/{token}/debts', [LeadPortalController::class, 'saveDebts'])
     ->name('portal.debts.save');
 Route::post('/portal/{token}/income', [LeadPortalController::class, 'saveIncome'])
     ->name('portal.income.save');
+Route::post('/portal/{token}/costs', [LeadPortalController::class, 'saveCosts'])
+    ->name('portal.costs.save');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');

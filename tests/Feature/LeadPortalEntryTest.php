@@ -692,6 +692,101 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('This link is no longer active');
     }
 
+    public function test_costs_page_appears_after_income_completion(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($issued['token']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('What are your main monthly costs?', false)
+            ->assertSee('Estimates are fine &mdash; this just helps build a clearer picture.', false)
+            ->assertSee('Save and continue');
+    }
+
+    public function test_saving_costs_updates_lead(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($issued['token']);
+
+        $this->post(route('portal.costs.save', ['token' => $issued['token']]), [
+            'monthly_housing_cost' => '950.00',
+            'monthly_council_tax' => '120.50',
+            'monthly_utilities_cost' => '180.00',
+            'monthly_food_travel_cost' => '340.25',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame('950.00', (string) $lead->monthly_housing_cost);
+        $this->assertSame('120.50', (string) $lead->monthly_council_tax);
+        $this->assertSame('180.00', (string) $lead->monthly_utilities_cost);
+        $this->assertSame('340.25', (string) $lead->monthly_food_travel_cost);
+    }
+
+    public function test_saving_costs_advances_progress_to_credit_check(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($issued['token']);
+
+        $this->post(route('portal.costs.save', ['token' => $issued['token']]), [
+            'monthly_housing_cost' => '900',
+            'monthly_council_tax' => '100',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('costs', $progress->last_completed_step);
+        $this->assertSame('credit_check', $progress->current_step);
+    }
+
+    public function test_unverified_users_cannot_save_costs(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.costs.save', ['token' => $issued['token']]), [
+            'monthly_housing_cost' => '900',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertNull($lead->monthly_housing_cost);
+    }
+
+    public function test_invalid_or_expired_token_cannot_save_costs(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('costs-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.costs.save', ['token' => 'costs-expired-token']), [
+            'monthly_housing_cost' => '900',
+        ])
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
     public function test_unverified_users_cannot_save_details(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -759,6 +854,16 @@ class LeadPortalEntryTest extends TestCase
 
         $this->post(route('portal.debts.save', ['token' => $rawToken]), [
             'estimated_total_debt' => '5000',
+        ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+    }
+
+    private function verifyThenCompleteWelcomeDetailsDebtsAndIncome(string $rawToken): void
+    {
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($rawToken);
+
+        $this->post(route('portal.income.save', ['token' => $rawToken]), [
+            'employment_status' => 'Employed full-time',
+            'monthly_income' => '2000',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 }

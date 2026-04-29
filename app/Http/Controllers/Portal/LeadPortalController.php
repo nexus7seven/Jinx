@@ -194,6 +194,49 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function saveCosts(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $validated = $request->validate([
+            'monthly_housing_cost' => ['nullable', 'numeric', 'min:0'],
+            'monthly_council_tax' => ['nullable', 'numeric', 'min:0'],
+            'monthly_utilities_cost' => ['nullable', 'numeric', 'min:0'],
+            'monthly_food_travel_cost' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $lead = $portalToken->lead;
+        $lead->monthly_housing_cost = array_key_exists('monthly_housing_cost', $validated)
+            ? $validated['monthly_housing_cost']
+            : $lead->monthly_housing_cost;
+        $lead->monthly_council_tax = array_key_exists('monthly_council_tax', $validated)
+            ? $validated['monthly_council_tax']
+            : $lead->monthly_council_tax;
+        $lead->monthly_utilities_cost = array_key_exists('monthly_utilities_cost', $validated)
+            ? $validated['monthly_utilities_cost']
+            : $lead->monthly_utilities_cost;
+        $lead->monthly_food_travel_cost = array_key_exists('monthly_food_travel_cost', $validated)
+            ? $validated['monthly_food_travel_cost']
+            : $lead->monthly_food_travel_cost;
+        $lead->save();
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'costs';
+        $progress->current_step = 'credit_check';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
