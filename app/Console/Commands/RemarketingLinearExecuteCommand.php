@@ -1303,7 +1303,11 @@ class RemarketingLinearExecuteCommand extends Command
         if (! in_array($stage, ['fresh', 'cooling', 'cold', 'dormant'], true)) {
             $stage = 'fresh';
         }
-        $whatsAppUrl = 'https://wa.me/'.self::MANUAL_TASK_WHATSAPP_NUMBER.'?text='.rawurlencode($renderedBody);
+        $cleanBody = mb_convert_encoding($renderedBody, 'UTF-8', 'UTF-8');
+        $whatsAppUrl = 'https://wa.me/'.self::MANUAL_TASK_WHATSAPP_NUMBER;
+        if (trim($cleanBody) !== '') {
+            $whatsAppUrl .= '?text='.rawurlencode($cleanBody);
+        }
         $supportsMessageBody = Schema::hasColumn('remarketing_tasks', 'message_body');
         $supportsMetadataJson = Schema::hasColumn('remarketing_tasks', 'metadata_json');
 
