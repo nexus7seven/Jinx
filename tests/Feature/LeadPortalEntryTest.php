@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Mail\LeadPortalSummaryMail;
 use App\Models\Lead;
 use App\Models\LeadPortalDebt;
+use App\Models\LeadPortalEmailClick;
 use App\Models\LeadPortalProgress;
 use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
@@ -1212,6 +1213,89 @@ class LeadPortalEntryTest extends TestCase
             return str_contains($html, 'Message us on WhatsApp')
                 && str_contains($html, 'https://wa.me/441234567890');
         });
+    }
+
+    public function test_whatsapp_cta_uses_tracking_route_not_direct_whatsapp_url(): void
+    {
+        Mail::fake();
+
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'email' => 'portal@example.com',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $snapshot = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->firstOrFail();
+        $expectedTrackingUrl = route('portal.summary.click', ['snapshot' => $snapshot->id, 'type' => 'whatsapp']);
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail) use ($expectedTrackingUrl): bool {
+            $html = $mail->render();
+
+            return str_contains($html, $expectedTrackingUrl)
+                && ! str_contains($html, 'href="https://wa.me/');
+        });
+    }
+
+    public function test_click_tracking_route_creates_row_and_redirects_to_whatsapp(): void
+    {
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
+
+        $lead = $this->makeLead();
+        $snapshot = LeadPortalSnapshot::create([
+            'lead_id' => $lead->id,
+            'snapshot_json' => ['lead_id' => $lead->id],
+        ]);
+
+        $response = $this->withHeader('referer', 'https://example.test/mail')
+            ->withHeader('user-agent', 'PortalTestAgent/1.0')
+            ->get(route('portal.summary.click', ['snapshot' => $snapshot->id, 'type' => 'whatsapp']));
+
+        $response->assertRedirect('https://wa.me/441234567890');
+
+        $this->assertDatabaseHas('lead_portal_email_clicks', [
+            'lead_id' => $lead->id,
+            'lead_portal_snapshot_id' => $snapshot->id,
+            'click_type' => 'whatsapp',
+            'destination_url' => 'https://wa.me/441234567890',
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'PortalTestAgent/1.0',
+        ]);
+
+        $click = LeadPortalEmailClick::query()->latest('id')->first();
+        $this->assertNotNull($click?->clicked_at);
+        $this->assertSame('https://example.test/mail', $click?->raw_context_json['referer'] ?? null);
+    }
+
+    public function test_unsupported_click_type_is_rejected(): void
+    {
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
+
+        $snapshot = LeadPortalSnapshot::create([
+            'lead_id' => null,
+            'snapshot_json' => [],
+        ]);
+
+        $this->get(route('portal.summary.click', ['snapshot' => $snapshot->id, 'type' => 'email']))
+            ->assertNotFound();
+    }
+
+    public function test_missing_whatsapp_destination_is_rejected(): void
+    {
+        config(['services.portal.whatsapp_url' => null]);
+
+        $snapshot = LeadPortalSnapshot::create([
+            'lead_id' => null,
+            'snapshot_json' => [],
+        ]);
+
+        $this->get(route('portal.summary.click', ['snapshot' => $snapshot->id, 'type' => 'whatsapp']))
+            ->assertNotFound();
     }
 
     public function test_completing_marks_progress_complete_and_token_completed(): void

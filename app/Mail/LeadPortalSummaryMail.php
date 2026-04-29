@@ -56,7 +56,9 @@ class LeadPortalSummaryMail extends Mailable
                     'utilities' => $this->formatMoney($costs['monthly_utilities_cost'] ?? null),
                     'food_travel' => $this->formatMoney($costs['monthly_food_travel_cost'] ?? null),
                 ],
-                'whatsAppUrl' => config('services.portal.whatsapp_url'),
+                'whatsAppTrackingUrl' => ! blank(config('services.portal.whatsapp_url'))
+                    ? route('portal.summary.click', ['snapshot' => $this->snapshot->id, 'type' => 'whatsapp'])
+                    : null,
             ],
         );
     }

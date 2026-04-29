@@ -52,9 +52,12 @@
             utilities {{ $monthlyCosts['utilities'] }}, food and travel {{ $monthlyCosts['food_travel'] }}.
         </p>
 
-        @if(!empty($whatsAppUrl))
+        @if(!empty($whatsAppTrackingUrl))
+            <p style="margin:0 0 10px 0; color:#334155; font-size:14px; line-height:1.6;">
+                If you&rsquo;d like help understanding your summary, send us a message and we&rsquo;ll talk you through it.
+            </p>
             <p style="margin:0;">
-                <a href="{{ $whatsAppUrl }}"
+                <a href="{{ $whatsAppTrackingUrl }}"
                    style="display:inline-block; background:#16a34a; color:#ffffff; text-decoration:none; font-weight:700; border-radius:12px; padding:12px 16px;">
                     Message us on WhatsApp
                 </a>

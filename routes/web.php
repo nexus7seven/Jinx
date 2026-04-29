@@ -23,6 +23,7 @@ use App\Services\LeadChecklistService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
+use App\Http\Controllers\Portal\LeadPortalEmailClickController;
 use App\Http\Controllers\Portal\LeadPortalController;
 use App\Services\FinancialStatementService;
 use App\Services\VicidialDialActivityService;
@@ -55,6 +56,8 @@ Route::post('/portal/{token}/review/finish', [LeadPortalController::class, 'fini
     ->name('portal.review.finish');
 Route::post('/portal/{token}/complete', [LeadPortalController::class, 'complete'])
     ->name('portal.complete');
+Route::get('/portal-summary/click/{snapshot}/{type}', [LeadPortalEmailClickController::class, 'redirect'])
+    ->name('portal.summary.click');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
