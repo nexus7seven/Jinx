@@ -215,7 +215,8 @@ class LeadPortalServicesTest extends TestCase
         $lead = $this->makeLead();
 
         $this->artisan('portal:link-generate', ['leadId' => $lead->id])
-            ->expectsOutput('lead_id: '.$lead->id)
+            ->expectsOutput('jinx_lead_id: '.$lead->id)
+            ->expectsOutput('vicidial_lead_id: '.$lead->vicidial_lead_id)
             ->expectsOutputToContain('Admin/internal diagnostic only')
             ->expectsOutputToContain('token_status: pending')
             ->expectsOutput('activated_at: null')
@@ -231,11 +232,24 @@ class LeadPortalServicesTest extends TestCase
         $this->assertNull($portalToken->expires_at);
     }
 
+    public function test_portal_link_generate_command_accepts_vicidial_lead_id(): void
+    {
+        config()->set('services.portal.base_url', 'https://portal.example.test');
+
+        $lead = $this->makeLead();
+
+        $this->artisan('portal:link-generate', ['leadId' => $lead->vicidial_lead_id])
+            ->expectsOutput('jinx_lead_id: '.$lead->id)
+            ->expectsOutput('vicidial_lead_id: '.$lead->vicidial_lead_id)
+            ->expectsOutputToContain('token_status: pending')
+            ->assertExitCode(0);
+    }
+
     public function test_portal_link_generate_command_can_return_json_and_fail_for_missing_lead(): void
     {
         $this->artisan('portal:link-generate', ['leadId' => 999999, '--json' => true])
             ->expectsOutputToContain('"ok": false')
-            ->expectsOutputToContain('"message": "Lead not found for ID 999999."')
+            ->expectsOutputToContain('"message": "Lead not found for given Jinx ID or Vicidial lead ID: 999999"')
             ->assertExitCode(1);
     }
 
