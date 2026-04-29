@@ -346,7 +346,8 @@ class RemarketingController extends Controller
             }
             $task->save();
 
-            $this->completeLinkedManualStepLog($task);
+            $linkedLog = $this->completeLinkedManualStepLog($task);
+            $this->advanceProgressForCompletedManualTask($linkedLog);
 
             if ($task->task_type === 'call') {
                 $this->remarketingStepTwoAfterCallCompleted($task);
@@ -556,7 +557,7 @@ class RemarketingController extends Controller
         return redirect()->back()->with($result['ok'] ? 'success' : 'error', $result['message']);
     }
 
-    private function completeLinkedManualStepLog(RemarketingTask $task): void
+    private function completeLinkedManualStepLog(RemarketingTask $task): ?LeadRemarketingStepLog
     {
         $log = LeadRemarketingStepLog::query()
             ->where('created_task_id', $task->id)
@@ -564,7 +565,7 @@ class RemarketingController extends Controller
             ->first();
 
         if (! $log) {
-            return;
+            return null;
         }
 
         $completedAt = $log->completed_at ?? now();
@@ -573,6 +574,96 @@ class RemarketingController extends Controller
         $log->completed_at = $completedAt;
         $log->updated_at = now();
         $log->save();
+
+        return $log;
+    }
+
+    private function advanceProgressForCompletedManualTask(?LeadRemarketingStepLog $log): void
+    {
+        if (! $log) {
+            return;
+        }
+
+        $progress = LeadRemarketingProgress::query()
+            ->where('lead_id', (int) $log->lead_id)
+            ->whereIn('status', [
+                LeadRemarketingProgress::STATUS_ACTIVE,
+                LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK,
+            ])
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $progress) {
+            Log::warning('Manual remarketing task completed without active progress row', [
+                'lead_id' => $log->lead_id,
+                'step_log_id' => $log->id,
+                'task_id' => $log->created_task_id,
+            ]);
+
+            return;
+        }
+
+        $currentStep = null;
+        if ($log->remarketing_step_id !== null) {
+            $currentStep = RemarketingStep::query()->find((int) $log->remarketing_step_id);
+        }
+        if (! $currentStep && $progress->current_step_id !== null) {
+            $currentStep = RemarketingStep::query()->find((int) $progress->current_step_id);
+        }
+
+        $stepsQuery = RemarketingStep::query()
+            ->where('is_active', true)
+            ->orderBy('step_order');
+
+        if ($currentStep && str_starts_with((string) $currentStep->step_key, 'cbna_')) {
+            $stepsQuery->where('step_key', 'like', 'cbna_%');
+        }
+
+        $nextStep = $stepsQuery
+            ->where('step_order', '>', (int) ($log->step_order ?? $progress->current_step_order ?? 0))
+            ->first();
+
+        $now = now();
+
+        if (! $nextStep) {
+            $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
+            $progress->next_step_due_at = null;
+            $progress->last_step_completed_at = $now;
+            if (Schema::hasColumn('lead_remarketing_progress', 'stopped_at')) {
+                $progress->stopped_at = $progress->stopped_at ?? $now;
+            }
+            if (Schema::hasColumn('lead_remarketing_progress', 'stop_reason')) {
+                $progress->stop_reason = 'journey_completed';
+            }
+            $progress->save();
+
+            Log::info('Manual remarketing task completion finished journey', [
+                'lead_id' => $log->lead_id,
+                'step_log_id' => $log->id,
+                'task_id' => $log->created_task_id,
+            ]);
+
+            return;
+        }
+
+        $progress->current_step_id = $nextStep->id;
+        $progress->current_step_order = $nextStep->step_order;
+        $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
+        $progress->last_step_completed_at = $now;
+        $progress->next_step_due_at = $this->scheduleWindowService->nextAllowedTime(
+            $nextStep,
+            $now->copy()->addMinutes((int) $nextStep->delay_minutes)
+        );
+        $progress->save();
+
+        Log::info('Manual remarketing task completion advanced progress', [
+            'lead_id' => $log->lead_id,
+            'step_log_id' => $log->id,
+            'task_id' => $log->created_task_id,
+            'next_step_id' => $nextStep->id,
+            'next_step_key' => $nextStep->step_key,
+            'next_step_order' => $nextStep->step_order,
+        ]);
     }
 
     /**
