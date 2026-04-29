@@ -901,6 +901,124 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('This link is no longer active');
     }
 
+    public function test_review_page_appears_after_credit_check_start(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToReview($issued['token']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Review what we have so far')
+            ->assertSee('Your details')
+            ->assertSee('What you owe')
+            ->assertSee('Monthly picture');
+    }
+
+    public function test_review_page_shows_masked_personal_details(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'first_name' => 'Alice',
+            'last_name' => 'Baker',
+            'dob' => '1985-06-15',
+            'postcode' => 'SW1A 1AA',
+            'house_number' => '22',
+            'address_line_1' => 'Example Street',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToReview($issued['token']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('A**** B****', false)
+            ->assertSee('**/**/1985', false)
+            ->assertSee('SW1****', false)
+            ->assertSee('22 ********', false);
+    }
+
+    public function test_review_page_shows_debt_and_monthly_picture_values(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('£5,000.00', false)
+            ->assertSee('£2,000.00', false)
+            ->assertSee('£900.00', false)
+            ->assertSee('£100.00', false)
+            ->assertSee('£150.00', false)
+            ->assertSee('£300.00', false);
+    }
+
+    public function test_finishing_review_advances_progress_to_complete_pending(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToReview($issued['token']);
+
+        $this->post(route('portal.review.finish', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('review', $progress->last_completed_step);
+        $this->assertSame('complete_pending', $progress->current_step);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Nearly done')
+            ->assertSee('We&rsquo;re preparing your summary.', false);
+    }
+
+    public function test_unverified_cannot_finish_review(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.review.finish', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNull($progress);
+    }
+
+    public function test_invalid_or_expired_token_cannot_finish_review(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('review-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $this->post(route('portal.review.finish', ['token' => 'review-expired-token']))
+            ->assertStatus(410)
+            ->assertSee('This link is no longer active');
+    }
+
     public function test_unverified_users_cannot_save_details(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -991,5 +1109,13 @@ class LeadPortalEntryTest extends TestCase
             'monthly_utilities_cost' => '150',
             'monthly_food_travel_cost' => '300',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+    }
+
+    private function verifyThenCompleteToReview(string $rawToken): void
+    {
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($rawToken);
+
+        $this->post(route('portal.credit-check.start', ['token' => $rawToken]))
+            ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 }

@@ -266,6 +266,27 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function finishReview(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($portalToken->lead);
+        $progress->last_completed_step = 'review';
+        $progress->current_step = 'complete_pending';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function verify(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -328,6 +349,18 @@ class LeadPortalController extends Controller
             'portalDebts' => $lead->portalDebts()
                 ->where('source', 'portal')
                 ->get(),
+            'reviewMoney' => [
+                'estimated_total_debt' => $this->formatMoney($lead->estimated_total_debt),
+                'monthly_income' => $this->formatMoney($lead->monthly_income),
+                'monthly_housing_cost' => $this->formatMoney($lead->monthly_housing_cost),
+                'monthly_council_tax' => $this->formatMoney($lead->monthly_council_tax),
+                'monthly_utilities_cost' => $this->formatMoney($lead->monthly_utilities_cost),
+                'monthly_food_travel_cost' => $this->formatMoney($lead->monthly_food_travel_cost),
+            ],
+            'maskedName' => $this->maskName($lead->first_name, $lead->last_name),
+            'maskedDob' => $this->maskDob($lead->dob),
+            'maskedPostcode' => $this->maskPostcode($lead->postcode),
+            'maskedAddress' => $this->maskAddress($lead->house_number, $lead->address_line_1),
             'rawToken' => $rawToken,
         ]);
     }
@@ -402,5 +435,74 @@ class LeadPortalController extends Controller
     private function verificationRateLimitKey(string $rawToken, ?string $ip): string
     {
         return 'portal-verify|'.$this->leadPortalTokenService->hashRawToken($rawToken).'|'.($ip ?? 'unknown');
+    }
+
+    private function maskName(?string $firstName, ?string $lastName): string
+    {
+        $mask = function (?string $part): string {
+            $part = trim((string) $part);
+            if ($part === '') {
+                return '';
+            }
+            if (strlen($part) === 1) {
+                return '*';
+            }
+
+            return substr($part, 0, 1).str_repeat('*', max(strlen($part) - 1, 1));
+        };
+
+        $masked = trim($mask($firstName).' '.$mask($lastName));
+
+        return $masked !== '' ? $masked : 'Not provided';
+    }
+
+    private function maskDob(?string $dob): string
+    {
+        $dob = trim((string) $dob);
+        if ($dob === '') {
+            return 'Not provided';
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) === 1) {
+            return '**/**/'.substr($dob, 0, 4);
+        }
+
+        return 'Provided';
+    }
+
+    private function maskPostcode(?string $postcode): string
+    {
+        $postcode = trim((string) $postcode);
+        if ($postcode === '') {
+            return 'Not provided';
+        }
+
+        $normalized = strtoupper(str_replace(' ', '', $postcode));
+        if (strlen($normalized) <= 3) {
+            return str_repeat('*', strlen($normalized));
+        }
+
+        return substr($normalized, 0, 3).str_repeat('*', max(strlen($normalized) - 3, 1));
+    }
+
+    private function maskAddress(?string $houseNumber, ?string $addressLine1): string
+    {
+        $houseNumber = trim((string) $houseNumber);
+        $addressLine1 = trim((string) $addressLine1);
+
+        if ($houseNumber === '' && $addressLine1 === '') {
+            return 'Not provided';
+        }
+
+        return ($houseNumber !== '' ? $houseNumber.' ' : '').'********';
+    }
+
+    private function formatMoney(mixed $amount): string
+    {
+        if ($amount === null || $amount === '') {
+            return 'Not provided';
+        }
+
+        return '£'.number_format((float) $amount, 2);
     }
 }

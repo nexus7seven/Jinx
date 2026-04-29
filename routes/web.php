@@ -51,6 +51,8 @@ Route::post('/portal/{token}/costs', [LeadPortalController::class, 'saveCosts'])
     ->name('portal.costs.save');
 Route::post('/portal/{token}/credit-check/start', [LeadPortalController::class, 'startCreditCheck'])
     ->name('portal.credit-check.start');
+Route::post('/portal/{token}/review/finish', [LeadPortalController::class, 'finishReview'])
+    ->name('portal.review.finish');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
