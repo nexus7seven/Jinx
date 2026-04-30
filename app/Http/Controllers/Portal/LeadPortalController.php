@@ -333,11 +333,57 @@ class LeadPortalController extends Controller
         $lead = $portalToken->lead;
         $result = $this->creditCheckV3FlowService->panelPollForLead($lead);
         $payload = $result['payload'];
+        $activeLog = $result['log'];
+        $bundle = $result['bundle'];
         $questionsRequired = ! empty($payload['security_questions'] ?? []);
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        if (($payload['job_status'] ?? null) === CreditCheckJobLog::STATUS_FAILED) {
+            $progress->current_step = 'credit_check_failed';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return response()->json([
+                'ok' => false,
+                'status' => 'failed',
+                'message' => 'We could not complete the check just now. Please try again shortly.',
+                'running' => false,
+            ]);
+        }
+
+        if ($activeLog && is_array($bundle) && $this->creditCheckV3FlowService->shouldAttemptImportFromBundle($activeLog, $bundle)) {
+            $importResult = $this->creditCheckV3FlowService->importReportDataForLead($lead, (string) $activeLog->external_job_id);
+            if (($importResult['payload']['ok'] ?? false) === true) {
+                $lead->portal_credit_check_completed_at = $lead->portal_credit_check_completed_at ?? now();
+                $lead->save();
+
+                $progress->last_completed_step = 'credit_check';
+                $progress->current_step = 'review';
+                $progress->last_seen_at = now();
+                $progress->save();
+
+                return response()->json([
+                    'ok' => true,
+                    'status' => 'complete',
+                    'next_step' => 'review',
+                    'redirect_url' => route('portal.entry', ['token' => $token]),
+                ]);
+            }
+
+            $progress->current_step = 'credit_check_failed';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return response()->json([
+                'ok' => false,
+                'status' => 'failed',
+                'message' => 'We could not complete the check just now. Please try again shortly.',
+                'running' => false,
+            ], $importResult['http'] >= 400 ? $importResult['http'] : 409);
+        }
+
         if (($payload['job_status'] ?? null) === 'success') {
-            $progress->last_completed_step = 'credit_check_running';
+            $progress->last_completed_step = 'credit_check';
             $progress->current_step = 'review';
             $progress->last_seen_at = now();
             $progress->save();
@@ -354,6 +400,7 @@ class LeadPortalController extends Controller
 
         return response()->json([
             'ok' => true,
+            'status' => $questionsRequired ? 'questions' : (($payload['running'] ?? false) ? 'running' : 'idle'),
             'running' => (bool) ($payload['running'] ?? false),
             'job_status' => $payload['job_status'] ?? null,
             'friendly_status' => $payload['friendly_status'] ?? null,
@@ -523,6 +570,11 @@ class LeadPortalController extends Controller
             'progress' => $progress,
             'lead' => $lead,
             'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
+            'creditCheckDebts' => $lead->debts()
+                ->with('creditor')
+                ->where('source_expected', 'credit_check')
+                ->orderByDesc('id')
+                ->get(),
             'portalDebts' => $lead->portalDebts()
                 ->where('source', 'portal')
                 ->get(),

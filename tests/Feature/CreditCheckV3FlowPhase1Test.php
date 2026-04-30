@@ -81,4 +81,51 @@ class CreditCheckV3FlowPhase1Test extends TestCase
                 'message' => 'Answers accepted',
             ]);
     }
+
+    public function test_agent_credit_check_v3_import_route_still_works(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+
+        $user = User::factory()->create();
+        $lead = Lead::create([
+            'vicidial_lead_id' => 'cc-v3-phase1-import-'.uniqid('', true),
+        ]);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'job-import-1',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://listener.test/jobs/job-import-1/state' => Http::response([
+                'activeJob' => [
+                    'leadId' => $lead->id,
+                ],
+            ], 200),
+            'http://listener.test/jobs/job-import-1/report-data' => Http::response([
+                'payload' => ['debts' => [], 'county_court_judgments' => []],
+            ], 200),
+            'http://listener.test/jobs/job-import-1/pdf-state' => Http::response([
+                'payload' => ['status' => 'moved_primary'],
+            ], 200),
+            'http://listener.test/jobs/job-import-1/status' => Http::response(['ok' => true], 200),
+            'http://listener.test/jobs/job-import-1/complete' => Http::response(['ok' => true], 200),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('leads.credit-check-v3.import', [
+                'lead' => $lead->id,
+                'jobId' => 'job-import-1',
+            ]))
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'imported' => [
+                    'total' => 0,
+                ],
+            ]);
+    }
 }

@@ -271,6 +271,63 @@
                     Start check
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_running')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Credit check
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                We&rsquo;re checking your information
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                This can take a few moments.
+            </p>
+
+            <div id="portal-credit-check-status"
+                 style="padding:14px 16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#334155;">
+                We&rsquo;ll refresh this page as soon as your check is ready.
+            </div>
+
+            <script>
+                (function () {
+                    const statusEl = document.getElementById('portal-credit-check-status');
+                    const pollUrl = @json(route('portal.credit-check.poll', ['token' => $rawToken]));
+
+                    async function pollOnce() {
+                        try {
+                            const response = await fetch(pollUrl, {
+                                method: 'GET',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                credentials: 'same-origin'
+                            });
+                            const data = await response.json();
+                            if (data.status === 'complete' || data.status === 'questions') {
+                                window.location.href = @json(route('portal.entry', ['token' => $rawToken]));
+                                return;
+                            }
+                            if (data.status === 'failed') {
+                                if (statusEl) {
+                                    statusEl.textContent = data.message || 'We could not complete the check just now. Please try again shortly.';
+                                }
+                                window.location.href = @json(route('portal.entry', ['token' => $rawToken]));
+                                return;
+                            }
+                        } catch (error) {
+                            if (statusEl) {
+                                statusEl.textContent = 'Still checking... We will keep trying automatically.';
+                            }
+                        }
+
+                        setTimeout(pollOnce, 4000);
+                    }
+
+                    setTimeout(pollOnce, 1500);
+                })();
+            </script>
         @elseif (($progress->current_step ?? 'welcome') === 'credit_check_questions')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Security check
@@ -340,8 +397,15 @@
                             {{ $row->balance !== null ? '£'.number_format((float) $row->balance, 2) : 'No balance provided' }}
                         </div>
                     @endforeach
+                @elseif (($creditCheckDebts ?? collect())->count() > 0)
+                    @foreach (($creditCheckDebts ?? collect()) as $debt)
+                        <div style="font-size:14px; color:#334155;">
+                            {{ $debt->creditor?->name ?: 'Imported debt' }} -
+                            {{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : 'No balance provided' }}
+                        </div>
+                    @endforeach
                 @else
-                    <div style="font-size:14px; color:#64748b;">No lender rows provided.</div>
+                    <div style="font-size:14px; color:#64748b;">No debts available yet.</div>
                 @endif
             </div>
 
@@ -382,6 +446,23 @@
                     Finish
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_failed')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Credit check
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                We couldn&rsquo;t complete your check right now
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                Please wait a moment and try again. If this keeps happening, contact us and we&rsquo;ll help.
+            </p>
+
+            <a href="{{ route('portal.entry', ['token' => $rawToken]) }}"
+               style="display:inline-block; padding:14px 20px; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; text-decoration:none;">
+                Try again
+            </a>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step

@@ -75,7 +75,7 @@ class CreditCheckV3Controller extends Controller
 
     public function importReportData(Lead $lead, string $jobId): JsonResponse
     {
-        $result = $this->executeReportImport($lead, $jobId);
+        $result = $this->creditCheckV3FlowService->importReportDataForLead($lead, $jobId);
 
         return response()->json(
             $result['payload'],
@@ -88,118 +88,7 @@ class CreditCheckV3Controller extends Controller
      */
     private function executeReportImport(Lead $lead, string $jobId): array
     {
-        try {
-            $base = $this->jobLogService->listenerBase();
-            $stateResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/state');
-            $reportDataResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/report-data');
-            $pdfStateResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/pdf-state');
-        } catch (Throwable) {
-            return [
-                'http' => 500,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Unable to contact local listener.',
-                ],
-            ];
-        }
-
-        $state = (array) ($stateResponse->json() ?? []);
-        $activeJob = (array) ($state['activeJob'] ?? []);
-        $meta = (array) ($activeJob['meta'] ?? []);
-        $listenerLeadId = (int) ($activeJob['leadId'] ?? $meta['lead_id'] ?? 0);
-        if ($listenerLeadId <= 0 || $listenerLeadId !== (int) $lead->id) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Listener lead mismatch for import.',
-                    'listenerLeadId' => $listenerLeadId,
-                    'leadId' => (int) $lead->id,
-                ],
-            ];
-        }
-
-        $pdfPayload = (array) (($pdfStateResponse->json() ?? [])['payload'] ?? []);
-        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
-        if (!in_array($pdfStatus, ['moved_primary', 'moved_fallback'], true)) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Cannot import before PDF is moved.',
-                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
-                ],
-            ];
-        }
-
-        $reportPayload = (array) (($reportDataResponse->json() ?? [])['payload'] ?? []);
-        $debts = is_array($reportPayload['debts'] ?? null) ? $reportPayload['debts'] : [];
-        $ccjs = is_array($reportPayload['county_court_judgments'] ?? null)
-            ? $reportPayload['county_court_judgments']
-            : [];
-
-        $importedDebts = $this->importDebtsFromReportData($lead, $debts);
-        $importedCcjs = $this->importCountyCourtJudgmentsFromReportData($lead, $ccjs);
-        $totalImported = $importedDebts + $importedCcjs;
-
-        Log::info('Credit check v3 report import complete', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-            'debts_imported' => $importedDebts,
-            'ccjs_imported' => $importedCcjs,
-            'total_imported' => $totalImported,
-            'pdf_status' => $pdfStatus,
-        ]);
-
-        $completeJson = null;
-        $completeStatus = null;
-        try {
-            Http::acceptJson()->post($base.'/jobs/'.$jobId.'/status', [
-                'step' => 'import_completed',
-                'imported' => [
-                    'debts' => $importedDebts,
-                    'county_court_judgments' => $importedCcjs,
-                    'total' => $totalImported,
-                ],
-                'leadId' => (int) $lead->id,
-            ]);
-            $completeResponse = Http::acceptJson()->post($base.'/jobs/'.$jobId.'/complete');
-            $completeStatus = $completeResponse->status();
-            $completeJson = $completeResponse->json();
-            Log::info('Credit check v3 listener complete attempted', [
-                'lead_id' => $lead->id,
-                'job_id' => $jobId,
-                'status' => $completeStatus,
-                'result' => $completeJson,
-            ]);
-        } catch (Throwable $e) {
-            Log::warning('Credit check v3 listener complete failed', [
-                'lead_id' => $lead->id,
-                'job_id' => $jobId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        $payload = [
-            'ok' => true,
-            'imported' => [
-                'debts' => $importedDebts,
-                'county_court_judgments' => $importedCcjs,
-                'total' => $totalImported,
-            ],
-            'pdf' => [
-                'status' => $pdfStatus,
-                'savedPath' => $pdfPayload['savedPath'] ?? null,
-            ],
-            'listenerComplete' => [
-                'status' => $completeStatus,
-                'result' => $completeJson,
-            ],
-        ];
-
-        $this->updateJobLogAfterImport($lead, $jobId, $pdfPayload, $payload);
-
-        return ['http' => 200, 'payload' => $payload];
+        return $this->creditCheckV3FlowService->importReportDataForLead($lead, $jobId);
     }
 
     /**
@@ -207,32 +96,12 @@ class CreditCheckV3Controller extends Controller
      */
     private function maybePanelAutoImport(Lead $lead, CreditCheckJobLog $log, array $bundle): void
     {
-        if (!$log->isActive()) {
-            return;
-        }
-
-        $rj = is_array($log->result_json) ? $log->result_json : [];
-        if (!empty($rj['panel_import_done']) || !empty($rj['panel_import_failed'])) {
-            return;
-        }
-
-        $pdfPayload = (array) (($bundle['pdfState'] ?? [])['payload'] ?? []);
-        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
-        if (!in_array($pdfStatus, ['moved_primary', 'moved_fallback'], true)) {
-            return;
-        }
-
-        $reportPayload = (array) (($bundle['reportData'] ?? [])['payload'] ?? []);
-        $debts = is_array($reportPayload['debts'] ?? null) ? $reportPayload['debts'] : [];
-        $ccjs = is_array($reportPayload['county_court_judgments'] ?? null)
-            ? $reportPayload['county_court_judgments']
-            : [];
-        if (count($debts) === 0 && count($ccjs) === 0) {
+        if (! $this->creditCheckV3FlowService->shouldAttemptImportFromBundle($log, $bundle)) {
             return;
         }
 
         $result = $this->executeReportImport($lead, (string) $log->external_job_id);
-        if (!($result['payload']['ok'] ?? false)) {
+        if (! ($result['payload']['ok'] ?? false)) {
             $log->refresh();
             $rj = is_array($log->result_json) ? $log->result_json : [];
             $rj['panel_import_failed'] = true;

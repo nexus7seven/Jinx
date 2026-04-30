@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Mail\LeadPortalSummaryMail;
+use App\Models\Creditor;
 use App\Models\CreditCheckJobLog;
+use App\Models\Debt;
 use App\Models\Lead;
 use App\Models\LeadPortalDebt;
 use App\Models\LeadPortalEmailClick;
@@ -1019,6 +1021,146 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('These questions help match your credit file securely.');
     }
 
+    public function test_portal_poll_imports_and_moves_progress_to_review_when_report_ready(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        Http::fake([
+            'http://listener.test/health' => Http::response([
+                'ok' => true,
+                'activeJob' => true,
+            ], 200),
+            'http://listener.test/jobs/portal-job-import/state' => Http::response([
+                'ok' => true,
+                'active' => true,
+                'activeJob' => ['leadId' => $lead->id],
+                'latestStatus' => ['data' => ['step' => 'report_ready']],
+            ], 200),
+            'http://listener.test/jobs/portal-job-import/questions' => Http::response(['payload' => []], 200),
+            'http://listener.test/jobs/portal-job-import/report-data' => Http::response([
+                'payload' => [
+                    'debts' => [
+                        ['creditor' => 'Demo Bank', 'balance' => '1234.56'],
+                    ],
+                ],
+            ], 200),
+            'http://listener.test/jobs/portal-job-import/pdf-state' => Http::response([
+                'payload' => ['status' => 'moved_primary'],
+            ], 200),
+            'http://listener.test/jobs/portal-job-import/status' => Http::response(['ok' => true], 200),
+            'http://listener.test/jobs/portal-job-import/complete' => Http::response(['ok' => true], 200),
+        ]);
+
+        Creditor::create([
+            'name' => 'Demo Bank',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-import',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now(),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_running']
+        );
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'status' => 'complete',
+                'next_step' => 'review',
+            ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertSame('credit_check', $progress->last_completed_step);
+        $this->assertSame('review', $progress->current_step);
+
+        $lead->refresh();
+        $this->assertNotNull($lead->portal_credit_check_completed_at);
+        $this->assertDatabaseHas('debts', [
+            'lead_id' => $lead->id,
+            'source_expected' => 'credit_check',
+            'balance' => 1234.56,
+        ]);
+    }
+
+    public function test_repeated_portal_poll_does_not_duplicate_imported_debts(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => true, 'activeJob' => true], 200),
+            'http://listener.test/jobs/portal-job-repeat/state' => Http::response([
+                'ok' => true,
+                'active' => true,
+                'activeJob' => ['leadId' => $lead->id],
+                'latestStatus' => ['data' => ['step' => 'report_ready']],
+            ], 200),
+            'http://listener.test/jobs/portal-job-repeat/questions' => Http::response(['payload' => []], 200),
+            'http://listener.test/jobs/portal-job-repeat/report-data' => Http::response([
+                'payload' => [
+                    'debts' => [
+                        ['creditor' => 'Repeat Bank', 'balance' => '500'],
+                    ],
+                ],
+            ], 200),
+            'http://listener.test/jobs/portal-job-repeat/pdf-state' => Http::response([
+                'payload' => ['status' => 'moved_primary'],
+            ], 200),
+            'http://listener.test/jobs/portal-job-repeat/status' => Http::response(['ok' => true], 200),
+            'http://listener.test/jobs/portal-job-repeat/complete' => Http::response(['ok' => true], 200),
+        ]);
+
+        Creditor::create([
+            'name' => 'Repeat Bank',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-repeat',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now(),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_running']
+        );
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))->assertOk();
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))->assertOk();
+
+        $this->assertSame(1, Debt::where('lead_id', $lead->id)->where('source_expected', 'credit_check')->count());
+    }
+
     public function test_portal_credit_check_answers_submit_calls_shared_flow_and_returns_to_running(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
@@ -1202,6 +1344,37 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('**/**/1985', false)
             ->assertSee('SW1****', false)
             ->assertSee('22 ********', false);
+    }
+
+    public function test_review_page_shows_imported_canonical_debt_summary_if_present(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteToReview($issued['token']);
+
+        $creditor = Creditor::create([
+            'name' => 'Canonical Lender',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 789.45,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Canonical Lender')
+            ->assertSee('£789.45');
     }
 
     public function test_review_page_shows_debt_and_monthly_picture_values(): void
