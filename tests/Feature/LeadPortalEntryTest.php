@@ -3102,11 +3102,12 @@ class LeadPortalEntryTest extends TestCase
         $issued = $service->issueForLead($lead);
 
         $this->verifyThenCompleteToCompletePending($issued['token']);
-        LeadPortalDebt::create([
+        $creditor = $this->createCreditor('Example Lender');
+        Debt::create([
             'lead_id' => $lead->id,
-            'creditor_name' => 'Example Lender',
+            'creditor_id' => $creditor->id,
             'balance' => '1234.56',
-            'source' => 'portal',
+            'source_expected' => 'credit_check',
         ]);
         $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
 
@@ -3116,12 +3117,16 @@ class LeadPortalEntryTest extends TestCase
         $this->assertIsArray($json);
         $this->assertArrayHasKey('details', $json);
         $this->assertArrayHasKey('debts', $json);
+        $this->assertArrayHasKey('totals', $json);
+        $this->assertArrayHasKey('iva_estimate', $json);
+        $this->assertArrayHasKey('financial_summary', $json);
         $this->assertArrayHasKey('income', $json);
         $this->assertArrayHasKey('costs', $json);
         $this->assertArrayHasKey('credit_check', $json);
         $this->assertSame('Alice', $json['details']['first_name'] ?? null);
         $this->assertSame('Baker', $json['details']['last_name'] ?? null);
-        $this->assertSame('5000.00', (string) ($json['debts']['estimated_total_debt'] ?? ''));
+        $this->assertArrayNotHasKey('dob', $json['details']);
+        $this->assertSame('1234.56', (string) ($json['totals']['total_debt'] ?? ''));
         $this->assertSame('Employed full-time', $json['income']['employment_status'] ?? null);
         $this->assertSame('2000.00', (string) ($json['income']['monthly_income'] ?? ''));
         $this->assertSame('900.00', (string) ($json['costs']['monthly_housing_cost'] ?? ''));
@@ -3130,10 +3135,70 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('300.00', (string) ($json['costs']['monthly_food_travel_cost'] ?? ''));
         $this->assertNotNull($json['credit_check']['portal_credit_check_started_at'] ?? null);
         $this->assertNotNull($json['credit_check']['portal_credit_check_last_run_at'] ?? null);
-        $this->assertSame('Example Lender', $json['debts']['portal_debts'][0]['creditor_name'] ?? null);
+        $this->assertSame('Example Lender', $json['debts'][0]['creditor_name_customer'] ?? null);
+        $this->assertSame('Example Lender', $json['debts'][0]['creditor_name_backend'] ?? null);
+        $this->assertSame('Credit check', $json['debts'][0]['source_label'] ?? null);
     }
 
-    public function test_summary_email_content_includes_financial_sections_and_omits_full_dob_and_address(): void
+    public function test_snapshot_contains_all_canonical_credit_check_and_customer_added_debts_with_total_and_iva_estimate(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['email' => 'portal@example.com']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $creditor = $this->createCreditor('Snapshot Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 4000,
+            'source_expected' => 'credit_check',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 3000,
+            'source_expected' => 'customer_added',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $json = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->firstOrFail()->snapshot_json;
+        $this->assertCount(2, $json['debts']);
+        $this->assertSame(['Credit check', 'Added by you'], array_column($json['debts'], 'source_label'));
+        $this->assertSame('7000', (string) ($json['totals']['total_debt'] ?? ''));
+        $this->assertSame('7000', (string) ($json['iva_estimate']['total_debt'] ?? ''));
+        $this->assertTrue($json['iva_estimate']['is_eligible'] ?? false);
+    }
+
+    public function test_snapshot_uses_cleaned_customer_facing_creditor_name_for_unmatched_debt(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['email' => 'portal@example.com']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $couldNotMatch = $this->createCreditor('Could Not Match');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $couldNotMatch->id,
+            'balance' => 2500,
+            'source_expected' => 'credit_check',
+            'reference' => 'Raw creditor: Clean Snapshot Lender',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        $debt = LeadPortalSnapshot::where('lead_id', $lead->id)->latest('id')->firstOrFail()->snapshot_json['debts'][0];
+        $this->assertSame('Clean Snapshot Lender', $debt['creditor_name_customer'] ?? null);
+        $this->assertSame('Could Not Match', $debt['creditor_name_backend'] ?? null);
+    }
+
+    public function test_summary_email_content_includes_snapshot_financial_sections_and_omits_full_dob(): void
     {
         Mail::fake();
 
@@ -3150,11 +3215,12 @@ class LeadPortalEntryTest extends TestCase
         $issued = $service->issueForLead($lead);
 
         $this->verifyThenCompleteToCompletePending($issued['token']);
-        LeadPortalDebt::create([
+        $creditor = $this->createCreditor('Example Lender');
+        Debt::create([
             'lead_id' => $lead->id,
-            'creditor_name' => 'Example Lender',
+            'creditor_id' => $creditor->id,
             'balance' => '1234.56',
-            'source' => 'portal',
+            'source_expected' => 'credit_check',
         ]);
 
         $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
@@ -3163,12 +3229,144 @@ class LeadPortalEntryTest extends TestCase
             $html = $mail->render();
 
             return str_contains($html, 'Here&rsquo;s the summary we put together from the details you provided.')
-                && str_contains($html, 'Estimated total debt:')
+                && str_contains($html, 'Customer details')
+                && str_contains($html, 'Alice Baker')
+                && str_contains($html, 'SW1A 1AA')
+                && str_contains($html, 'Downing Street')
+                && str_contains($html, 'Total debt:')
+                && str_contains($html, 'Example Lender')
                 && str_contains($html, 'Monthly picture')
-                && str_contains($html, '£5,000.00')
+                && str_contains($html, '£1,234.56')
                 && str_contains($html, '£2,000.00')
-                && ! str_contains($html, '1985-06-15')
-                && ! str_contains($html, 'Downing Street');
+                && ! str_contains($html, '1985-06-15');
+        });
+    }
+
+    public function test_summary_email_lists_credit_check_and_customer_added_debts_with_cleaned_names(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'first_name' => 'Alice',
+            'last_name' => 'Baker',
+            'email' => 'portal@example.com',
+            'postcode' => 'SW1A 1AA',
+        ]);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $creditor = $this->createCreditor('Imported Email Lender');
+        $couldNotMatch = $this->createCreditor('Could Not Match');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 1000,
+            'source_expected' => 'credit_check',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $couldNotMatch->id,
+            'balance' => 2000,
+            'source_expected' => 'customer_added',
+            'reference' => 'Raw creditor: Customer Email Lender',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'Imported Email Lender')
+                && str_contains($html, 'Customer Email Lender')
+                && str_contains($html, 'Credit check')
+                && str_contains($html, 'Added by you')
+                && str_contains($html, '£3,000.00')
+                && ! str_contains($html, 'Could Not Match')
+                && ! str_contains($html, 'SW1****');
+        });
+    }
+
+    public function test_summary_email_includes_iva_estimate_when_total_debt_meets_threshold(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['email' => 'portal@example.com']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $creditor = $this->createCreditor('Iva Email Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 9000,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'Based on what we&rsquo;ve found so far, an IVA may be worth looking at.')
+                && str_contains($html, '£6,000')
+                && str_contains($html, '£9,000.00')
+                && str_contains($html, '£3,000.00');
+        });
+    }
+
+    public function test_summary_email_includes_sub_threshold_message_when_total_debt_below_threshold(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['email' => 'portal@example.com']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $creditor = $this->createCreditor('Low Email Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 5000,
+            'source_expected' => 'customer_added',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'Based on the figures so far, an IVA may not be the best fit, but you can still ask for help understanding your options.')
+                && ! str_contains($html, 'Based on what we&rsquo;ve found so far, an IVA may be worth looking at.');
+        });
+    }
+
+    public function test_summary_email_includes_court_judgment_note_when_snapshot_flags_it(): void
+    {
+        Mail::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['email' => 'portal@example.com']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToCompletePending($issued['token']);
+        $creditor = $this->createCreditor('County Court Judgment');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 7000,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->post(route('portal.complete', ['token' => $issued['token']]))->assertOk();
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+            return str_contains(
+                $mail->render(),
+                'We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.'
+            );
         });
     }
 
@@ -3202,11 +3400,15 @@ class LeadPortalEntryTest extends TestCase
         $this->verifyThenCompleteToCompletePending($issuedWithCta['token']);
         $this->post(route('portal.complete', ['token' => $issuedWithCta['token']]))->assertOk();
 
-        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail): bool {
+        $snapshot = LeadPortalSnapshot::where('lead_id', $leadWithCta->id)->latest('id')->firstOrFail();
+        $expectedTrackingUrl = route('portal.summary.click', ['snapshot' => $snapshot->id, 'type' => 'whatsapp']);
+
+        Mail::assertSent(LeadPortalSummaryMail::class, function (LeadPortalSummaryMail $mail) use ($expectedTrackingUrl): bool {
             $html = $mail->render();
 
             return str_contains($html, 'Message us on WhatsApp')
-                && str_contains($html, 'https://wa.me/441234567890');
+                && str_contains($html, $expectedTrackingUrl)
+                && ! str_contains($html, 'href="https://wa.me/');
         });
     }
 

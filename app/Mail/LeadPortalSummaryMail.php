@@ -37,28 +37,38 @@ class LeadPortalSummaryMail extends Mailable
         $payload = (array) $this->snapshot->snapshot_json;
         $details = (array) ($payload['details'] ?? []);
         $debts = (array) ($payload['debts'] ?? []);
-        $income = (array) ($payload['income'] ?? []);
-        $costs = (array) ($payload['costs'] ?? []);
+        $totals = (array) ($payload['totals'] ?? []);
+        $ivaEstimate = (array) ($payload['iva_estimate'] ?? []);
+        $financialSummary = (array) ($payload['financial_summary'] ?? []);
 
         return new Content(
             view: 'emails.portal-summary',
             with: [
                 'firstName' => $this->nullableString($details['first_name'] ?? null),
-                'maskedPostcode' => $this->maskPostcode($details['postcode'] ?? null),
-                'estimatedTotalDebt' => $this->formatMoney($debts['estimated_total_debt'] ?? null),
-                'portalDebts' => (array) ($debts['portal_debts'] ?? []),
-                'employmentStatus' => $this->nullableString($income['employment_status'] ?? null) ?? 'Not provided',
-                'monthlyIncome' => $this->formatMoney($income['monthly_income'] ?? null),
-                'monthlyCostsTotal' => $this->formatMoney($this->calculateMonthlyCostsTotal($costs)),
+                'fullName' => trim((string) (($details['first_name'] ?? '').' '.($details['last_name'] ?? ''))),
+                'email' => $this->nullableString($details['email'] ?? null),
+                'phoneNumber' => $this->nullableString($details['phone_number'] ?? null),
+                'postcode' => $this->nullableString($details['postcode'] ?? null),
+                'address' => trim((string) (($details['house_number'] ?? '').' '.($details['address_line_1'] ?? ''))),
+                'debts' => $debts,
+                'totalDebt' => $this->formatMoney($totals['total_debt'] ?? null),
+                'ivaEstimate' => $ivaEstimate,
+                'ivaTotalDebt' => $this->formatMoney($ivaEstimate['total_debt'] ?? null),
+                'ivaEstimatedWriteOff' => $this->formatMoney($ivaEstimate['estimated_write_off'] ?? null),
+                'employmentStatus' => $this->nullableString($financialSummary['employment_status'] ?? null) ?? 'Not provided',
+                'monthlyIncome' => $this->formatMoney($financialSummary['monthly_income'] ?? null),
+                'monthlyCostsTotal' => $this->formatMoney($this->calculateMonthlyCostsTotal($financialSummary)),
                 'monthlyCosts' => [
-                    'housing' => $this->formatMoney($costs['monthly_housing_cost'] ?? null),
-                    'council_tax' => $this->formatMoney($costs['monthly_council_tax'] ?? null),
-                    'utilities' => $this->formatMoney($costs['monthly_utilities_cost'] ?? null),
-                    'food_travel' => $this->formatMoney($costs['monthly_food_travel_cost'] ?? null),
+                    'housing' => $this->formatMoney($financialSummary['monthly_housing_cost'] ?? null),
+                    'council_tax' => $this->formatMoney($financialSummary['monthly_council_tax'] ?? null),
+                    'utilities' => $this->formatMoney($financialSummary['monthly_utilities_cost'] ?? null),
+                    'food_travel' => $this->formatMoney($financialSummary['monthly_food_travel_cost'] ?? null),
                 ],
                 'whatsAppTrackingUrl' => ! blank(config('services.portal.whatsapp_url'))
                     ? route('portal.summary.click', ['snapshot' => $this->snapshot->id, 'type' => 'whatsapp'])
                     : null,
+                'callUrl' => config('services.portal.call_url') ?: null,
+                'companyPhoneNumber' => config('services.company.phone_number') ?: null,
             ],
         );
     }
@@ -72,21 +82,6 @@ class LeadPortalSummaryMail extends Mailable
         $trimmed = trim((string) $value);
 
         return $trimmed === '' ? null : $trimmed;
-    }
-
-    private function maskPostcode(mixed $postcode): ?string
-    {
-        $postcode = $this->nullableString($postcode);
-        if ($postcode === null) {
-            return null;
-        }
-
-        $normalized = strtoupper(str_replace(' ', '', $postcode));
-        if (strlen($normalized) <= 3) {
-            return str_repeat('*', strlen($normalized));
-        }
-
-        return substr($normalized, 0, 3).str_repeat('*', max(strlen($normalized) - 3, 1));
     }
 
     private function calculateMonthlyCostsTotal(array $costs): ?float
