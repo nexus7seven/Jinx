@@ -60,6 +60,8 @@ Route::post('/portal/{token}/credit-check/v3/answers', [LeadPortalController::cl
     ->name('portal.credit-check.answers');
 Route::post('/portal/{token}/credit-report-debts/continue', [LeadPortalController::class, 'continueCreditReportDebts'])
     ->name('portal.credit-report-debts.continue');
+Route::post('/portal/{token}/missing-debts', [LeadPortalController::class, 'saveMissingDebts'])
+    ->name('portal.missing-debts.save');
 Route::post('/portal/{token}/review/finish', [LeadPortalController::class, 'finishReview'])
     ->name('portal.review.finish');
 Route::post('/portal/{token}/complete', [LeadPortalController::class, 'complete'])

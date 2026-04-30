@@ -492,12 +492,72 @@
                 </button>
             </form>
         @elseif (($progress->current_step ?? 'welcome') === 'add_missing_debts')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Missing debts
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                Is anything missing?
+            </h1>
+
+            <p style="margin:0 0 8px 0; color:#475569; font-size:16px; line-height:1.6;">
+                Some debts may not show on your credit file, such as council tax, water bills, parking fines, rent arrears, or recent accounts.
+            </p>
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                If you can&rsquo;t find the creditor, choose Other.
+            </p>
+
+            @if ($errors->has('missing_debts'))
+                <div style="margin-bottom:18px; padding:14px 16px; border-radius:16px; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; font-size:14px; font-weight:700;">
+                    {{ $errors->first('missing_debts') }}
+                </div>
+            @endif
+
+            <form method="POST" action="{{ route('portal.missing-debts.save', ['token' => $rawToken]) }}">
+                @csrf
+
+                @for ($index = 0; $index < 3; $index++)
+                    <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+                        <div style="display:grid; grid-template-columns:1.4fr 1.4fr .8fr; gap:12px;">
+                            <div>
+                                <label for="missing_debts_{{ $index }}_creditor_id" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
+                                <select id="missing_debts_{{ $index }}_creditor_id" name="debts[{{ $index }}][creditor_id]"
+                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                    <option value="">Select creditor</option>
+                                    @foreach (($creditors ?? collect()) as $creditor)
+                                        <option value="{{ $creditor->id }}" @selected(old('debts.'.$index.'.creditor_id') == $creditor->id)>{{ $creditor->name }}</option>
+                                    @endforeach
+                                    <option value="other" @selected(old('debts.'.$index.'.creditor_id') === 'other')>Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="missing_debts_{{ $index }}_creditor_name" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor / reference</label>
+                                <input id="missing_debts_{{ $index }}_creditor_name" name="debts[{{ $index }}][creditor_name]" type="text"
+                                       value="{{ old('debts.'.$index.'.creditor_name') }}"
+                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                            </div>
+                            <div>
+                                <label for="missing_debts_{{ $index }}_balance" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
+                                <input id="missing_debts_{{ $index }}_balance" name="debts[{{ $index }}][balance]" type="text" inputmode="decimal"
+                                       value="{{ old('debts.'.$index.'.balance') }}"
+                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                            </div>
+                        </div>
+                    </div>
+                @endfor
+
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Continue
+                </button>
+            </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step
             </div>
 
             <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
-                Next, we&rsquo;ll check if anything is missing.
+                Next, we&rsquo;ll show what this could mean.
             </h1>
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">

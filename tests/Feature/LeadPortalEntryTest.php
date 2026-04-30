@@ -12,6 +12,7 @@ use App\Models\LeadPortalEmailClick;
 use App\Models\LeadPortalProgress;
 use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
+use App\Models\User;
 use App\Services\LeadPortalDebtPresenter;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1862,7 +1863,8 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('Next, we&rsquo;ll check if anything is missing.', false);
+            ->assertSee('Is anything missing?')
+            ->assertSee('If you can&rsquo;t find the creditor, choose Other.', false);
     }
 
     public function test_invalid_or_expired_token_cannot_continue_credit_report_debts(): void
@@ -1893,6 +1895,289 @@ class LeadPortalEntryTest extends TestCase
         $this->post(route('portal.credit-report-debts.continue', ['token' => $issued['token']]))
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
+        $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
+    }
+
+    public function test_add_missing_debts_page_renders_creditor_dropdown_and_other_option(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+
+        Creditor::create([
+            'name' => 'Dropdown Lender',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Is anything missing?')
+            ->assertSee('name="debts[0][creditor_id]"', false)
+            ->assertSee('Dropdown Lender')
+            ->assertSee('Other');
+    }
+
+    public function test_customer_can_skip_missing_debts_and_progress_moves_to_iva_results(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => '', 'creditor_name' => '', 'balance' => ''],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame(0, Debt::where('lead_id', $lead->id)->count());
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertSame('add_missing_debts', $progress->last_completed_step);
+        $this->assertSame('iva_results', $progress->current_step);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Next, we&rsquo;ll show what this could mean.', false);
+    }
+
+    public function test_selected_creditor_missing_debt_is_saved_to_canonical_debts_table(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('Selected Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '456.78'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertDatabaseHas('debts', [
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'source_expected' => 'customer_added',
+            'balance' => 456.78,
+            'reference' => null,
+        ]);
+    }
+
+    public function test_other_free_text_debt_is_saved_using_could_not_match_creditor_and_reference(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $couldNotMatch = $this->createCreditor('Could Not Match');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => 'other', 'creditor_name' => 'Council Tax', 'balance' => '300'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertDatabaseHas('debts', [
+            'lead_id' => $lead->id,
+            'creditor_id' => $couldNotMatch->id,
+            'source_expected' => 'customer_added',
+            'balance' => 300,
+            'reference' => 'Council Tax',
+        ]);
+    }
+
+    public function test_blank_missing_debt_rows_are_ignored(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('One Real Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => '', 'creditor_name' => '', 'balance' => ''],
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '50'],
+                ['creditor_id' => '', 'creditor_name' => '', 'balance' => ''],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame(1, Debt::where('lead_id', $lead->id)->where('source_expected', 'customer_added')->count());
+    }
+
+    public function test_missing_debt_row_with_balance_but_no_creditor_returns_friendly_error(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+                'debts' => [
+                    ['creditor_id' => '', 'creditor_name' => '', 'balance' => '25'],
+                ],
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'missing_debts' => 'Please choose a creditor, or choose Other and enter the name.',
+            ]);
+    }
+
+    public function test_missing_debt_row_with_creditor_but_no_balance_returns_friendly_error(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('No Balance Lender');
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+                'debts' => [
+                    ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => ''],
+                ],
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'missing_debts' => 'Please enter a balance for each creditor you add.',
+            ]);
+    }
+
+    public function test_missing_debts_save_ignores_tampered_lead_id(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $otherLead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('Tamper Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'lead_id' => $otherLead->id,
+            'debts' => [
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '75'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame(1, Debt::where('lead_id', $lead->id)->where('source_expected', 'customer_added')->count());
+        $this->assertSame(0, Debt::where('lead_id', $otherLead->id)->count());
+    }
+
+    public function test_saved_missing_debts_use_customer_added_source_and_create_debt_document(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('Documented Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '125'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $debt = Debt::where('lead_id', $lead->id)->where('source_expected', 'customer_added')->first();
+        $this->assertNotNull($debt);
+        $this->assertDatabaseHas('debt_documents', [
+            'debt_id' => $debt->id,
+            'proof_type' => 'customer_added',
+            'is_complete' => false,
+        ]);
+    }
+
+    public function test_existing_staff_debt_route_still_works_with_same_response_shape(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->makeLead();
+        $creditor = $this->createCreditor('Staff Route Lender');
+
+        $this->actingAs($user)
+            ->postJson('/lead/'.$lead->id.'/debts', [
+                'creditor_id' => $creditor->id,
+                'balance' => '999.99',
+                'source_expected' => 'credit_check',
+                'reference' => 'staff-ref',
+            ])
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+                'debt' => [
+                    'creditor_name' => 'Staff Route Lender',
+                    'creditor_id' => $creditor->id,
+                    'balance' => '999.99',
+                    'source_expected' => 'credit_check',
+                    'reference' => 'staff-ref',
+                    'document_complete' => true,
+                ],
+            ])
+            ->assertJsonStructure([
+                'success',
+                'debt' => [
+                    'id',
+                    'creditor_name',
+                    'creditor_id',
+                    'balance',
+                    'source_expected',
+                    'reference',
+                    'voting_house',
+                    'voting_practice1',
+                    'voting_practice2',
+                    'voting_practice3',
+                    'document_complete',
+                ],
+            ]);
+    }
+
+    public function test_invalid_or_expired_token_cannot_save_missing_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('missing-debts-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        foreach (['not-a-real-token', 'missing-debts-expired-token'] as $rawToken) {
+            $this->post(route('portal.missing-debts.save', ['token' => $rawToken]), [
+                'debts' => [],
+            ])
+                ->assertStatus(410)
+                ->assertSee('This link is no longer active');
+        }
+    }
+
+    public function test_unverified_session_cannot_save_missing_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $creditor = $this->createCreditor('Unverified Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '100'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame(0, Debt::where('lead_id', $lead->id)->count());
         $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
     }
 
@@ -2858,6 +3143,25 @@ class LeadPortalEntryTest extends TestCase
         $this->post(route('portal.verify', ['token' => $rawToken]), [
             'postcode' => 'SW1A1AA',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+    }
+
+    private function putPortalOnAddMissingDebtsStep(Lead $lead): void
+    {
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_report_debts', 'current_step' => 'add_missing_debts', 'last_seen_at' => now()]
+        );
+    }
+
+    private function createCreditor(string $name): Creditor
+    {
+        return Creditor::create([
+            'name' => $name,
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
     }
 
     private function verifyThenCompleteWelcomeAndDetails(string $rawToken): void

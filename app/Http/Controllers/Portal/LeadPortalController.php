@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
+use App\Models\Creditor;
 use App\Models\Lead;
 use App\Models\CreditCheckJobLog;
 use App\Models\LeadPortalToken;
 use App\Services\CreditCheckV3FlowService;
+use App\Services\LeadDebtService;
 use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalDebtPresenter;
 use App\Services\LeadPortalProgressService;
@@ -52,7 +54,8 @@ class LeadPortalController extends Controller
         private readonly LeadPortalTokenService $leadPortalTokenService,
         private readonly LeadPortalProgressService $leadPortalProgressService,
         private readonly LeadPortalCompletionService $leadPortalCompletionService,
-        private readonly LeadPortalDebtPresenter $leadPortalDebtPresenter
+        private readonly LeadPortalDebtPresenter $leadPortalDebtPresenter,
+        private readonly LeadDebtService $leadDebtService
     ) {
     }
 
@@ -800,6 +803,106 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function saveMissingDebts(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'debts' => ['nullable', 'array'],
+            'debts.*.creditor_id' => ['nullable'],
+            'debts.*.creditor_name' => ['nullable', 'string', 'max:255'],
+            'debts.*.balance' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $validator->after(function ($validator) use ($request): void {
+            foreach ((array) $request->input('debts', []) as $index => $row) {
+                if (! is_array($row) || $this->missingDebtRowIsBlank($row)) {
+                    continue;
+                }
+
+                $creditorId = trim((string) ($row['creditor_id'] ?? ''));
+                $creditorName = trim((string) ($row['creditor_name'] ?? ''));
+                $balance = trim((string) ($row['balance'] ?? ''));
+                $hasCreditor = $creditorId !== '' || $creditorName !== '';
+                $isOther = strtolower($creditorId) === 'other';
+
+                if ($balance !== '' && ! $hasCreditor) {
+                    $validator->errors()->add('missing_debts', 'Please choose a creditor, or choose Other and enter the name.');
+                }
+
+                if ($isOther && $creditorName === '') {
+                    $validator->errors()->add('missing_debts', 'Please enter the creditor name when choosing Other.');
+                }
+
+                if ($creditorId !== '' && ! $isOther && (! ctype_digit($creditorId) || ! Creditor::whereKey((int) $creditorId)->exists())) {
+                    $validator->errors()->add('missing_debts', 'Please choose a creditor from the list, or choose Other.');
+                }
+
+                if ($hasCreditor && $balance === '') {
+                    $validator->errors()->add('missing_debts', 'Please enter a balance for each creditor you add.');
+                }
+            }
+        });
+
+        if ($validator->fails()) {
+            return redirect()->route('portal.entry', ['token' => $token])
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        $lead = $portalToken->lead;
+        $couldNotMatch = null;
+
+        foreach ((array) $request->input('debts', []) as $row) {
+            if (! is_array($row) || $this->missingDebtRowIsBlank($row)) {
+                continue;
+            }
+
+            $creditorId = trim((string) ($row['creditor_id'] ?? ''));
+            $creditorName = trim((string) ($row['creditor_name'] ?? ''));
+            $balance = trim((string) ($row['balance'] ?? ''));
+            $isOther = strtolower($creditorId) === 'other';
+
+            if ($isOther || $creditorId === '') {
+                $couldNotMatch ??= Creditor::where('name', 'Could Not Match')->first();
+                if (! $couldNotMatch) {
+                    return redirect()->route('portal.entry', ['token' => $token])
+                        ->withErrors(['missing_debts' => 'We could not save that creditor just now. Please choose a creditor from the list or try again later.'])
+                        ->withInput();
+                }
+
+                $debtCreditorId = $couldNotMatch->id;
+                $reference = $creditorName;
+            } else {
+                $debtCreditorId = (int) $creditorId;
+                $reference = $creditorName !== '' ? $creditorName : null;
+            }
+
+            $this->leadDebtService->createForLead($lead, [
+                'creditor_id' => $debtCreditorId,
+                'balance' => $balance,
+                'source_expected' => 'customer_added',
+                'reference' => $reference,
+            ]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->last_completed_step = 'add_missing_debts';
+        $progress->current_step = 'iva_results';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function finishReview(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -908,6 +1011,10 @@ class LeadPortalController extends Controller
             'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
             'creditCheckDebts' => $creditCheckDebts,
             'creditCheckTotal' => $creditCheckDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
+            'creditors' => Creditor::query()
+                ->where('name', '!=', 'Could Not Match')
+                ->orderBy('name')
+                ->get(),
             'portalDebts' => $lead->portalDebts()
                 ->where('source', 'portal')
                 ->get(),
@@ -1047,6 +1154,16 @@ class LeadPortalController extends Controller
     private function normalizePostcodeForMatch(string $postcode): string
     {
         return strtoupper(str_replace(' ', '', trim($postcode)));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function missingDebtRowIsBlank(array $row): bool
+    {
+        return trim((string) ($row['creditor_id'] ?? '')) === ''
+            && trim((string) ($row['creditor_name'] ?? '')) === ''
+            && trim((string) ($row['balance'] ?? '')) === '';
     }
 
     private function requiredIfMissingRule(?string $existing): array
