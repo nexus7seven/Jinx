@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Portal;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\LeadPortalToken;
+use App\Services\CreditCheckV3FlowService;
 use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
@@ -31,6 +33,7 @@ class LeadPortalController extends Controller
     ];
 
     public function __construct(
+        private readonly CreditCheckV3FlowService $creditCheckV3FlowService,
         private readonly LeadPortalTokenService $leadPortalTokenService,
         private readonly LeadPortalProgressService $leadPortalProgressService,
         private readonly LeadPortalCompletionService $leadPortalCompletionService
@@ -266,6 +269,98 @@ class LeadPortalController extends Controller
         $progress->save();
 
         return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
+    public function startCreditCheckFlow(Request $request, string $token): JsonResponse
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'This link is no longer active.',
+            ], 410);
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Verification required.',
+            ], 403);
+        }
+
+        $lead = $portalToken->lead;
+        $result = $this->creditCheckV3FlowService->startForLead($lead);
+
+        if (($result['payload']['ok'] ?? false) === true) {
+            $lead->portal_credit_check_started_at = $lead->portal_credit_check_started_at ?? now();
+            $lead->portal_credit_check_last_run_at = now();
+            $lead->save();
+
+            $progress = $this->leadPortalProgressService->ensureForLead($lead);
+            $progress->last_completed_step = 'credit_check';
+            $progress->current_step = 'credit_check_running';
+            $progress->last_seen_at = now();
+            $progress->save();
+        }
+
+        return response()->json([
+            'ok' => (bool) ($result['payload']['ok'] ?? false),
+            'message' => (string) ($result['payload']['message'] ?? ''),
+            'running' => (bool) ($result['payload']['ok'] ?? false),
+        ], $result['http']);
+    }
+
+    public function pollCreditCheckFlow(Request $request, string $token): JsonResponse
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'This link is no longer active.',
+            ], 410);
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Verification required.',
+            ], 403);
+        }
+
+        $lead = $portalToken->lead;
+        $result = $this->creditCheckV3FlowService->panelPollForLead($lead);
+        $payload = $result['payload'];
+        $questionsRequired = ! empty($payload['security_questions'] ?? []);
+
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        if (($payload['job_status'] ?? null) === 'success') {
+            $progress->last_completed_step = 'credit_check_running';
+            $progress->current_step = 'review';
+            $progress->last_seen_at = now();
+            $progress->save();
+        } elseif ($questionsRequired) {
+            $progress->current_step = 'credit_check_questions';
+            $progress->last_seen_at = now();
+            $progress->save();
+        } elseif (($payload['running'] ?? false) === true) {
+            $progress->current_step = 'credit_check_running';
+            $progress->last_seen_at = now();
+            $progress->save();
+        }
+
+        return response()->json([
+            'ok' => true,
+            'running' => (bool) ($payload['running'] ?? false),
+            'job_status' => $payload['job_status'] ?? null,
+            'friendly_status' => $payload['friendly_status'] ?? null,
+            'listener_status' => $payload['listener_status'] ?? null,
+            'started_at' => $payload['started_at'] ?? null,
+            'elapsed_seconds' => $payload['elapsed_seconds'] ?? null,
+            'questions_required' => $questionsRequired,
+            'security_questions' => $questionsRequired ? $payload['security_questions'] : [],
+        ]);
     }
 
     public function finishReview(Request $request, string $token)

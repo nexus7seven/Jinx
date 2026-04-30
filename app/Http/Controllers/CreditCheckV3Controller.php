@@ -8,6 +8,7 @@ use App\Models\Debt;
 use App\Models\DebtDocument;
 use App\Models\Lead;
 use App\Models\VotingPractice;
+use App\Services\CreditCheckV3FlowService;
 use App\Services\CreditCheckV3JobLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,8 @@ use Throwable;
 class CreditCheckV3Controller extends Controller
 {
     public function __construct(
-        private CreditCheckV3JobLogService $jobLogService
+        private CreditCheckV3JobLogService $jobLogService,
+        private CreditCheckV3FlowService $creditCheckV3FlowService
     ) {}
 
     public function page(Lead $lead)
@@ -28,224 +30,28 @@ class CreditCheckV3Controller extends Controller
 
     public function run(Lead $lead): JsonResponse
     {
-        $log = CreditCheckJobLog::create([
-            'lead_id' => $lead->id,
-            'invoked_by_user_id' => auth()->id(),
-            'status' => CreditCheckJobLog::STATUS_PENDING,
-            'friendly_status' => 'Preparing credit check',
-            'started_at' => now(),
-        ]);
+        $result = $this->creditCheckV3FlowService->startForLead($lead, auth()->id());
 
-        $payload = [
-            'leadId' => $lead->id,
-            'lead' => [
-                'title' => $lead->title,
-                'first_name' => $lead->first_name,
-                'middle_name' => $lead->middle_name,
-                'last_name' => $lead->last_name,
-                'dob' => $lead->dob,
-                'phone_number' => $lead->phone_number,
-                'postcode' => $lead->postcode,
-                'house_number' => $lead->house_number,
-                'house_name' => $lead->house_name,
-                'building_number' => $lead->building_number,
-                'address_line_1' => $lead->address_line_1,
-            ],
-            'meta' => [
-                'source' => 'jinx_credit_check_v3',
-                'lead_id' => $lead->id,
-                'credit_check_job_log_id' => $log->id,
-            ],
-            'targetUrl' => 'https://www.transunionstatreport.co.uk/CreditReport/AboutYou',
-        ];
-
-        try {
-            $response = Http::acceptJson()->post(
-                $this->jobLogService->listenerBase().'/jobs/start',
-                $payload
-            );
-
-            $json = $response->json();
-            $this->jobLogService->appendRawSnapshot($log->fresh(), 'listener_start_response', [
-                'http' => $response->status(),
-                'body' => $json,
-            ]);
-
-            if (!$response->successful()) {
-                $log->update([
-                    'status' => CreditCheckJobLog::STATUS_FAILED,
-                    'ended_at' => now(),
-                    'friendly_status' => 'Failed',
-                    'error_message' => is_array($json) ? (string) ($json['message'] ?? 'Listener rejected start request') : 'Listener rejected start request',
-                ]);
-
-                return response()->json($json, $response->status());
-            }
-
-            $jobId = is_array($json) ? (string) ($json['jobId'] ?? '') : '';
-            if ($jobId === '') {
-                $msg = is_array($json) ? (string) ($json['message'] ?? 'Listener did not return a job id.') : 'Listener did not return a job id.';
-                if (is_array($json) && array_key_exists('ok', $json) && $json['ok'] === false && ($json['message'] ?? '') === '') {
-                    $msg = 'Listener rejected the credit check start request.';
-                }
-                $log->update([
-                    'status' => CreditCheckJobLog::STATUS_FAILED,
-                    'ended_at' => now(),
-                    'friendly_status' => 'Failed',
-                    'error_message' => $msg,
-                ]);
-
-                return response()->json($json, $response->status());
-            }
-
-            $queued = (bool) ($json['queued'] ?? false);
-            $log->update([
-                'external_job_id' => $jobId,
-                'status' => CreditCheckJobLog::STATUS_RUNNING,
-                'friendly_status' => $queued ? 'Queued on local listener' : 'Preparing secure browser session',
-            ]);
-
-            $rj = is_array($log->result_json) ? $log->result_json : [];
-            $lines = isset($rj['activity_lines']) && is_array($rj['activity_lines']) ? $rj['activity_lines'] : [];
-            $firstLine = $queued ? 'Queued on local listener' : 'Preparing secure browser session';
-            $lines[] = $firstLine;
-            $rj['activity_lines'] = $lines;
-            $log->update(['result_json' => $rj]);
-
-            $json['credit_check_job_log_id'] = $log->id;
-
-            return response()->json($json, $response->status());
-        } catch (Throwable $e) {
-            $log->update([
-                'status' => CreditCheckJobLog::STATUS_FAILED,
-                'ended_at' => now(),
-                'friendly_status' => 'Failed',
-                'error_message' => 'Unable to contact local listener.',
-            ]);
-            $this->jobLogService->appendRawSnapshot($log->fresh(), 'listener_start_exception', [
-                'message' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'ok' => false,
-                'message' => 'Unable to contact local listener.',
-                'credit_check_job_log_id' => $log->id,
-            ], 500);
-        }
+        return response()->json($result['payload'], $result['http']);
     }
 
     public function status(string $jobId): JsonResponse
     {
-        try {
-            $bundle = $this->fetchListenerStatusBundle($jobId);
+        $result = $this->creditCheckV3FlowService->statusForJob($jobId);
 
-            return response()->json([
-                'ok' => true,
-                'state' => $bundle['state'],
-                'questions' => $bundle['questions'],
-                'reportData' => $bundle['reportData'],
-                'pdfState' => $bundle['pdfState'],
-            ]);
-        } catch (Throwable) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Unable to contact local listener.',
-            ], 500);
-        }
+        return response()->json($result['payload'], $result['http']);
     }
 
     public function panelPoll(Lead $lead): JsonResponse
     {
-        $health = $this->jobLogService->fetchListenerHealth();
-        $listenerStatus = $this->jobLogService->listenerStatusLabel($health);
-        if ($health['reachable'] && $health['active_job'] === true) {
-            $listenerStatus = 'Listener connected';
-        }
-
-        $log = CreditCheckJobLog::query()
-            ->where('lead_id', $lead->id)
-            ->whereIn('status', [CreditCheckJobLog::STATUS_PENDING, CreditCheckJobLog::STATUS_RUNNING])
-            ->orderByDesc('id')
-            ->first();
-
-        $activityLines = [];
-        if ($log && is_array($log->result_json)) {
-            $activityLines = isset($log->result_json['activity_lines']) && is_array($log->result_json['activity_lines'])
-                ? $log->result_json['activity_lines']
-                : [];
-        }
-
-        $lastPanelBundle = null;
-        if ($log && $log->external_job_id) {
-            try {
-                $bundle = $this->fetchListenerStatusBundle($log->external_job_id);
-                $lastPanelBundle = $bundle;
-                $this->jobLogService->appendRawSnapshot($log, 'panel_poll', $bundle);
-                $this->jobLogService->syncFromListenerBundle($log->fresh(), $bundle);
-                $log->refresh();
-
-                $this->maybePanelAutoImport($lead, $log->fresh(), $bundle);
-
-                $log->refresh();
-                $activityLines = isset($log->result_json['activity_lines']) && is_array($log->result_json['activity_lines'])
-                    ? $log->result_json['activity_lines']
-                    : [];
-            } catch (Throwable $e) {
-                Log::warning('credit_check_v3_panel_poll_listener', [
-                    'lead_id' => $lead->id,
-                    'job_id' => $log->external_job_id,
-                    'error' => $e->getMessage(),
-                ]);
-                if ($health['reachable']) {
-                    $listenerStatus = 'Listener unavailable';
-                }
+        $result = $this->creditCheckV3FlowService->panelPollForLead(
+            $lead,
+            function (Lead $pollLead, CreditCheckJobLog $log, array $bundle): void {
+                $this->maybePanelAutoImport($pollLead, $log, $bundle);
             }
-        }
+        );
 
-        $log = $log?->fresh();
-
-        $debtsAgg = Debt::where('lead_id', $lead->id)
-            ->selectRaw('COUNT(*) as c, MAX(updated_at) as mx')
-            ->first();
-        $debtsCount = (int) ($debtsAgg->c ?? 0);
-        $debtsUpdatedAt = $debtsAgg->mx ? (string) $debtsAgg->mx : '';
-        $debtsSignature = hash('sha256', $debtsCount.'|'.$debtsUpdatedAt);
-
-        $running = $log?->isActive() ?? false;
-        $startedAtIso = $log?->started_at?->toIso8601String();
-        $elapsedSeconds = $log && $log->started_at
-            ? (int) floor($log->started_at->diffInSeconds(now()))
-            : null;
-
-        $securityQuestions = [];
-        if ($running && is_array($lastPanelBundle)) {
-            $qRoot = (array) ($lastPanelBundle['questions'] ?? []);
-            $qPayload = $qRoot['payload'] ?? null;
-            $securityQuestions = is_array($qPayload) && is_array($qPayload['questions'] ?? null)
-                ? $qPayload['questions']
-                : (is_array($qRoot['questions'] ?? null) ? $qRoot['questions'] : []);
-            if (!is_array($securityQuestions)) {
-                $securityQuestions = [];
-            }
-        }
-
-        return response()->json([
-            'ok' => true,
-            'listener_status' => $listenerStatus,
-            'active_job_exists' => $running,
-            'job_status' => $log?->status,
-            'friendly_status' => $running ? $log?->friendly_status : null,
-            'started_at' => $startedAtIso,
-            'elapsed_seconds' => $elapsedSeconds,
-            'debts_signature' => $debtsSignature,
-            'debts_count' => $debtsCount,
-            'debts_updated_at' => $debtsUpdatedAt,
-            'activity_lines' => $running ? $activityLines : [],
-            'running' => $running,
-            'credit_check_job_log_id' => $log?->id,
-            'external_job_id' => $log?->external_job_id,
-            'security_questions' => $running ? $securityQuestions : [],
-        ]);
+        return response()->json($result['payload']);
     }
 
     public function debtsSectionHtml(Lead $lead)
