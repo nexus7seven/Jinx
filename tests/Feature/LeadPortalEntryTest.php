@@ -2030,7 +2030,7 @@ class LeadPortalEntryTest extends TestCase
         $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
     }
 
-    public function test_add_missing_debts_page_renders_creditor_dropdown_and_other_option(): void
+    public function test_add_missing_debts_page_renders_searchable_creditor_ui_and_other_option(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead();
@@ -2050,8 +2050,12 @@ class LeadPortalEntryTest extends TestCase
             ->assertOk()
             ->assertSee('Is anything missing?')
             ->assertSee('name="debts[0][creditor_id]"', false)
+            ->assertSee('Start typing creditor name...')
             ->assertSee('Dropdown Lender')
-            ->assertSee('Other');
+            ->assertSee('Other')
+            ->assertSee('Other creditor name (optional)')
+            ->assertSee('Only use this if you can&rsquo;t find the creditor in the search.', false)
+            ->assertSee('Add another debt');
     }
 
     public function test_customer_can_skip_missing_debts_and_progress_moves_to_iva_results(): void
@@ -2145,6 +2149,28 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $this->assertSame(1, Debt::where('lead_id', $lead->id)->where('source_expected', 'customer_added')->count());
+    }
+
+    public function test_dynamic_missing_debt_rows_allow_submitting_more_than_three_rows(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnAddMissingDebtsStep($lead);
+        $creditor = $this->createCreditor('Dynamic Row Lender');
+
+        $this->post(route('portal.missing-debts.save', ['token' => $issued['token']]), [
+            'debts' => [
+                ['creditor_id' => '', 'creditor_name' => '', 'balance' => ''],
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '10'],
+                ['creditor_id' => '', 'creditor_name' => '', 'balance' => ''],
+                ['creditor_id' => 'other', 'creditor_name' => 'Council Tax', 'balance' => '20'],
+                ['creditor_id' => (string) $creditor->id, 'creditor_name' => '', 'balance' => '30'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame(3, Debt::where('lead_id', $lead->id)->where('source_expected', 'customer_added')->count());
     }
 
     public function test_missing_debt_row_with_balance_but_no_creditor_returns_friendly_error(): void
@@ -2314,7 +2340,7 @@ class LeadPortalEntryTest extends TestCase
         $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
     }
 
-    public function test_iva_results_shows_potential_write_off_estimate_when_total_debt_meets_threshold(): void
+    public function test_iva_results_shows_potential_write_off_estimate_when_write_off_is_meaningful(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead();
@@ -2338,6 +2364,30 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('£6,000', false)
             ->assertSee('£4,000.00', false)
             ->assertSee('Continue to summary');
+    }
+
+    public function test_iva_results_over_threshold_with_small_write_off_uses_pressure_control_message(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+        $creditor = $this->createCreditor('Small Write Off Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 6500,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('£6,500.00', false)
+            ->assertSee('The biggest benefit may not be the amount written off', false)
+            ->assertSee('subject to assessment', false)
+            ->assertDontSee('that could mean around £500.00 may not need to be repaid', false);
     }
 
     public function test_iva_results_avoids_iva_pitch_when_total_debt_below_threshold(): void
@@ -2381,7 +2431,7 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.', false);
+            ->assertSee('If court action or bailiffs are a concern, it&rsquo;s important to speak to someone quickly. An approved solution may help stop further enforcement.', false);
     }
 
     public function test_iva_results_total_debt_includes_credit_check_and_customer_added_debts(): void
@@ -3055,6 +3105,27 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('Potential write-off: £3,000.00', false);
     }
 
+    public function test_review_eligible_with_small_write_off_uses_non_writeoff_framing(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Small Review Write Off Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 6100,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('The biggest benefit may not be the amount written off', false)
+            ->assertDontSee('Potential write-off: £100.00', false);
+    }
+
     public function test_review_shows_sub_threshold_message_when_not_eligible(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -3093,7 +3164,7 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.', false);
+            ->assertSee('If court action or bailiffs are a concern, it&rsquo;s important to speak to someone quickly. An approved solution may help stop further enforcement.', false);
     }
 
     public function test_finishing_review_advances_progress_to_complete_pending(): void
@@ -3117,6 +3188,7 @@ class LeadPortalEntryTest extends TestCase
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
             ->assertSee('You&rsquo;re all set', false)
+            ->assertSee('Want help understanding this?', false)
             ->assertSee('Finish');
     }
 
@@ -3153,6 +3225,7 @@ class LeadPortalEntryTest extends TestCase
     public function test_completing_from_complete_pending_creates_snapshot(): void
     {
         Mail::fake();
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
 
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -3165,7 +3238,8 @@ class LeadPortalEntryTest extends TestCase
 
         $this->post(route('portal.complete', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('All done');
+            ->assertSee('You&rsquo;re all set', false)
+            ->assertSee('Message us on WhatsApp');
 
         $this->assertDatabaseHas('lead_portal_snapshots', [
             'lead_id' => $lead->id,
@@ -3199,6 +3273,7 @@ class LeadPortalEntryTest extends TestCase
     public function test_completion_does_not_fail_when_lead_email_is_missing(): void
     {
         Mail::fake();
+        config(['services.portal.whatsapp_url' => 'https://wa.me/441234567890']);
 
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -3210,7 +3285,7 @@ class LeadPortalEntryTest extends TestCase
         $this->verifyThenCompleteToCompletePending($issued['token']);
         $this->post(route('portal.complete', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('We couldn&rsquo;t send an email because no email address was provided.', false);
+            ->assertSee('We&rsquo;ve saved your summary. If you&rsquo;d like help understanding what this means, message us now.', false);
 
         Mail::assertNothingSent();
 

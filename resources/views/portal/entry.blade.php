@@ -491,6 +491,7 @@
                     Continue
                 </button>
             </form>
+            @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'add_missing_debts')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Missing debts
@@ -515,42 +516,152 @@
 
             <form method="POST" action="{{ route('portal.missing-debts.save', ['token' => $rawToken]) }}">
                 @csrf
+                @php
+                    $oldRows = old('debts');
+                    $initialRows = is_array($oldRows) ? array_values($oldRows) : [[], [], []];
+                    if (count($initialRows) < 3) {
+                        $initialRows = array_pad($initialRows, 3, []);
+                    }
+                @endphp
 
-                @for ($index = 0; $index < 3; $index++)
-                    <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
-                        <div style="display:grid; grid-template-columns:1.4fr 1.4fr .8fr; gap:12px;">
-                            <div>
-                                <label for="missing_debts_{{ $index }}_creditor_id" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
-                                <select id="missing_debts_{{ $index }}_creditor_id" name="debts[{{ $index }}][creditor_id]"
-                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                    <option value="">Select creditor</option>
-                                    @foreach (($creditors ?? collect()) as $creditor)
-                                        <option value="{{ $creditor->id }}" @selected(old('debts.'.$index.'.creditor_id') == $creditor->id)>{{ $creditor->name }}</option>
-                                    @endforeach
-                                    <option value="other" @selected(old('debts.'.$index.'.creditor_id') === 'other')>Other</option>
-                                </select>
+                <div id="missing-debts-rows"
+                     data-creditors='@json((($creditors ?? collect())->map(fn ($c) => ["id" => (string) $c->id, "name" => $c->name])->values()->all()))'>
+                    @foreach($initialRows as $index => $row)
+                        @php
+                            $selectedCreditorId = (string) ($row['creditor_id'] ?? '');
+                            $selectedCreditor = ($creditors ?? collect())->firstWhere('id', (int) $selectedCreditorId);
+                            $selectedCreditorLabel = $selectedCreditorId === 'other'
+                                ? 'Other'
+                                : ($selectedCreditor?->name ?? '');
+                        @endphp
+                        <div class="missing-debt-row" data-row-index="{{ $index }}" style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+                            <div style="display:grid; grid-template-columns:1.6fr .8fr 1.3fr; gap:12px; align-items:start;">
+                                <div style="position:relative;">
+                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
+                                    <input type="hidden" name="debts[{{ $index }}][creditor_id]" value="{{ $selectedCreditorId }}" class="missing-debt-creditor-id">
+                                    <input type="text"
+                                           value="{{ $selectedCreditorLabel }}"
+                                           class="missing-debt-creditor-search"
+                                           placeholder="Start typing creditor name..."
+                                           autocomplete="off"
+                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                    <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
+                                </div>
+                                <div>
+                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
+                                    <input name="debts[{{ $index }}][balance]" type="text" inputmode="decimal"
+                                           value="{{ $row['balance'] ?? '' }}"
+                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                </div>
+                                <div>
+                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name (optional)</label>
+                                    <input name="debts[{{ $index }}][creditor_name]" type="text"
+                                           value="{{ $row['creditor_name'] ?? '' }}"
+                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                    <div style="margin-top:6px; font-size:12px; color:#64748b;">Only use this if you can&rsquo;t find the creditor in the search.</div>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <button type="button" id="add-missing-debt-row"
+                        style="display:inline-block; margin-bottom:14px; padding:10px 14px; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; color:#0f172a; font-size:14px; font-weight:700; cursor:pointer;">
+                    Add another debt
+                </button>
+                <template id="missing-debt-row-template">
+                    <div class="missing-debt-row" data-row-index="__INDEX__" style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+                        <div style="display:grid; grid-template-columns:1.6fr .8fr 1.3fr; gap:12px; align-items:start;">
+                            <div style="position:relative;">
+                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
+                                <input type="hidden" name="debts[__INDEX__][creditor_id]" value="" class="missing-debt-creditor-id">
+                                <input type="text" value="" class="missing-debt-creditor-search" placeholder="Start typing creditor name..." autocomplete="off"
+                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
                             </div>
                             <div>
-                                <label for="missing_debts_{{ $index }}_creditor_name" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor / reference</label>
-                                <input id="missing_debts_{{ $index }}_creditor_name" name="debts[{{ $index }}][creditor_name]" type="text"
-                                       value="{{ old('debts.'.$index.'.creditor_name') }}"
+                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
+                                <input name="debts[__INDEX__][balance]" type="text" inputmode="decimal"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                             </div>
                             <div>
-                                <label for="missing_debts_{{ $index }}_balance" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
-                                <input id="missing_debts_{{ $index }}_balance" name="debts[{{ $index }}][balance]" type="text" inputmode="decimal"
-                                       value="{{ old('debts.'.$index.'.balance') }}"
+                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name (optional)</label>
+                                <input name="debts[__INDEX__][creditor_name]" type="text"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                <div style="margin-top:6px; font-size:12px; color:#64748b;">Only use this if you can&rsquo;t find the creditor in the search.</div>
                             </div>
                         </div>
                     </div>
-                @endfor
+                </template>
 
                 <button type="submit"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
                     Continue
                 </button>
             </form>
+            @include('portal.partials.help-cta')
+            <script>
+                (function () {
+                    const container = document.getElementById('missing-debts-rows');
+                    const addBtn = document.getElementById('add-missing-debt-row');
+                    const template = document.getElementById('missing-debt-row-template');
+                    if (!container || !addBtn || !template) return;
+                    const creditors = JSON.parse(container.dataset.creditors || '[]');
+                    const options = creditors.concat([{id: 'other', name: 'Other'}]);
+
+                    function renderResults(row, query) {
+                        const results = row.querySelector('.missing-debt-creditor-results');
+                        if (!results) return;
+                        const q = (query || '').toLowerCase().trim();
+                        const matches = q === '' ? options.slice(0, 8) : options.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 8);
+                        if (matches.length === 0) {
+                            results.style.display = 'none';
+                            results.innerHTML = '';
+                            return;
+                        }
+                        results.innerHTML = matches.map((o) => '<button type="button" data-id="' + o.id + '" data-name="' + o.name.replace(/"/g, '&quot;') + '" style="display:block;width:100%;text-align:left;border:none;background:#fff;padding:10px 12px;cursor:pointer;">' + o.name + '</button>').join('');
+                        results.style.display = 'block';
+                    }
+
+                    function bindRow(row) {
+                        const search = row.querySelector('.missing-debt-creditor-search');
+                        const hidden = row.querySelector('.missing-debt-creditor-id');
+                        const results = row.querySelector('.missing-debt-creditor-results');
+                        if (!search || !hidden || !results) return;
+                        search.addEventListener('input', function () {
+                            hidden.value = '';
+                            renderResults(row, search.value);
+                        });
+                        search.addEventListener('focus', function () {
+                            renderResults(row, search.value);
+                        });
+                        results.addEventListener('click', function (event) {
+                            const target = event.target;
+                            if (!(target instanceof HTMLButtonElement)) return;
+                            hidden.value = target.dataset.id || '';
+                            search.value = target.dataset.name || '';
+                            results.style.display = 'none';
+                        });
+                        document.addEventListener('click', function (event) {
+                            if (!row.contains(event.target)) {
+                                results.style.display = 'none';
+                            }
+                        });
+                    }
+
+                    Array.from(container.querySelectorAll('.missing-debt-row')).forEach(bindRow);
+                    addBtn.addEventListener('click', function () {
+                        const index = container.querySelectorAll('.missing-debt-row').length;
+                        const html = template.innerHTML.replaceAll('__INDEX__', String(index));
+                        const wrapper = document.createElement('div');
+                        wrapper.innerHTML = html.trim();
+                        const row = wrapper.firstElementChild;
+                        if (!row) return;
+                        container.appendChild(row);
+                        bindRow(row);
+                    });
+                })();
+            </script>
         @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Results
@@ -568,18 +679,30 @@
             </div>
 
             @if (($ivaEstimate['is_eligible'] ?? false) === true)
-                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                    Based on what we&rsquo;ve found so far, an IVA may be worth looking at.
-                </p>
-                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                    For example, if payments were around £100 per month for 60 months, that would total £6,000.
-                </p>
-                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                    Compared with your estimated debt total of {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}, that could mean around {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }} may not need to be repaid, depending on your final assessment.
-                </p>
-                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                    An IVA can also help stop creditor pressure and enforcement once approved.
-                </p>
+                @if(($ivaEstimate['has_meaningful_write_off'] ?? false) === true)
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        Based on what we&rsquo;ve found so far, an IVA may be worth looking at.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        For example, if payments were around £100 per month for 60 months, that would total £6,000.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        Compared with your estimated debt total of {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}, that could mean around {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }} may not need to be repaid, depending on your final assessment.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        An IVA can also help stop creditor pressure and enforcement once approved.
+                    </p>
+                @else
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        The biggest benefit may not be the amount written off &mdash; it may be getting creditor pressure under control and having one affordable payment.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        For example, an IVA is often based around an affordable monthly payment, such as £100 per month, subject to assessment.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        This can still be a quicker route out of debt and may help reduce creditor pressure once approved.
+                    </p>
+                @endif
             @else
                 <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
                     Based on the figures so far, an IVA may not be the best fit, but we can still help you understand your options.
@@ -588,7 +711,7 @@
 
             @if (($ivaEstimate['has_court_judgment_debt'] ?? false) === true)
                 <div style="margin:14px 0 18px 0; padding:14px 16px; border-radius:14px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px; line-height:1.6;">
-                    We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.
+                    If court action or bailiffs are a concern, it&rsquo;s important to speak to someone quickly. An approved solution may help stop further enforcement.
                 </div>
             @endif
 
@@ -599,6 +722,7 @@
                     Continue to summary
                 </button>
             </form>
+            @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Review
@@ -646,18 +770,24 @@
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
                 <div style="font-weight:700; margin-bottom:8px;">What this could mean</div>
                 @if (($ivaEstimate['is_eligible'] ?? false) === true)
-                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                        Estimated total debt: {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}
-                    </div>
-                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                        Example repayment total: £6,000.00
-                    </div>
-                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                        Potential write-off: {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }}
-                    </div>
-                    <div style="font-size:14px; color:#475569;">
-                        Based on the figures so far, an IVA could be worth exploring and may reduce what you repay, subject to assessment.
-                    </div>
+                    @if(($ivaEstimate['has_meaningful_write_off'] ?? false) === true)
+                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                            Estimated total debt: {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}
+                        </div>
+                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                            Example repayment total: £6,000.00
+                        </div>
+                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                            Potential write-off: {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }}
+                        </div>
+                        <div style="font-size:14px; color:#475569;">
+                            Based on the figures so far, an IVA could be worth exploring and may reduce what you repay, subject to assessment.
+                        </div>
+                    @else
+                        <div style="font-size:14px; color:#475569;">
+                            The biggest benefit may not be the amount written off &mdash; it may be getting creditor pressure under control with one affordable monthly payment, subject to assessment.
+                        </div>
+                    @endif
                 @else
                     <div style="font-size:14px; color:#475569;">
                         Based on the figures so far, an IVA may not be the best fit, but we can still help discuss your options.
@@ -666,9 +796,22 @@
 
                 @if (($ivaEstimate['has_court_judgment_debt'] ?? false) === true)
                     <div style="margin-top:10px; padding:12px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px;">
-                        We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.
+                        If court action or bailiffs are a concern, it&rsquo;s important to speak to someone quickly. An approved solution may help stop further enforcement.
                     </div>
                 @endif
+            </div>
+
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+                <div style="font-weight:700; margin-bottom:8px;">What happens next?</div>
+                <div style="font-size:14px; color:#334155; line-height:1.6;">
+                    We can talk you through your options.
+                </div>
+                <div style="font-size:14px; color:#334155; line-height:1.6;">
+                    We&rsquo;ll explain whether an IVA or another route may suit you.
+                </div>
+                <div style="font-size:14px; color:#334155; line-height:1.6;">
+                    If enforcement or creditor pressure is an issue, tell us now so we can prioritise that.
+                </div>
             </div>
 
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:20px;">
@@ -685,9 +828,10 @@
                 @csrf
                 <button type="submit"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                    Continue
+                    Send my summary and speak to the team
                 </button>
             </form>
+            @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'complete_pending')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Complete pending
@@ -708,6 +852,7 @@
                     Finish
                 </button>
             </form>
+            @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'credit_check_failed')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit check

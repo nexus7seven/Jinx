@@ -8,6 +8,7 @@ class LeadPortalIvaEstimateService
 {
     private const IVA_THRESHOLD = 6000.0;
     private const EXAMPLE_REPAYMENT_TOTAL = 6000.0;
+    private const WRITE_OFF_EMPHASIS_THRESHOLD = 1000.0;
 
     public function calculateTotalDebt(Lead $lead): float
     {
@@ -52,17 +53,19 @@ class LeadPortalIvaEstimateService
     }
 
     /**
-     * @return array{total_debt:float,is_eligible:bool,example_repayment_total:float,estimated_write_off:float,has_court_judgment_debt:bool}
+     * @return array{total_debt:float,is_eligible:bool,example_repayment_total:float,estimated_write_off:float,has_meaningful_write_off:bool,has_court_judgment_debt:bool}
      */
     public function buildEstimateForLead(Lead $lead): array
     {
         $totalDebt = $this->calculateTotalDebt($lead);
+        $estimatedWriteOff = $this->estimateWriteOff($totalDebt);
 
         return [
             'total_debt' => $totalDebt,
             'is_eligible' => $this->isEligible($totalDebt),
             'example_repayment_total' => self::EXAMPLE_REPAYMENT_TOTAL,
-            'estimated_write_off' => $this->estimateWriteOff($totalDebt),
+            'estimated_write_off' => $estimatedWriteOff,
+            'has_meaningful_write_off' => $estimatedWriteOff >= self::WRITE_OFF_EMPHASIS_THRESHOLD,
             'has_court_judgment_debt' => $this->hasCourtJudgmentDebt($lead),
         ];
     }
