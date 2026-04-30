@@ -11,6 +11,7 @@ use App\Services\CreditCheckV3FlowService;
 use App\Services\LeadDebtService;
 use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalDebtPresenter;
+use App\Services\LeadPortalFinancialStatementMapper;
 use App\Services\LeadPortalIvaEstimateService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
@@ -57,7 +58,8 @@ class LeadPortalController extends Controller
         private readonly LeadPortalCompletionService $leadPortalCompletionService,
         private readonly LeadPortalDebtPresenter $leadPortalDebtPresenter,
         private readonly LeadDebtService $leadDebtService,
-        private readonly LeadPortalIvaEstimateService $leadPortalIvaEstimateService
+        private readonly LeadPortalIvaEstimateService $leadPortalIvaEstimateService,
+        private readonly LeadPortalFinancialStatementMapper $leadPortalFinancialStatementMapper
     ) {
     }
 
@@ -204,6 +206,7 @@ class LeadPortalController extends Controller
             ? $validated['monthly_income']
             : $lead->monthly_income;
         $lead->save();
+        $this->persistPortalFinancialStatement($lead);
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $progress->last_completed_step = 'income';
@@ -254,6 +257,7 @@ class LeadPortalController extends Controller
             ? $validated['monthly_food_travel_cost']
             : $lead->monthly_food_travel_cost;
         $lead->save();
+        $this->persistPortalFinancialStatement($lead);
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $progress->last_completed_step = 'costs';
@@ -1097,6 +1101,19 @@ class LeadPortalController extends Controller
     private function portalTitleOptions(): array
     {
         return array_values(array_unique(array_merge(Lead::TITLES, ['Other'])));
+    }
+
+    private function persistPortalFinancialStatement(Lead $lead): void
+    {
+        try {
+            $this->leadPortalFinancialStatementMapper->persistFromPortalFields($lead);
+        } catch (\Throwable $exception) {
+            Log::warning('Portal financial statement mapping failed', [
+                'lead_id' => $lead->id,
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     /**

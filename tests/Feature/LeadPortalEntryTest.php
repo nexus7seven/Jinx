@@ -796,6 +796,74 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('2450.50', (string) $lead->monthly_income);
     }
 
+    public function test_employed_income_maps_to_financial_statement_salary(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->post(route('portal.income.save', ['token' => $issued['token']]), [
+            'employment_status' => 'Employed full-time',
+            'monthly_income' => '2450.50',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame(2450.50, $lead->financial_statement['income']['salary']);
+    }
+
+    public function test_self_employed_income_maps_to_self_employed_key(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->post(route('portal.income.save', ['token' => $issued['token']]), [
+            'employment_status' => 'Self-employed',
+            'monthly_income' => '1800',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame(1800.0, $lead->financial_statement['income']['self_employed']);
+    }
+
+    public function test_benefits_income_maps_to_universal_credit_key(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->post(route('portal.income.save', ['token' => $issued['token']]), [
+            'employment_status' => 'Benefits',
+            'monthly_income' => '900',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame(900.0, $lead->financial_statement['income']['universal_credit']);
+    }
+
+    public function test_pension_income_maps_to_pensions_key(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsAndDebts($issued['token']);
+
+        $this->post(route('portal.income.save', ['token' => $issued['token']]), [
+            'employment_status' => 'Pension',
+            'monthly_income' => '1200',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame(1200.0, $lead->financial_statement['income']['pensions']);
+    }
+
     public function test_saving_income_rejects_invalid_employment_status_option(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -930,6 +998,70 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('120.50', (string) $lead->monthly_council_tax);
         $this->assertSame('180.00', (string) $lead->monthly_utilities_cost);
         $this->assertSame('340.25', (string) $lead->monthly_food_travel_cost);
+    }
+
+    public function test_portal_costs_map_to_financial_statement_expenditure_keys(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($issued['token']);
+
+        $this->post(route('portal.costs.save', ['token' => $issued['token']]), [
+            'monthly_housing_cost' => '900',
+            'monthly_council_tax' => '100',
+            'monthly_utilities_cost' => '150',
+            'monthly_food_travel_cost' => '300',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $expenditure = $lead->financial_statement['expenditure'];
+        $this->assertSame(900.0, $expenditure['rent_mortgage']);
+        $this->assertSame(100.0, $expenditure['council_tax']);
+        $this->assertSame(50.0, $expenditure['electric']);
+        $this->assertSame(50.0, $expenditure['gas']);
+        $this->assertSame(50.0, $expenditure['water']);
+        $this->assertSame(300.0, $expenditure['food']);
+        $this->assertArrayHasKey('public_transport', $expenditure);
+        $this->assertArrayHasKey('fuel', $expenditure);
+    }
+
+    public function test_portal_financial_statement_mapping_preserves_unrelated_existing_values(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'financial_statement' => [
+                'schema_version' => 1,
+                'guidelines_version' => config('sfs_spending_guidelines.version'),
+                'household' => [
+                    'adults' => 2,
+                    'children_under_16' => 1,
+                    'children_16_18' => 0,
+                ],
+                'income' => [
+                    'partner_salary' => 777,
+                ],
+                'expenditure' => [
+                    'internet_tv' => 44,
+                ],
+            ],
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->verifyThenCompleteWelcomeDetailsDebtsAndIncome($issued['token']);
+
+        $this->post(route('portal.costs.save', ['token' => $issued['token']]), [
+            'monthly_housing_cost' => '900',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $lead->refresh();
+        $this->assertSame(2, $lead->financial_statement['household']['adults']);
+        $this->assertSame(1, $lead->financial_statement['household']['children_under_16']);
+        $this->assertSame(777.0, $lead->financial_statement['income']['partner_salary']);
+        $this->assertSame(44.0, $lead->financial_statement['expenditure']['internet_tv']);
+        $this->assertSame(900.0, $lead->financial_statement['expenditure']['rent_mortgage']);
     }
 
     public function test_saving_costs_advances_progress_to_credit_check(): void
