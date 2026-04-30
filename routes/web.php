@@ -62,6 +62,8 @@ Route::post('/portal/{token}/credit-report-debts/continue', [LeadPortalControlle
     ->name('portal.credit-report-debts.continue');
 Route::post('/portal/{token}/missing-debts', [LeadPortalController::class, 'saveMissingDebts'])
     ->name('portal.missing-debts.save');
+Route::post('/portal/{token}/iva-results/continue', [LeadPortalController::class, 'continueIvaResults'])
+    ->name('portal.iva-results.continue');
 Route::post('/portal/{token}/review/finish', [LeadPortalController::class, 'finishReview'])
     ->name('portal.review.finish');
 Route::post('/portal/{token}/complete', [LeadPortalController::class, 'complete'])

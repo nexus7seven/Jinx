@@ -1943,7 +1943,8 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('Next, we&rsquo;ll show what this could mean.', false);
+            ->assertSee('Here&rsquo;s what this could mean', false)
+            ->assertSee('Based on the figures so far, an IVA may not be the best fit, but we can still help you understand your options.');
     }
 
     public function test_selected_creditor_missing_debt_is_saved_to_canonical_debts_table(): void
@@ -2178,6 +2179,159 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $this->assertSame(0, Debt::where('lead_id', $lead->id)->count());
+        $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
+    }
+
+    public function test_iva_results_shows_potential_write_off_estimate_when_total_debt_meets_threshold(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+        $creditor = $this->createCreditor('Iva Threshold Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 10000,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Here&rsquo;s what this could mean', false)
+            ->assertSee('£10,000.00', false)
+            ->assertSee('Based on what we&rsquo;ve found so far, an IVA may be worth looking at.', false)
+            ->assertSee('£6,000', false)
+            ->assertSee('£4,000.00', false)
+            ->assertSee('Continue to summary');
+    }
+
+    public function test_iva_results_avoids_iva_pitch_when_total_debt_below_threshold(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+        $creditor = $this->createCreditor('Low Balance Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 5999.99,
+            'source_expected' => 'customer_added',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('£5,999.99', false)
+            ->assertSee('Based on the figures so far, an IVA may not be the best fit, but we can still help you understand your options.')
+            ->assertDontSee('Based on what we&rsquo;ve found so far, an IVA may be worth looking at.', false);
+    }
+
+    public function test_iva_results_ccj_debt_triggers_enforcement_note(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+        $creditor = $this->createCreditor('County Court Judgment');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 7000,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.', false);
+    }
+
+    public function test_iva_results_total_debt_includes_credit_check_and_customer_added_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+        $creditor = $this->createCreditor('Combined Debt Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 4500,
+            'source_expected' => 'credit_check',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 2500,
+            'source_expected' => 'customer_added',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 999,
+            'source_expected' => 'other',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('£7,000.00', false)
+            ->assertSee('£1,000.00', false)
+            ->assertDontSee('£7,999.00', false);
+    }
+
+    public function test_iva_results_continue_route_advances_to_review(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+        $this->putPortalOnIvaResultsStep($lead);
+
+        $this->post(route('portal.iva-results.continue', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('iva_results', $progress->last_completed_step);
+        $this->assertSame('review', $progress->current_step);
+    }
+
+    public function test_invalid_or_expired_token_cannot_continue_iva_results(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('iva-results-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        foreach (['not-a-real-token', 'iva-results-expired-token'] as $rawToken) {
+            $this->post(route('portal.iva-results.continue', ['token' => $rawToken]))
+                ->assertStatus(410)
+                ->assertSee('This link is no longer active');
+        }
+    }
+
+    public function test_unverified_session_cannot_continue_iva_results(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.iva-results.continue', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
         $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
     }
 
@@ -3150,6 +3304,14 @@ class LeadPortalEntryTest extends TestCase
         LeadPortalProgress::updateOrCreate(
             ['lead_id' => $lead->id],
             ['last_completed_step' => 'credit_report_debts', 'current_step' => 'add_missing_debts', 'last_seen_at' => now()]
+        );
+    }
+
+    private function putPortalOnIvaResultsStep(Lead $lead): void
+    {
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'add_missing_debts', 'current_step' => 'iva_results', 'last_seen_at' => now()]
         );
     }
 

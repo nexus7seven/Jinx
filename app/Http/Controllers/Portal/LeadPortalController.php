@@ -11,6 +11,7 @@ use App\Services\CreditCheckV3FlowService;
 use App\Services\LeadDebtService;
 use App\Services\LeadPortalCompletionService;
 use App\Services\LeadPortalDebtPresenter;
+use App\Services\LeadPortalIvaEstimateService;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\JsonResponse;
@@ -55,7 +56,8 @@ class LeadPortalController extends Controller
         private readonly LeadPortalProgressService $leadPortalProgressService,
         private readonly LeadPortalCompletionService $leadPortalCompletionService,
         private readonly LeadPortalDebtPresenter $leadPortalDebtPresenter,
-        private readonly LeadDebtService $leadDebtService
+        private readonly LeadDebtService $leadDebtService,
+        private readonly LeadPortalIvaEstimateService $leadPortalIvaEstimateService
     ) {
     }
 
@@ -903,6 +905,27 @@ class LeadPortalController extends Controller
         return redirect()->route('portal.entry', ['token' => $token]);
     }
 
+    public function continueIvaResults(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($portalToken->lead);
+        $progress->last_completed_step = 'iva_results';
+        $progress->current_step = 'review';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function finishReview(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -1034,6 +1057,7 @@ class LeadPortalController extends Controller
             'titleOptions' => $this->portalTitleOptions(),
             'rawToken' => $rawToken,
             'leadPortalDebtPresenter' => $this->leadPortalDebtPresenter,
+            'ivaEstimate' => $this->leadPortalIvaEstimateService->buildEstimateForLead($lead),
         ]);
     }
 

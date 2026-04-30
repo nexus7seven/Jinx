@@ -552,13 +552,53 @@
                 </button>
             </form>
         @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
-            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
-                Next step
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Results
             </div>
 
             <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
-                Next, we&rsquo;ll show what this could mean.
+                Here&rsquo;s what this could mean
             </h1>
+
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:18px;">
+                <div style="font-weight:700; margin-bottom:6px;">Total debt found or entered</div>
+                <div style="font-size:28px; font-weight:700; color:#0f172a;">
+                    {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}
+                </div>
+            </div>
+
+            @if (($ivaEstimate['is_eligible'] ?? false) === true)
+                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    Based on what we&rsquo;ve found so far, an IVA may be worth looking at.
+                </p>
+                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    For example, if payments were around £100 per month for 60 months, that would total £6,000.
+                </p>
+                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    Compared with your estimated debt total of {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}, that could mean around {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }} may not need to be repaid, depending on your final assessment.
+                </p>
+                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    An IVA can also help stop creditor pressure and enforcement once approved.
+                </p>
+            @else
+                <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    Based on the figures so far, an IVA may not be the best fit, but we can still help you understand your options.
+                </p>
+            @endif
+
+            @if (($ivaEstimate['has_court_judgment_debt'] ?? false) === true)
+                <div style="margin:14px 0 18px 0; padding:14px 16px; border-radius:14px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px; line-height:1.6;">
+                    We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.
+                </div>
+            @endif
+
+            <form method="POST" action="{{ route('portal.iva-results.continue', ['token' => $rawToken]) }}">
+                @csrf
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Continue to summary
+                </button>
+            </form>
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Review
