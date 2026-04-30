@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
 class LeadPortalController extends Controller
@@ -604,31 +605,54 @@ class LeadPortalController extends Controller
         ]);
     }
 
-    public function submitCreditCheckAnswers(Request $request, string $token): JsonResponse
+    public function submitCreditCheckAnswers(Request $request, string $token): JsonResponse|RedirectResponse
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
 
         if (! $portalToken) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'This link is no longer active.',
-            ], 410);
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'This link is no longer active.',
+                ], 410);
+            }
+
+            return $this->expiredResponse();
         }
 
         if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Verification required.',
-            ], 403);
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Verification required.',
+                ], 403);
+            }
+
+            return redirect()->route('portal.entry', ['token' => $token]);
         }
 
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'answers' => ['required', 'array', 'min:1'],
             'answers.*.id' => ['nullable', 'string', 'max:255'],
             'answers.*.index' => ['nullable', 'integer', 'min:0'],
             'answers.*.value' => ['required'],
             'answers.*.label' => ['nullable', 'string', 'max:255'],
         ]);
+        if ($validator->fails()) {
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Please answer every question before continuing.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->withErrors(['credit_check' => 'Please answer every question before continuing.']);
+        }
+        $validated = $validator->validated();
 
         $lead = $portalToken->lead;
         Log::info('Portal credit-check v3 answers payload sample', [
@@ -645,10 +669,15 @@ class LeadPortalController extends Controller
             ->first();
 
         if (! $activeLog || blank($activeLog->external_job_id)) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'No active credit check is available right now.',
-            ], 409);
+            if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'No active credit check is available right now.',
+                ], 409);
+            }
+
+            return redirect()->route('portal.entry', ['token' => $token])
+                ->withErrors(['credit_check' => 'No active credit check is available right now.']);
         }
 
         $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $validated['answers']);
@@ -660,11 +689,21 @@ class LeadPortalController extends Controller
             $progress->save();
         }
 
-        return response()->json([
-            'ok' => (bool) ($result['payload']['ok'] ?? false),
-            'message' => (string) ($result['payload']['message'] ?? ''),
-            'running' => true,
-        ], $result['http']);
+        if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+            return response()->json([
+                'ok' => (bool) ($result['payload']['ok'] ?? false),
+                'message' => (string) ($result['payload']['message'] ?? ''),
+                'running' => true,
+            ], $result['http']);
+        }
+
+        if (($result['payload']['ok'] ?? false) === true) {
+            return redirect()->route('portal.entry', ['token' => $token])
+                ->with('status', 'Thanks, we’re continuing your check now.');
+        }
+
+        return redirect()->route('portal.entry', ['token' => $token])
+            ->withErrors(['credit_check' => (string) ($result['payload']['message'] ?? 'Please try again.')]);
     }
 
     public function finishReview(Request $request, string $token)

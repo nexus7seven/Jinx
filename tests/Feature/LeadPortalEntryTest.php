@@ -1694,6 +1694,52 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('credit_check_running', $progress->current_step);
     }
 
+    public function test_non_ajax_kba_submit_redirects_to_entry_and_sets_running_step(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/portal-job-answers-form/answers' => Http::response([
+                'ok' => true,
+                'message' => 'Answers accepted',
+            ], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-answers-form',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Awaiting verification',
+            'started_at' => now(),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_questions']
+        );
+
+        $this->post(route('portal.credit-check.answers', ['token' => $issued['token']]), [
+            'answers' => [
+                ['id' => 'q1', 'index' => 0, 'value' => 'yes', 'label' => 'Yes'],
+            ],
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_running', $progress->current_step);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We&rsquo;re checking your information', false);
+    }
+
     public function test_invalid_or_unverified_portal_token_cannot_submit_credit_check_answers(): void
     {
         $this->postJson(route('portal.credit-check.answers', ['token' => 'invalid-token']), [
@@ -1737,6 +1783,39 @@ class LeadPortalEntryTest extends TestCase
                 ['id' => 'q1', 'index' => 0, 'value' => '', 'label' => ''],
             ],
         ])->assertStatus(422);
+    }
+
+    public function test_missing_kba_answer_non_ajax_redirects_back_with_friendly_error(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-answers-missing-form',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Awaiting verification',
+            'started_at' => now(),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_questions']
+        );
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.credit-check.answers', ['token' => $issued['token']]), [
+                'answers' => [
+                    ['id' => 'q1', 'index' => 0, 'value' => '', 'label' => ''],
+                ],
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors(['credit_check']);
     }
 
     public function test_credit_check_start_advances_progress_to_credit_check_running(): void
