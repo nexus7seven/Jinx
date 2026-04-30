@@ -68,33 +68,9 @@ class CreditCheckV3Controller extends Controller
             'answers' => ['required', 'array'],
         ]);
 
-        try {
-            $response = Http::acceptJson()->post(
-                $this->jobLogService->listenerBase().'/jobs/'.$jobId.'/answers',
-                [
-                    'answers' => $validated['answers'],
-                ]
-            );
+        $result = $this->creditCheckV3FlowService->submitAnswersForJob($jobId, $validated['answers']);
 
-            $json = $response->json();
-            $log = CreditCheckJobLog::query()
-                ->where('external_job_id', $jobId)
-                ->orderByDesc('id')
-                ->first();
-            if ($log) {
-                $this->jobLogService->appendRawSnapshot($log, 'answers_submitted', [
-                    'http' => $response->status(),
-                    'body' => $json,
-                ]);
-            }
-
-            return response()->json($json, $response->status());
-        } catch (Throwable) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Unable to contact local listener.',
-            ], 500);
-        }
+        return response()->json($result['payload'], $result['http']);
     }
 
     public function importReportData(Lead $lead, string $jobId): JsonResponse

@@ -45,4 +45,40 @@ class CreditCheckV3FlowPhase1Test extends TestCase
         $this->assertSame(CreditCheckJobLog::STATUS_RUNNING, $log->status);
         $this->assertSame('job-123', $log->external_job_id);
     }
+
+    public function test_agent_credit_check_v3_submit_answers_route_still_works(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+
+        Http::fake([
+            'http://listener.test/jobs/job-answers/answers' => Http::response([
+                'ok' => true,
+                'message' => 'Answers accepted',
+            ], 200),
+        ]);
+
+        $user = User::factory()->create();
+        $lead = Lead::create([
+            'vicidial_lead_id' => 'cc-v3-phase1-answers-'.uniqid('', true),
+        ]);
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'job-answers',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Awaiting verification',
+            'started_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson(route('leads.credit-check-v3.answers', ['jobId' => 'job-answers']), [
+                'answers' => [
+                    ['id' => 'q1', 'index' => 0, 'value' => 'Blue'],
+                ],
+            ])
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'message' => 'Answers accepted',
+            ]);
+    }
 }

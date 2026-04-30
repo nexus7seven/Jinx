@@ -271,6 +271,45 @@
                     Start check
                 </button>
             </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_questions')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Security check
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                We need to confirm a few details
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                These questions help match your credit file securely.
+            </p>
+
+            @if (empty($creditCheckQuestions ?? []))
+                <div style="padding:14px 16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#475569; margin-bottom:18px;">
+                    We are preparing your verification questions. Please refresh in a moment.
+                </div>
+            @else
+                <form method="POST" action="{{ route('portal.credit-check.answers', ['token' => $rawToken]) }}">
+                    @csrf
+                    @foreach (($creditCheckQuestions ?? []) as $index => $question)
+                        <div style="margin-bottom:14px;">
+                            <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">
+                                {{ $question['question'] ?? $question['prompt'] ?? ('Question '.($index + 1)) }}
+                            </label>
+                            <input type="hidden" name="answers[{{ $index }}][id]" value="{{ $question['id'] ?? '' }}">
+                            <input type="hidden" name="answers[{{ $index }}][index]" value="{{ $index }}">
+                            <input name="answers[{{ $index }}][value]" type="text" required
+                                   style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                            <input type="hidden" name="answers[{{ $index }}][label]" value="{{ $question['question'] ?? $question['prompt'] ?? ('Question '.($index + 1)) }}">
+                        </div>
+                    @endforeach
+
+                    <button type="submit"
+                            style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                        Continue securely
+                    </button>
+                </form>
+            @endif
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Review

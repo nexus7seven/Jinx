@@ -196,6 +196,47 @@ class CreditCheckV3FlowService
     }
 
     /**
+     * @param array<int, mixed> $answers
+     * @return array{http: int, payload: array<string, mixed>}
+     */
+    public function submitAnswersForJob(string $jobId, array $answers): array
+    {
+        try {
+            $response = Http::acceptJson()->post(
+                $this->jobLogService->listenerBase().'/jobs/'.$jobId.'/answers',
+                [
+                    'answers' => $answers,
+                ]
+            );
+
+            $json = $response->json();
+            $log = CreditCheckJobLog::query()
+                ->where('external_job_id', $jobId)
+                ->orderByDesc('id')
+                ->first();
+            if ($log) {
+                $this->jobLogService->appendRawSnapshot($log, 'answers_submitted', [
+                    'http' => $response->status(),
+                    'body' => $json,
+                ]);
+            }
+
+            return [
+                'http' => $response->status(),
+                'payload' => is_array($json) ? $json : ['ok' => $response->successful()],
+            ];
+        } catch (Throwable) {
+            return [
+                'http' => 500,
+                'payload' => [
+                    'ok' => false,
+                    'message' => 'Unable to contact local listener.',
+                ],
+            ];
+        }
+    }
+
+    /**
      * @param callable(Lead, CreditCheckJobLog, array<string,mixed>): void|null $afterSync
      * @return array{payload: array<string,mixed>, bundle: array<string,mixed>|null, log: CreditCheckJobLog|null}
      */

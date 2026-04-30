@@ -56,6 +56,8 @@ Route::post('/portal/{token}/credit-check/v3/start', [LeadPortalController::clas
     ->name('portal.credit-check.v3.start');
 Route::get('/portal/{token}/credit-check/v3/poll', [LeadPortalController::class, 'pollCreditCheckFlow'])
     ->name('portal.credit-check.poll');
+Route::post('/portal/{token}/credit-check/v3/answers', [LeadPortalController::class, 'submitCreditCheckAnswers'])
+    ->name('portal.credit-check.answers');
 Route::post('/portal/{token}/review/finish', [LeadPortalController::class, 'finishReview'])
     ->name('portal.review.finish');
 Route::post('/portal/{token}/complete', [LeadPortalController::class, 'complete'])

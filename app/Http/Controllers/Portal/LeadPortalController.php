@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
+use App\Models\CreditCheckJobLog;
 use App\Models\LeadPortalToken;
 use App\Services\CreditCheckV3FlowService;
 use App\Services\LeadPortalCompletionService;
@@ -344,6 +345,7 @@ class LeadPortalController extends Controller
             $progress->current_step = 'credit_check_questions';
             $progress->last_seen_at = now();
             $progress->save();
+            $request->session()->put($this->creditCheckQuestionsSessionKey($portalToken), $payload['security_questions'] ?? []);
         } elseif (($payload['running'] ?? false) === true) {
             $progress->current_step = 'credit_check_running';
             $progress->last_seen_at = now();
@@ -361,6 +363,63 @@ class LeadPortalController extends Controller
             'questions_required' => $questionsRequired,
             'security_questions' => $questionsRequired ? $payload['security_questions'] : [],
         ]);
+    }
+
+    public function submitCreditCheckAnswers(Request $request, string $token): JsonResponse
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'This link is no longer active.',
+            ], 410);
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Verification required.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'answers' => ['required', 'array', 'min:1'],
+            'answers.*.id' => ['nullable', 'string', 'max:255'],
+            'answers.*.index' => ['nullable', 'integer', 'min:0'],
+            'answers.*.value' => ['required'],
+            'answers.*.label' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $lead = $portalToken->lead;
+        $activeLog = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->whereIn('status', [CreditCheckJobLog::STATUS_PENDING, CreditCheckJobLog::STATUS_RUNNING])
+            ->whereNotNull('external_job_id')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $activeLog || blank($activeLog->external_job_id)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'No active credit check is available right now.',
+            ], 409);
+        }
+
+        $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $validated['answers']);
+
+        if (($result['payload']['ok'] ?? false) === true) {
+            $progress = $this->leadPortalProgressService->ensureForLead($lead);
+            $progress->current_step = 'credit_check_running';
+            $progress->last_seen_at = now();
+            $progress->save();
+        }
+
+        return response()->json([
+            'ok' => (bool) ($result['payload']['ok'] ?? false),
+            'message' => (string) ($result['payload']['message'] ?? ''),
+            'running' => true,
+        ], $result['http']);
     }
 
     public function finishReview(Request $request, string $token)
@@ -463,6 +522,7 @@ class LeadPortalController extends Controller
         return view('portal.entry', [
             'progress' => $progress,
             'lead' => $lead,
+            'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
             'portalDebts' => $lead->portalDebts()
                 ->where('source', 'portal')
                 ->get(),
@@ -491,6 +551,46 @@ class LeadPortalController extends Controller
     private function verificationSessionKey(LeadPortalToken $portalToken): string
     {
         return 'portal_verified_'.$portalToken->lead_id.'_'.$portalToken->id;
+    }
+
+    private function creditCheckQuestionsSessionKey(LeadPortalToken $portalToken): string
+    {
+        return 'portal_credit_check_questions_'.$portalToken->lead_id.'_'.$portalToken->id;
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    private function resolveCreditCheckQuestions(Lead $lead, string $rawToken): array
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($rawToken, request()->ip());
+        if (! $portalToken) {
+            return [];
+        }
+
+        $sessionQuestions = request()->session()->get($this->creditCheckQuestionsSessionKey($portalToken), []);
+        if (is_array($sessionQuestions) && count($sessionQuestions) > 0) {
+            return $sessionQuestions;
+        }
+
+        $activeLog = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->whereIn('status', [CreditCheckJobLog::STATUS_PENDING, CreditCheckJobLog::STATUS_RUNNING])
+            ->whereNotNull('external_job_id')
+            ->orderByDesc('id')
+            ->first();
+        if (! $activeLog || blank($activeLog->external_job_id)) {
+            return [];
+        }
+
+        $status = $this->creditCheckV3FlowService->statusForJob((string) $activeLog->external_job_id);
+        $qRoot = (array) (($status['payload']['questions'] ?? []) ?: []);
+        $qPayload = $qRoot['payload'] ?? null;
+        $questions = is_array($qPayload) && is_array($qPayload['questions'] ?? null)
+            ? $qPayload['questions']
+            : (is_array($qRoot['questions'] ?? null) ? $qRoot['questions'] : []);
+
+        return is_array($questions) ? $questions : [];
     }
 
     private function passesSoftVerification(Lead $lead, string $dobInput, string $postcodeInput): bool
