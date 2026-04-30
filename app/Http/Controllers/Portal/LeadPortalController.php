@@ -285,6 +285,8 @@ class LeadPortalController extends Controller
 
         $lead = $portalToken->lead;
         $routeName = $request->route()?->getName();
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $previousStep = (string) ($progress->current_step ?? '');
         $missingRequired = $this->missingCreditCheckRequiredFields($lead);
 
         if ($missingRequired !== []) {
@@ -294,7 +296,6 @@ class LeadPortalController extends Controller
                 'missing_fields' => $missingRequired,
             ]);
 
-            $progress = $this->leadPortalProgressService->ensureForLead($lead);
             $progress->current_step = 'details';
             $progress->last_seen_at = now();
             $progress->save();
@@ -323,9 +324,38 @@ class LeadPortalController extends Controller
             ->where('lead_id', $lead->id)
             ->latest('id')
             ->first();
+        $timeoutSeconds = (int) config('services.credit_check_v3_listener.portal_running_timeout_seconds', self::PORTAL_RUNNING_TIMEOUT_SECONDS);
+        $resetApplied = false;
+
+        if ($previousStep === 'credit_check_failed') {
+            $this->resetPortalCreditCheckAttempt($lead, $progress, $portalToken, $request);
+            $resetApplied = true;
+        }
+
+        if ($latestLog && $latestLog->isActive() && $this->isPortalJobStale($latestLog, $timeoutSeconds)) {
+            $latestLog->status = CreditCheckJobLog::STATUS_TIMEOUT;
+            $latestLog->friendly_status = 'Credit check timed out';
+            $latestLog->error_message = 'Something went wrong while checking your information. You can try again now.';
+            $latestLog->ended_at = $latestLog->ended_at ?? now();
+            $latestLog->save();
+
+            Log::info('Portal credit-check start decision', [
+                'lead_id' => $lead->id,
+                'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'previous_progress_step' => $previousStep,
+                'latest_job_id' => $latestLog->id,
+                'latest_status' => $latestLog->status,
+                'reset_applied' => $resetApplied,
+                'decision' => 'stale_active_reset_start',
+            ]);
+
+            $latestLog = CreditCheckJobLog::query()
+                ->where('lead_id', $lead->id)
+                ->latest('id')
+                ->first();
+        }
 
         if ($latestLog && $latestLog->isActive()) {
-            $progress = $this->leadPortalProgressService->ensureForLead($lead);
             $progress->last_completed_step = 'credit_check';
             $progress->current_step = 'credit_check_running';
             $progress->last_seen_at = now();
@@ -334,8 +364,10 @@ class LeadPortalController extends Controller
             Log::info('Portal credit-check start decision', [
                 'lead_id' => $lead->id,
                 'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'previous_progress_step' => $previousStep,
                 'latest_job_id' => $latestLog->id,
                 'latest_status' => $latestLog->status,
+                'reset_applied' => $resetApplied,
                 'decision' => 'active_block',
             ]);
 
@@ -351,7 +383,6 @@ class LeadPortalController extends Controller
             && $latestLog->status === CreditCheckJobLog::STATUS_SUCCESS
             && $lead->portal_credit_check_completed_at !== null
         ) {
-            $progress = $this->leadPortalProgressService->ensureForLead($lead);
             $progress->last_completed_step = 'credit_check';
             $progress->current_step = 'review';
             $progress->last_seen_at = now();
@@ -360,8 +391,10 @@ class LeadPortalController extends Controller
             Log::info('Portal credit-check start decision', [
                 'lead_id' => $lead->id,
                 'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'previous_progress_step' => $previousStep,
                 'latest_job_id' => $latestLog->id,
                 'latest_status' => $latestLog->status,
+                'reset_applied' => $resetApplied,
                 'decision' => 'completed_block',
             ]);
 
@@ -376,21 +409,21 @@ class LeadPortalController extends Controller
             Log::info('Portal credit-check start decision', [
                 'lead_id' => $lead->id,
                 'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'previous_progress_step' => $previousStep,
                 'latest_job_id' => $latestLog->id,
                 'latest_status' => $latestLog->status,
-                'decision' => in_array($latestLog->status, [
-                    CreditCheckJobLog::STATUS_FAILED,
-                    CreditCheckJobLog::STATUS_TIMEOUT,
-                    CreditCheckJobLog::STATUS_CANCELLED,
-                ], true) ? 'retry_allowed' : 'fresh_start',
+                'reset_applied' => $resetApplied,
+                'decision' => $resetApplied ? 'retry_reset_start' : 'fresh_start',
             ]);
         } else {
             Log::info('Portal credit-check start decision', [
                 'lead_id' => $lead->id,
                 'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'previous_progress_step' => $previousStep,
                 'latest_job_id' => null,
                 'latest_status' => null,
-                'decision' => 'fresh_start',
+                'reset_applied' => $resetApplied,
+                'decision' => $resetApplied ? 'retry_reset_start' : 'fresh_start',
             ]);
         }
 
@@ -431,11 +464,10 @@ class LeadPortalController extends Controller
         ]);
 
         if ($startSucceeded) {
-            $lead->portal_credit_check_started_at = $lead->portal_credit_check_started_at ?? now();
+            $lead->portal_credit_check_started_at = now();
             $lead->portal_credit_check_last_run_at = now();
             $lead->save();
 
-            $progress = $this->leadPortalProgressService->ensureForLead($lead);
             $progress->last_completed_step = 'credit_check';
             $progress->current_step = 'credit_check_running';
             $progress->last_seen_at = now();
@@ -456,7 +488,6 @@ class LeadPortalController extends Controller
             $latestLeadLog->save();
         }
 
-        $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $progress->current_step = 'credit_check_failed';
         $progress->last_seen_at = now();
         $progress->save();
@@ -473,6 +504,39 @@ class LeadPortalController extends Controller
             409,
             'We couldn’t start the check just now. Please try again.'
         );
+    }
+
+    private function resetPortalCreditCheckAttempt(
+        Lead $lead,
+        \App\Models\LeadPortalProgress $progress,
+        LeadPortalToken $portalToken,
+        Request $request
+    ): void {
+        $lead->portal_credit_check_started_at = null;
+        $lead->portal_credit_check_completed_at = null;
+        $lead->portal_credit_check_last_run_at = null;
+        $lead->save();
+
+        $progress->current_step = 'credit_check';
+        $progress->last_completed_step = 'costs';
+        $progress->completed_at = null;
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        $request->session()->forget($this->creditCheckQuestionsSessionKey($portalToken));
+    }
+
+    private function isPortalJobStale(CreditCheckJobLog $log, int $timeoutSeconds): bool
+    {
+        if (! $log->isActive()) {
+            return false;
+        }
+
+        if (! $log->started_at) {
+            return true;
+        }
+
+        return $log->started_at->lt(now()->subSeconds($timeoutSeconds));
     }
 
     public function pollCreditCheckFlow(Request $request, string $token): JsonResponse
