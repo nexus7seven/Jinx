@@ -386,7 +386,7 @@ class LeadPortalController extends Controller
             && $lead->portal_credit_check_completed_at !== null
         ) {
             $progress->last_completed_step = 'credit_check';
-            $progress->current_step = 'review';
+            $progress->current_step = 'credit_report_debts';
             $progress->last_seen_at = now();
             $progress->save();
 
@@ -616,14 +616,14 @@ class LeadPortalController extends Controller
                 $lead->save();
 
                 $progress->last_completed_step = 'credit_check';
-                $progress->current_step = 'review';
+                $progress->current_step = 'credit_report_debts';
                 $progress->last_seen_at = now();
                 $progress->save();
 
                 return response()->json([
                     'ok' => true,
                     'status' => 'complete',
-                    'next_step' => 'review',
+                    'next_step' => 'credit_report_debts',
                     'redirect_url' => route('portal.entry', ['token' => $token]),
                 ]);
             }
@@ -643,9 +643,16 @@ class LeadPortalController extends Controller
 
         if (($payload['job_status'] ?? null) === 'success') {
             $progress->last_completed_step = 'credit_check';
-            $progress->current_step = 'review';
+            $progress->current_step = 'credit_report_debts';
             $progress->last_seen_at = now();
             $progress->save();
+
+            return response()->json([
+                'ok' => true,
+                'status' => 'complete',
+                'next_step' => 'credit_report_debts',
+                'redirect_url' => route('portal.entry', ['token' => $token]),
+            ]);
         } elseif ($questionsRequired) {
             $progress->current_step = 'credit_check_questions';
             $progress->last_seen_at = now();
@@ -772,6 +779,27 @@ class LeadPortalController extends Controller
             ->withErrors(['credit_check' => (string) ($result['payload']['message'] ?? 'Please try again.')]);
     }
 
+    public function continueCreditReportDebts(Request $request, string $token)
+    {
+        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
+
+        if (! $portalToken) {
+            return $this->expiredResponse();
+        }
+
+        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
+            return redirect()->route('portal.entry', ['token' => $token]);
+        }
+
+        $progress = $this->leadPortalProgressService->ensureForLead($portalToken->lead);
+        $progress->last_completed_step = 'credit_report_debts';
+        $progress->current_step = 'add_missing_debts';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return redirect()->route('portal.entry', ['token' => $token]);
+    }
+
     public function finishReview(Request $request, string $token)
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
@@ -868,15 +896,18 @@ class LeadPortalController extends Controller
         $progress->last_seen_at = now();
         $progress->save();
 
+        $creditCheckDebts = $lead->debts()
+            ->with('creditor')
+            ->where('source_expected', 'credit_check')
+            ->orderByDesc('id')
+            ->get();
+
         return view('portal.entry', [
             'progress' => $progress,
             'lead' => $lead,
             'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
-            'creditCheckDebts' => $lead->debts()
-                ->with('creditor')
-                ->where('source_expected', 'credit_check')
-                ->orderByDesc('id')
-                ->get(),
+            'creditCheckDebts' => $creditCheckDebts,
+            'creditCheckTotal' => $creditCheckDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
             'portalDebts' => $lead->portalDebts()
                 ->where('source', 'portal')
                 ->get(),

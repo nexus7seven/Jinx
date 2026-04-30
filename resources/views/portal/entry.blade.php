@@ -452,6 +452,53 @@
                     })();
                 </script>
             @endif
+        @elseif (($progress->current_step ?? 'welcome') === 'credit_report_debts')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Credit file balances
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                Here&rsquo;s what appeared on your credit file
+            </h1>
+
+            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
+                We&rsquo;ve found the following balances. Some debts, like council tax, water bills, parking fines, or recent accounts, may not always show here.
+            </p>
+
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:20px;">
+                @if (($creditCheckDebts ?? collect())->count() > 0)
+                    @foreach (($creditCheckDebts ?? collect()) as $debt)
+                        <div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #e2e8f0; font-size:14px; color:#334155;">
+                            <span>{{ $leadPortalDebtPresenter->customerFacingCreditorName($debt) }}</span>
+                            <strong>{{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : 'No balance provided' }}</strong>
+                        </div>
+                    @endforeach
+                    <div style="display:flex; justify-content:space-between; gap:12px; padding-top:12px; font-size:15px; color:#0f172a;">
+                        <strong>Total found</strong>
+                        <strong>{{ '£'.number_format((float) ($creditCheckTotal ?? 0), 2) }}</strong>
+                    </div>
+                @else
+                    <div style="font-size:14px; color:#64748b; line-height:1.6;">
+                        We couldn&rsquo;t see any balances from the credit check, but you can still add anything you know about next.
+                    </div>
+                @endif
+            </div>
+
+            <form method="POST" action="{{ route('portal.credit-report-debts.continue', ['token' => $rawToken]) }}">
+                @csrf
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Continue
+                </button>
+            </form>
+        @elseif (($progress->current_step ?? 'welcome') === 'add_missing_debts')
+            <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+                Next step
+            </div>
+
+            <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
+                Next, we&rsquo;ll check if anything is missing.
+            </h1>
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Review

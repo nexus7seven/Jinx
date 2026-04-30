@@ -1434,7 +1434,7 @@ class LeadPortalEntryTest extends TestCase
         ]);
     }
 
-    public function test_retry_after_completed_check_does_not_create_new_job_and_moves_to_review(): void
+    public function test_retry_after_completed_check_does_not_create_new_job_and_moves_to_credit_report_debts(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
         Http::fake();
@@ -1469,7 +1469,7 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame($beforeCount, $afterCount);
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertNotNull($progress);
-        $this->assertSame('review', $progress->current_step);
+        $this->assertSame('credit_report_debts', $progress->current_step);
         Http::assertNothingSent();
     }
 
@@ -1636,7 +1636,7 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('type="radio"', false);
     }
 
-    public function test_portal_poll_imports_and_moves_progress_to_review_when_report_ready(): void
+    public function test_successful_credit_check_import_moves_progress_to_credit_report_debts_not_review(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
         $service = app(LeadPortalTokenService::class);
@@ -1678,7 +1678,7 @@ class LeadPortalEntryTest extends TestCase
         ]);
 
         $this->post(route('portal.verify', ['token' => $issued['token']]), [
-            'dob' => '1985-06-15',
+            'postcode' => 'SW1A1AA',
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         CreditCheckJobLog::create([
@@ -1699,12 +1699,12 @@ class LeadPortalEntryTest extends TestCase
             ->assertJson([
                 'ok' => true,
                 'status' => 'complete',
-                'next_step' => 'review',
+                'next_step' => 'credit_report_debts',
             ]);
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertSame('credit_check', $progress->last_completed_step);
-        $this->assertSame('review', $progress->current_step);
+        $this->assertSame('credit_report_debts', $progress->current_step);
 
         $lead->refresh();
         $this->assertNotNull($lead->portal_credit_check_completed_at);
@@ -1713,6 +1713,187 @@ class LeadPortalEntryTest extends TestCase
             'source_expected' => 'credit_check',
             'balance' => 1234.56,
         ]);
+    }
+
+    public function test_credit_report_debts_page_lists_imported_credit_check_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        $creditor = Creditor::create([
+            'name' => 'Canonical Lender',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 789.45,
+            'source_expected' => 'credit_check',
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_check', 'current_step' => 'credit_report_debts']
+        );
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Here&rsquo;s what appeared on your credit file', false)
+            ->assertSee('Canonical Lender')
+            ->assertSee('£789.45', false);
+    }
+
+    public function test_credit_report_debts_page_displays_cleaned_creditor_name(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        $creditor = Creditor::create([
+            'name' => 'Could Not Match',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 321.00,
+            'source_expected' => 'credit_check',
+            'reference' => 'Raw creditor: Real Finance Co',
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_check', 'current_step' => 'credit_report_debts']
+        );
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Real Finance Co')
+            ->assertDontSee('Could Not Match')
+            ->assertDontSee('Raw creditor:', false);
+    }
+
+    public function test_credit_report_debts_page_shows_total_found(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        $creditor = Creditor::create([
+            'name' => 'Balance Lender',
+            'voting_house' => 'House',
+            'voting_practice1' => 'none',
+            'voting_practice2' => 'none',
+            'voting_practice3' => 'none',
+        ]);
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 100.50,
+            'source_expected' => 'credit_check',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 200,
+            'source_expected' => 'credit_check',
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_check', 'current_step' => 'credit_report_debts']
+        );
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Total found')
+            ->assertSee('£300.50', false);
+    }
+
+    public function test_credit_report_debts_page_shows_no_debts_state_if_none_imported(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_check', 'current_step' => 'credit_report_debts']
+        );
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We couldn&rsquo;t see any balances from the credit check, but you can still add anything you know about next.', false);
+    }
+
+    public function test_credit_report_debts_continue_route_advances_to_add_missing_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['last_completed_step' => 'credit_check', 'current_step' => 'credit_report_debts']
+        );
+
+        $this->post(route('portal.credit-report-debts.continue', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_report_debts', $progress->last_completed_step);
+        $this->assertSame('add_missing_debts', $progress->current_step);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Next, we&rsquo;ll check if anything is missing.', false);
+    }
+
+    public function test_invalid_or_expired_token_cannot_continue_credit_report_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        LeadPortalToken::create([
+            'lead_id' => $lead->id,
+            'token_hash' => $service->hashRawToken('credit-report-debts-expired-token'),
+            'status' => LeadPortalToken::STATUS_ACTIVE,
+            'activated_at' => now()->subDays(31),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        foreach (['not-a-real-token', 'credit-report-debts-expired-token'] as $rawToken) {
+            $this->post(route('portal.credit-report-debts.continue', ['token' => $rawToken]))
+                ->assertStatus(410)
+                ->assertSee('This link is no longer active');
+        }
+    }
+
+    public function test_unverified_session_cannot_continue_credit_report_debts(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.credit-report-debts.continue', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertNull(LeadPortalProgress::where('lead_id', $lead->id)->first());
     }
 
     public function test_portal_poll_with_listener_unavailable_moves_to_credit_check_failed(): void
@@ -2670,6 +2851,13 @@ class LeadPortalEntryTest extends TestCase
             'postcode' => 'SW1A 1AA',
             'house_number' => '10',
         ], $overrides));
+    }
+
+    private function verifyPortalSession(string $rawToken): void
+    {
+        $this->post(route('portal.verify', ['token' => $rawToken]), [
+            'postcode' => 'SW1A1AA',
+        ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 
     private function verifyThenCompleteWelcomeAndDetails(string $rawToken): void
