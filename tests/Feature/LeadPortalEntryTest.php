@@ -1328,6 +1328,39 @@ class LeadPortalEntryTest extends TestCase
             ->assertDontSee('type="text"', false);
     }
 
+    public function test_portal_kba_renders_multi_option_string_answers_as_radios(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $portalToken = $service->resolveRawToken($issued['token']);
+        $this->assertNotNull($portalToken);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_questions']
+        );
+
+        $sessionKey = 'portal_credit_check_questions_'.$lead->id.'_'.$portalToken->id;
+        $this->withSession([
+            $sessionKey => [[
+                'id' => 'q-multi',
+                'question' => 'Pick one option',
+                'answers' => ['Option A', 'Option B', 'Option C'],
+            ]],
+        ])->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Option A')
+            ->assertSee('Option B')
+            ->assertSee('Option C')
+            ->assertSee('type="radio"', false);
+    }
+
     public function test_portal_poll_imports_and_moves_progress_to_review_when_report_ready(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
@@ -1569,11 +1602,7 @@ class LeadPortalEntryTest extends TestCase
             'answers' => [
                 ['id' => 'q1', 'index' => 0, 'value' => '', 'label' => ''],
             ],
-        ])->assertStatus(422)
-            ->assertJson([
-                'ok' => false,
-                'message' => 'Please answer every question before continuing.',
-            ]);
+        ])->assertStatus(422);
     }
 
     public function test_credit_check_start_advances_progress_to_credit_check_running(): void

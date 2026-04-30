@@ -370,15 +370,25 @@
                             $rawOptions = is_array($question['answers'] ?? null) ? $question['answers'] : [];
                             $options = [];
                             foreach ($rawOptions as $rawOption) {
-                                $optionValue = trim((string) ($rawOption['value'] ?? $rawOption['label'] ?? ''));
-                                $optionLabel = trim((string) ($rawOption['label'] ?? $rawOption['value'] ?? ''));
-                                if ($optionValue === '' && $optionLabel === '') {
+                                if (is_string($rawOption)) {
+                                    $text = trim($rawOption);
+                                    if ($text === '') {
+                                        continue;
+                                    }
+                                    $options[] = ['value' => $text, 'label' => $text];
                                     continue;
                                 }
-                                $options[] = [
-                                    'value' => $optionValue !== '' ? $optionValue : $optionLabel,
-                                    'label' => $optionLabel !== '' ? $optionLabel : $optionValue,
-                                ];
+                                if (is_array($rawOption)) {
+                                    $value = trim((string) ($rawOption['value'] ?? ''));
+                                    $label = trim((string) ($rawOption['label'] ?? ''));
+                                    if ($value === '' && $label === '') {
+                                        continue;
+                                    }
+                                    $options[] = [
+                                        'value' => $value !== '' ? $value : $label,
+                                        'label' => $label !== '' ? $label : $value,
+                                    ];
+                                }
                             }
                             if ($options === []) {
                                 $options = [

@@ -68,6 +68,11 @@ class CreditCheckV3Controller extends Controller
             'answers' => ['required', 'array'],
         ]);
 
+        Log::info('Agent credit-check v3 answers payload sample', [
+            'job_id' => $jobId,
+            'answers' => $validated['answers'],
+        ]);
+
         $result = $this->creditCheckV3FlowService->submitAnswersForJob($jobId, $validated['answers']);
 
         return response()->json($result['payload'], $result['http']);

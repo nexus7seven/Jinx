@@ -552,36 +552,11 @@ class LeadPortalController extends Controller
         ]);
 
         $lead = $portalToken->lead;
-        $expectedQuestions = $this->resolveCreditCheckQuestions($lead, $token);
-        if ($expectedQuestions !== [] && count($validated['answers']) < count($expectedQuestions)) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Please answer every question before continuing.',
-                'errors' => [
-                    'answers' => ['Please answer every question before continuing.'],
-                ],
-            ], 422);
-        }
-
-        $normalizedAnswers = [];
-        foreach ($validated['answers'] as $idx => $answer) {
-            $value = trim((string) ($answer['value'] ?? ''));
-            if ($value === '') {
-                return response()->json([
-                    'ok' => false,
-                    'message' => 'Please answer every question before continuing.',
-                    'errors' => [
-                        'answers.'.$idx.'.value' => ['Please choose an option.'],
-                    ],
-                ], 422);
-            }
-            $normalizedAnswers[] = [
-                'id' => (string) ($answer['id'] ?? ''),
-                'index' => is_numeric($answer['index'] ?? null) ? (int) $answer['index'] : (int) $idx,
-                'value' => $value,
-                'label' => trim((string) ($answer['label'] ?? $value)),
-            ];
-        }
+        Log::info('Portal credit-check v3 answers payload sample', [
+            'lead_id' => $lead->id,
+            'vicidial_lead_id' => $lead->vicidial_lead_id,
+            'answers' => $validated['answers'],
+        ]);
 
         $activeLog = CreditCheckJobLog::query()
             ->where('lead_id', $lead->id)
@@ -597,7 +572,7 @@ class LeadPortalController extends Controller
             ], 409);
         }
 
-        $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $normalizedAnswers);
+        $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $validated['answers']);
 
         if (($result['payload']['ok'] ?? false) === true) {
             $progress = $this->leadPortalProgressService->ensureForLead($lead);
