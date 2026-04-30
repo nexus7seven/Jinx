@@ -2767,11 +2767,12 @@ class LeadPortalEntryTest extends TestCase
             ->assertOk()
             ->assertSee('Review what we have so far')
             ->assertSee('Your details')
-            ->assertSee('What you owe')
+            ->assertSee('Your debts')
+            ->assertSee('What this could mean')
             ->assertSee('Monthly picture');
     }
 
-    public function test_review_page_shows_masked_personal_details(): void
+    public function test_review_page_shows_unmasked_personal_details(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -2788,13 +2789,12 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('A**** B****', false)
-            ->assertSee('**/**/1985', false)
-            ->assertSee('SW1****', false)
-            ->assertSee('22 ********', false);
+            ->assertSee('Name: Alice Baker')
+            ->assertSee('Postcode: SW1A 1AA')
+            ->assertSee('Phone: 07000000000');
     }
 
-    public function test_review_page_shows_imported_canonical_debt_summary_if_present(): void
+    public function test_review_page_lists_credit_check_debts(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -2822,10 +2822,11 @@ class LeadPortalEntryTest extends TestCase
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
             ->assertSee('Canonical Lender')
-            ->assertSee('£789.45');
+            ->assertSee('£789.45')
+            ->assertSee('Credit check');
     }
 
-    public function test_review_page_shows_debt_and_monthly_picture_values(): void
+    public function test_review_page_lists_customer_added_debts(): void
     {
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
@@ -2833,19 +2834,134 @@ class LeadPortalEntryTest extends TestCase
         ]);
         $issued = $service->issueForLead($lead);
 
-        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Added Debt Lender');
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
-            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 250.25,
+            'source_expected' => 'customer_added',
+        ]);
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('£5,000.00', false)
-            ->assertSee('£2,000.00', false)
-            ->assertSee('£900.00', false)
-            ->assertSee('£100.00', false)
-            ->assertSee('£150.00', false)
-            ->assertSee('£300.00', false);
+            ->assertSee('Added Debt Lender')
+            ->assertSee('£250.25')
+            ->assertSee('Added by you');
+    }
+
+    public function test_review_uses_cleaned_creditor_display_for_could_not_match(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+
+        $couldNotMatch = $this->createCreditor('Could Not Match');
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $couldNotMatch->id,
+            'balance' => 111.11,
+            'source_expected' => 'customer_added',
+            'reference' => 'Raw creditor: Real Lender Ltd',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Real Lender Ltd')
+            ->assertDontSee('Could Not Match');
+    }
+
+    public function test_review_shows_total_debt_for_canonical_rows(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Total Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 300,
+            'source_expected' => 'credit_check',
+        ]);
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 200,
+            'source_expected' => 'customer_added',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Total debt')
+            ->assertSee('£500.00', false);
+    }
+
+    public function test_review_shows_iva_estimate_when_eligible(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Eligible Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 9000,
+            'source_expected' => 'credit_check',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('What this could mean')
+            ->assertSee('Estimated total debt: £9,000.00', false)
+            ->assertSee('Example repayment total: £6,000.00', false)
+            ->assertSee('Potential write-off: £3,000.00', false);
+    }
+
+    public function test_review_shows_sub_threshold_message_when_not_eligible(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Not Eligible Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 5000,
+            'source_expected' => 'customer_added',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Based on the figures so far, an IVA may not be the best fit, but we can still help discuss your options.');
+    }
+
+    public function test_review_shows_ccj_enforcement_note_when_relevant(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteToReview($issued['token']);
+        $creditor = $this->createCreditor('Any Lender');
+
+        Debt::create([
+            'lead_id' => $lead->id,
+            'creditor_id' => $creditor->id,
+            'balance' => 7000,
+            'source_expected' => 'credit_check',
+            'reference' => 'CCJ reference 123',
+        ]);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.', false);
     }
 
     public function test_finishing_review_advances_progress_to_complete_pending(): void

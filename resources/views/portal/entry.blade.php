@@ -610,34 +610,64 @@
 
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
                 <div style="font-weight:700; margin-bottom:8px;">Your details</div>
-                <div style="font-size:14px; color:#334155;">Name: {{ $maskedName }}</div>
-                <div style="font-size:14px; color:#334155;">Date of birth: {{ $maskedDob }}</div>
-                <div style="font-size:14px; color:#334155;">Postcode: {{ $maskedPostcode }}</div>
-                <div style="font-size:14px; color:#334155;">Address: {{ $maskedAddress }}</div>
+                <div style="font-size:14px; color:#334155;">Name: {{ trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) !== '' ? trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) : 'Not provided' }}</div>
+                <div style="font-size:14px; color:#334155;">Postcode: {{ $lead->postcode ?: 'Not provided' }}</div>
+                @if (filled($lead->phone_number))
+                    <div style="font-size:14px; color:#334155;">Phone: {{ $lead->phone_number }}</div>
+                @endif
+                @if (filled($lead->email))
+                    <div style="font-size:14px; color:#334155;">Email: {{ $lead->email }}</div>
+                @endif
             </div>
 
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
-                <div style="font-weight:700; margin-bottom:8px;">What you owe</div>
-                <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                    Estimated total debt:
-                    {{ $reviewMoney['estimated_total_debt'] ?? 'Not provided' }}
-                </div>
-                @if (($portalDebts ?? collect())->count() > 0)
-                    @foreach (($portalDebts ?? collect()) as $row)
-                        <div style="font-size:14px; color:#334155;">
-                            {{ $row->creditor_name ?: 'Unnamed creditor' }} -
-                            {{ $row->balance !== null ? '£'.number_format((float) $row->balance, 2) : 'No balance provided' }}
+                <div style="font-weight:700; margin-bottom:8px;">Your debts</div>
+                @if (($reviewDebts ?? collect())->count() > 0)
+                    @foreach (($reviewDebts ?? collect()) as $debt)
+                        <div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #e2e8f0; font-size:14px; color:#334155;">
+                            <span>
+                                {{ $leadPortalDebtPresenter->customerFacingCreditorName($debt) }}
+                                <span style="display:block; color:#64748b; font-size:12px;">
+                                    {{ $debt->source_expected === 'customer_added' ? 'Added by you' : 'Credit check' }}
+                                </span>
+                            </span>
+                            <strong>{{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : 'No balance provided' }}</strong>
                         </div>
                     @endforeach
-                @elseif (($creditCheckDebts ?? collect())->count() > 0)
-                    @foreach (($creditCheckDebts ?? collect()) as $debt)
-                        <div style="font-size:14px; color:#334155;">
-                            {{ $leadPortalDebtPresenter->customerFacingCreditorName($debt) }} -
-                            {{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : 'No balance provided' }}
-                        </div>
-                    @endforeach
+                    <div style="display:flex; justify-content:space-between; gap:12px; padding-top:12px; font-size:15px; color:#0f172a;">
+                        <strong>Total debt</strong>
+                        <strong>{{ '£'.number_format((float) ($reviewDebtTotal ?? 0), 2) }}</strong>
+                    </div>
                 @else
-                    <div style="font-size:14px; color:#64748b;">No debts available yet.</div>
+                    <div style="font-size:14px; color:#64748b;">We don&rsquo;t have any debt balances to show yet.</div>
+                @endif
+            </div>
+
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+                <div style="font-weight:700; margin-bottom:8px;">What this could mean</div>
+                @if (($ivaEstimate['is_eligible'] ?? false) === true)
+                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                        Estimated total debt: {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}
+                    </div>
+                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                        Example repayment total: £6,000.00
+                    </div>
+                    <div style="font-size:14px; color:#334155; margin-bottom:6px;">
+                        Potential write-off: {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }}
+                    </div>
+                    <div style="font-size:14px; color:#475569;">
+                        Based on the figures so far, an IVA could be worth exploring and may reduce what you repay, subject to assessment.
+                    </div>
+                @else
+                    <div style="font-size:14px; color:#475569;">
+                        Based on the figures so far, an IVA may not be the best fit, but we can still help discuss your options.
+                    </div>
+                @endif
+
+                @if (($ivaEstimate['has_court_judgment_debt'] ?? false) === true)
+                    <div style="margin-top:10px; padding:12px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px;">
+                        We&rsquo;ve also seen court judgment information, so it may be important to get advice before enforcement escalates.
+                    </div>
                 @endif
             </div>
 

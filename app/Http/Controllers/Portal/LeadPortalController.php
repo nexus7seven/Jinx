@@ -1027,6 +1027,11 @@ class LeadPortalController extends Controller
             ->where('source_expected', 'credit_check')
             ->orderByDesc('id')
             ->get();
+        $reviewDebts = $lead->debts()
+            ->with('creditor')
+            ->whereIn('source_expected', ['credit_check', 'customer_added'])
+            ->orderByDesc('id')
+            ->get();
 
         return view('portal.entry', [
             'progress' => $progress,
@@ -1034,6 +1039,8 @@ class LeadPortalController extends Controller
             'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
             'creditCheckDebts' => $creditCheckDebts,
             'creditCheckTotal' => $creditCheckDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
+            'reviewDebts' => $reviewDebts,
+            'reviewDebtTotal' => $reviewDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
             'creditors' => Creditor::query()
                 ->where('name', '!=', 'Could Not Match')
                 ->orderBy('name')
