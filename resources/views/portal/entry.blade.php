@@ -8,6 +8,11 @@
 <body style="margin:0; background:#f8fafc; color:#0f172a; font-family:Arial, sans-serif; min-height:100vh;">
 <div style="max-width:760px; margin:0 auto; padding:40px 20px;">
     <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:24px; padding:32px; box-shadow:0 20px 50px rgba(15,23,42,.08);">
+        @if ($errors->has('credit_check'))
+            <div style="margin-bottom:16px; padding:12px 14px; border-radius:12px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; font-size:14px;">
+                {{ $errors->first('credit_check') }}
+            </div>
+        @endif
         @if (($progress->current_step ?? 'welcome') === 'welcome')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Secure customer portal
@@ -62,6 +67,17 @@
                 @csrf
 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                    <div>
+                        <label for="title" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Title</label>
+                        <select id="title" name="title"
+                                style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                            <option value="">Select a title</option>
+                            @foreach (($titleOptions ?? []) as $option)
+                                <option value="{{ $option }}" @selected(old('title', $lead->title) === $option)>{{ $option }}</option>
+                            @endforeach
+                        </select>
+                        @error('title')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
+                    </div>
                     <div>
                         <label for="first_name" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">First name</label>
                         <input id="first_name" name="first_name" type="text" value="{{ old('first_name', $lead->first_name) }}"
@@ -349,15 +365,46 @@
                 <form method="POST" action="{{ route('portal.credit-check.answers', ['token' => $rawToken]) }}">
                     @csrf
                     @foreach (($creditCheckQuestions ?? []) as $index => $question)
+                        @php
+                            $questionText = $question['question'] ?? $question['prompt'] ?? ('Question '.($index + 1));
+                            $rawOptions = is_array($question['answers'] ?? null) ? $question['answers'] : [];
+                            $options = [];
+                            foreach ($rawOptions as $rawOption) {
+                                $optionValue = trim((string) ($rawOption['value'] ?? $rawOption['label'] ?? ''));
+                                $optionLabel = trim((string) ($rawOption['label'] ?? $rawOption['value'] ?? ''));
+                                if ($optionValue === '' && $optionLabel === '') {
+                                    continue;
+                                }
+                                $options[] = [
+                                    'value' => $optionValue !== '' ? $optionValue : $optionLabel,
+                                    'label' => $optionLabel !== '' ? $optionLabel : $optionValue,
+                                ];
+                            }
+                            if ($options === []) {
+                                $options = [
+                                    ['value' => 'Yes', 'label' => 'Yes'],
+                                    ['value' => 'No', 'label' => 'No'],
+                                ];
+                            }
+                        @endphp
                         <div style="margin-bottom:14px;">
                             <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">
-                                {{ $question['question'] ?? $question['prompt'] ?? ('Question '.($index + 1)) }}
+                                {{ $questionText }}
                             </label>
                             <input type="hidden" name="answers[{{ $index }}][id]" value="{{ $question['id'] ?? '' }}">
                             <input type="hidden" name="answers[{{ $index }}][index]" value="{{ $index }}">
-                            <input name="answers[{{ $index }}][value]" type="text" required
-                                   style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                            <input type="hidden" name="answers[{{ $index }}][label]" value="{{ $question['question'] ?? $question['prompt'] ?? ('Question '.($index + 1)) }}">
+                            <input type="hidden" name="answers[{{ $index }}][label]" value="{{ old('answers.'.$index.'.label') }}">
+                            @foreach ($options as $option)
+                                <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; color:#334155; font-size:14px;">
+                                    <input type="radio"
+                                           name="answers[{{ $index }}][value]"
+                                           value="{{ $option['value'] }}"
+                                           data-answer-label="{{ $option['label'] }}"
+                                           @checked(old('answers.'.$index.'.value') === $option['value'])>
+                                    <span>{{ $option['label'] }}</span>
+                                </label>
+                            @endforeach
+                            @error('answers.'.$index.'.value')<div style="margin-top:6px; color:#b91c1c; font-size:13px;">{{ $message }}</div>@enderror
                         </div>
                     @endforeach
 
@@ -366,6 +413,22 @@
                         Continue securely
                     </button>
                 </form>
+                <script>
+                    (function () {
+                        const form = document.querySelector('form[action="{{ route('portal.credit-check.answers', ['token' => $rawToken]) }}"]');
+                        if (!form) return;
+                        form.addEventListener('change', function (event) {
+                            const target = event.target;
+                            if (!(target instanceof HTMLInputElement) || target.type !== 'radio') return;
+                            const match = target.name.match(/^answers\[(\d+)\]\[value\]$/);
+                            if (!match) return;
+                            const idx = match[1];
+                            const hidden = form.querySelector('input[name="answers[' + idx + '][label]"]');
+                            if (!(hidden instanceof HTMLInputElement)) return;
+                            hidden.value = target.dataset.answerLabel || target.value;
+                        });
+                    })();
+                </script>
             @endif
         @elseif (($progress->current_step ?? 'welcome') === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">

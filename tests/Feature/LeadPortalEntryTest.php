@@ -467,6 +467,7 @@ class LeadPortalEntryTest extends TestCase
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $this->post(route('portal.details.save', ['token' => $issued['token']]), [
+            'title' => 'Mr',
             'first_name' => 'Alex',
             'last_name' => 'Stone',
             'dob' => '1985-06-15',
@@ -477,6 +478,7 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
+        $this->assertSame('Mr', $lead->title);
         $this->assertSame('Alex', $lead->first_name);
         $this->assertSame('Stone', $lead->last_name);
         $this->assertSame('1985-06-15', $lead->dob);
@@ -490,6 +492,57 @@ class LeadPortalEntryTest extends TestCase
         $this->assertNotNull($progress);
         $this->assertSame('details', $progress->last_completed_step);
         $this->assertSame('debts', $progress->current_step);
+    }
+
+    public function test_details_page_includes_title_dropdown_options(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.welcome.complete', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('name="title"', false)
+            ->assertSee('Mr')
+            ->assertSee('Mrs')
+            ->assertSee('Miss')
+            ->assertSee('Ms')
+            ->assertSee('Dr')
+            ->assertSee('Other');
+    }
+
+    public function test_saving_details_requires_required_identity_fields_when_missing_on_lead(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'title' => null,
+            'first_name' => null,
+            'last_name' => null,
+            'phone_number' => null,
+            'postcode' => null,
+            'house_number' => null,
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.welcome.complete', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.details.save', ['token' => $issued['token']]), [])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors(['title', 'first_name', 'last_name', 'phone', 'postcode', 'house_number']);
     }
 
     public function test_debts_page_appears_after_details_completion(): void
@@ -921,6 +974,38 @@ class LeadPortalEntryTest extends TestCase
             ]);
     }
 
+    public function test_credit_check_start_is_blocked_and_returns_to_details_when_required_fields_missing(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'first_name' => null,
+            'last_name' => null,
+            'title' => null,
+            'phone_number' => null,
+            'postcode' => null,
+            'house_number' => null,
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('details', $progress->current_step);
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSee('We need a few details before we can start the check.');
+        Http::assertNothingSent();
+    }
+
     public function test_portal_v3_credit_check_start_creates_job_log_and_sets_running_step(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
@@ -1195,7 +1280,14 @@ class LeadPortalEntryTest extends TestCase
             'http://listener.test/jobs/portal-job-3/questions' => Http::response([
                 'payload' => [
                     'questions' => [
-                        ['id' => 'q1', 'question' => 'Sample question?'],
+                        [
+                            'id' => 'q1',
+                            'question' => 'Sample question?',
+                            'answers' => [
+                                ['label' => 'Yes', 'value' => 'yes'],
+                                ['label' => 'No', 'value' => 'no'],
+                            ],
+                        ],
                     ],
                 ],
             ], 200),
@@ -1231,7 +1323,9 @@ class LeadPortalEntryTest extends TestCase
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
             ->assertSee('We need to confirm a few details')
-            ->assertSee('These questions help match your credit file securely.');
+            ->assertSee('These questions help match your credit file securely.')
+            ->assertSee('type="radio"', false)
+            ->assertDontSee('type="text"', false);
     }
 
     public function test_portal_poll_imports_and_moves_progress_to_review_when_report_ready(): void
@@ -1411,7 +1505,7 @@ class LeadPortalEntryTest extends TestCase
             'job_id' => 'tampered',
         ]), [
             'answers' => [
-                ['id' => 'q1', 'index' => 0, 'value' => 'Blue'],
+                ['id' => 'q1', 'index' => 0, 'value' => 'yes', 'label' => 'Yes'],
             ],
         ])->assertOk()
             ->assertJson([
@@ -1420,7 +1514,12 @@ class LeadPortalEntryTest extends TestCase
             ]);
 
         Http::assertSent(function ($request) {
-            return $request->url() === 'http://listener.test/jobs/portal-job-answers/answers';
+            $body = $request->data();
+            return $request->url() === 'http://listener.test/jobs/portal-job-answers/answers'
+                && ($body['answers'][0]['id'] ?? null) === 'q1'
+                && ($body['answers'][0]['index'] ?? null) === 0
+                && ($body['answers'][0]['value'] ?? null) === 'yes'
+                && ($body['answers'][0]['label'] ?? null) === 'Yes';
         });
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
@@ -1443,8 +1542,51 @@ class LeadPortalEntryTest extends TestCase
         ])->assertStatus(403);
     }
 
-    public function test_credit_check_start_advances_progress_to_review(): void
+    public function test_missing_kba_radio_answer_returns_validation_error(): void
     {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-answers-missing',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Awaiting verification',
+            'started_at' => now(),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_questions']
+        );
+
+        $this->postJson(route('portal.credit-check.answers', ['token' => $issued['token']]), [
+            'answers' => [
+                ['id' => 'q1', 'index' => 0, 'value' => '', 'label' => ''],
+            ],
+        ])->assertStatus(422)
+            ->assertJson([
+                'ok' => false,
+                'message' => 'Please answer every question before continuing.',
+            ]);
+    }
+
+    public function test_credit_check_start_advances_progress_to_credit_check_running(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-running-step',
+                'queued' => false,
+            ], 200),
+        ]);
+
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
             'dob' => '1985-06-15',
@@ -1453,17 +1595,26 @@ class LeadPortalEntryTest extends TestCase
 
         $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertNotNull($progress);
         $this->assertSame('credit_check', $progress->last_completed_step);
-        $this->assertSame('review', $progress->current_step);
+        $this->assertSame('credit_check_running', $progress->current_step);
     }
 
     public function test_second_credit_check_start_does_not_reset_timestamps(): void
     {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-second-start',
+                'queued' => false,
+            ], 200),
+        ]);
+
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
             'dob' => '1985-06-15',
@@ -1472,14 +1623,14 @@ class LeadPortalEntryTest extends TestCase
 
         $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
         $firstStartedAt = $lead->portal_credit_check_started_at?->copy();
         $firstLastRunAt = $lead->portal_credit_check_last_run_at?->copy();
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
@@ -1493,8 +1644,8 @@ class LeadPortalEntryTest extends TestCase
         $lead = $this->makeLead();
         $issued = $service->issueForLead($lead);
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
-            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+        $this->postJson(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertStatus(403);
 
         $lead->refresh();
         $this->assertNull($lead->portal_credit_check_started_at);
@@ -1513,9 +1664,8 @@ class LeadPortalEntryTest extends TestCase
             'expires_at' => now()->subDay(),
         ]);
 
-        $this->post(route('portal.credit-check.start', ['token' => 'credit-check-expired-token']))
-            ->assertStatus(410)
-            ->assertSee('This link is no longer active');
+        $this->postJson(route('portal.credit-check.v3.start', ['token' => 'credit-check-expired-token']))
+            ->assertStatus(410);
     }
 
     public function test_review_page_appears_after_credit_check_start(): void
@@ -2048,6 +2198,12 @@ class LeadPortalEntryTest extends TestCase
     {
         return Lead::create(array_merge([
             'vicidial_lead_id' => 'portal-entry-test-'.uniqid('', true),
+            'title' => 'Mr',
+            'first_name' => 'Portal',
+            'last_name' => 'Tester',
+            'phone_number' => '07000000000',
+            'postcode' => 'SW1A 1AA',
+            'house_number' => '10',
         ], $overrides));
     }
 
@@ -2061,10 +2217,13 @@ class LeadPortalEntryTest extends TestCase
             ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
 
         $this->post(route('portal.details.save', ['token' => $rawToken]), [
+            'title' => 'Mr',
             'first_name' => 'Alex',
             'last_name' => 'Stone',
             'dob' => '1985-06-15',
+            'phone' => '07123456789',
             'postcode' => 'SW1A 1AA',
+            'house_number' => '10',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
     }
 
@@ -2102,9 +2261,15 @@ class LeadPortalEntryTest extends TestCase
     private function verifyThenCompleteToReview(string $rawToken): void
     {
         $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($rawToken);
-
-        $this->post(route('portal.credit-check.start', ['token' => $rawToken]))
-            ->assertRedirect(route('portal.entry', ['token' => $rawToken]));
+        $tokenService = app(LeadPortalTokenService::class);
+        $portalToken = $tokenService->resolveRawToken($rawToken);
+        $leadId = $portalToken?->lead_id;
+        if ($leadId) {
+            LeadPortalProgress::updateOrCreate(
+                ['lead_id' => $leadId],
+                ['last_completed_step' => 'credit_check', 'current_step' => 'review', 'last_seen_at' => now()]
+            );
+        }
     }
 
     private function verifyThenCompleteToCompletePending(string $rawToken): void

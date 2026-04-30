@@ -35,6 +35,15 @@ class LeadPortalController extends Controller
         'Other',
     ];
 
+    private const CREDIT_CHECK_REQUIRED_FIELDS = [
+        'title',
+        'first_name',
+        'last_name',
+        'phone_number',
+        'postcode',
+        'house_number',
+    ];
+
     public function __construct(
         private readonly CreditCheckV3FlowService $creditCheckV3FlowService,
         private readonly LeadPortalTokenService $leadPortalTokenService,
@@ -94,15 +103,17 @@ class LeadPortalController extends Controller
         $lead = $portalToken->lead;
 
         $validated = $request->validate([
+            'title' => array_merge($this->requiredIfMissingRule($lead->title), ['string', Rule::in($this->portalTitleOptions())]),
             'first_name' => $this->requiredIfMissingRule($lead->first_name),
             'last_name' => $this->requiredIfMissingRule($lead->last_name),
             'dob' => ['nullable', 'date'],
             'email' => ['nullable', 'email'],
-            'phone' => ['nullable', 'string', 'max:50'],
+            'phone' => array_merge($this->requiredIfMissingRule($lead->phone_number), ['string', 'max:50']),
             'postcode' => array_merge($this->requiredIfMissingRule($lead->postcode), ['string', 'max:20']),
-            'house_number' => ['nullable', 'string', 'max:255'],
+            'house_number' => array_merge($this->requiredIfMissingRule($lead->house_number), ['string', 'max:255']),
         ]);
 
+        $lead->title = $this->nullableString($validated['title'] ?? null);
         $lead->first_name = $this->nullableString($validated['first_name'] ?? null);
         $lead->last_name = $this->nullableString($validated['last_name'] ?? null);
         $lead->dob = $this->nullableString($validated['dob'] ?? null);
@@ -272,6 +283,32 @@ class LeadPortalController extends Controller
 
         $lead = $portalToken->lead;
         $routeName = $request->route()?->getName();
+        $missingRequired = $this->missingCreditCheckRequiredFields($lead);
+
+        if ($missingRequired !== []) {
+            Log::info('Portal credit-check start blocked by missing details', [
+                'lead_id' => $lead->id,
+                'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'missing_fields' => $missingRequired,
+            ]);
+
+            $progress = $this->leadPortalProgressService->ensureForLead($lead);
+            $progress->current_step = 'details';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return $this->portalStartCheckResponse(
+                $request,
+                $token,
+                [
+                    'ok' => false,
+                    'message' => 'We need a few details before we can start the check.',
+                    'running' => false,
+                ],
+                422,
+                'We need a few details before we can start the check.'
+            );
+        }
 
         Log::info('Portal credit-check start attempt', [
             'lead_id' => $lead->id,
@@ -515,6 +552,37 @@ class LeadPortalController extends Controller
         ]);
 
         $lead = $portalToken->lead;
+        $expectedQuestions = $this->resolveCreditCheckQuestions($lead, $token);
+        if ($expectedQuestions !== [] && count($validated['answers']) < count($expectedQuestions)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Please answer every question before continuing.',
+                'errors' => [
+                    'answers' => ['Please answer every question before continuing.'],
+                ],
+            ], 422);
+        }
+
+        $normalizedAnswers = [];
+        foreach ($validated['answers'] as $idx => $answer) {
+            $value = trim((string) ($answer['value'] ?? ''));
+            if ($value === '') {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Please answer every question before continuing.',
+                    'errors' => [
+                        'answers.'.$idx.'.value' => ['Please choose an option.'],
+                    ],
+                ], 422);
+            }
+            $normalizedAnswers[] = [
+                'id' => (string) ($answer['id'] ?? ''),
+                'index' => is_numeric($answer['index'] ?? null) ? (int) $answer['index'] : (int) $idx,
+                'value' => $value,
+                'label' => trim((string) ($answer['label'] ?? $value)),
+            ];
+        }
+
         $activeLog = CreditCheckJobLog::query()
             ->where('lead_id', $lead->id)
             ->whereIn('status', [CreditCheckJobLog::STATUS_PENDING, CreditCheckJobLog::STATUS_RUNNING])
@@ -529,7 +597,7 @@ class LeadPortalController extends Controller
             ], 409);
         }
 
-        $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $validated['answers']);
+        $result = $this->creditCheckV3FlowService->submitAnswersForJob((string) $activeLog->external_job_id, $normalizedAnswers);
 
         if (($result['payload']['ok'] ?? false) === true) {
             $progress = $this->leadPortalProgressService->ensureForLead($lead);
@@ -667,6 +735,7 @@ class LeadPortalController extends Controller
             'maskedPostcode' => $this->maskPostcode($lead->postcode),
             'maskedAddress' => $this->maskAddress($lead->house_number, $lead->address_line_1),
             'employmentStatusOptions' => self::EMPLOYMENT_STATUS_OPTIONS,
+            'titleOptions' => $this->portalTitleOptions(),
             'rawToken' => $rawToken,
         ]);
     }
@@ -674,13 +743,48 @@ class LeadPortalController extends Controller
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function portalStartCheckResponse(Request $request, string $token, array $payload, int $status): JsonResponse|RedirectResponse
+    private function portalStartCheckResponse(
+        Request $request,
+        string $token,
+        array $payload,
+        int $status,
+        ?string $flashError = null
+    ): JsonResponse|RedirectResponse
     {
         if ($request->expectsJson() || $request->isXmlHttpRequest()) {
             return response()->json($payload, $status);
         }
 
-        return redirect()->route('portal.entry', ['token' => $token]);
+        $redirect = redirect()->route('portal.entry', ['token' => $token]);
+        if ($flashError) {
+            return $redirect->withErrors(['credit_check' => $flashError]);
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function portalTitleOptions(): array
+    {
+        return array_values(array_unique(array_merge(Lead::TITLES, ['Other'])));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function missingCreditCheckRequiredFields(Lead $lead): array
+    {
+        $missing = [];
+        foreach (self::CREDIT_CHECK_REQUIRED_FIELDS as $field) {
+            $value = $lead->{$field};
+            if ($value === null || trim((string) $value) === '') {
+                $missing[] = $field;
+            }
+        }
+
+        return $missing;
     }
 
     private function expiredResponse()
