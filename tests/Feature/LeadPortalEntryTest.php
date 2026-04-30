@@ -855,11 +855,22 @@ class LeadPortalEntryTest extends TestCase
             ->assertSee('Let&rsquo;s fill in the gaps', false)
             ->assertSee('We can securely check your credit file to help find anything you may have missed.', false)
             ->assertSee('This won&rsquo;t affect your credit score.', false)
-            ->assertSee('Start check');
+            ->assertSee('Start check')
+            ->assertSee(route('portal.credit-check.v3.start', ['token' => $issued['token']]), false)
+            ->assertDontSee(route('portal.credit-check.start', ['token' => $issued['token']]), false);
     }
 
-    public function test_credit_check_start_placeholder_sets_started_and_last_run_timestamps(): void
+    public function test_credit_check_start_form_submission_uses_v3_flow_and_redirects(): void
     {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-form-start',
+                'queued' => false,
+            ], 200),
+        ]);
+
         $service = app(LeadPortalTokenService::class);
         $lead = $this->makeLead([
             'dob' => '1985-06-15',
@@ -871,12 +882,20 @@ class LeadPortalEntryTest extends TestCase
         $this->assertNull($lead->portal_credit_check_started_at);
         $this->assertNull($lead->portal_credit_check_last_run_at);
 
-        $this->post(route('portal.credit-check.start', ['token' => $issued['token']]))
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
             ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
         $this->assertNotNull($lead->portal_credit_check_started_at);
         $this->assertNotNull($lead->portal_credit_check_last_run_at);
+        $this->assertDatabaseHas('credit_check_job_logs', [
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-form-start',
+        ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_running', $progress->current_step);
     }
 
     public function test_portal_v3_credit_check_start_requires_verified_session(): void

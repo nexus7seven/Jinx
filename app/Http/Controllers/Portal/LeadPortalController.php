@@ -12,6 +12,8 @@ use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 
@@ -244,54 +246,73 @@ class LeadPortalController extends Controller
 
     public function startCreditCheck(Request $request, string $token)
     {
-        $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
-
-        if (! $portalToken) {
-            return $this->expiredResponse();
-        }
-
-        if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
-            return redirect()->route('portal.entry', ['token' => $token]);
-        }
-
-        $lead = $portalToken->lead;
-
-        // This is currently a placeholder. Real credit-check job dispatch will be wired in a later step.
-        if ($lead->portal_credit_check_last_run_at === null) {
-            $lead->portal_credit_check_started_at = now();
-            $lead->portal_credit_check_last_run_at = now();
-            $lead->save();
-        }
-
-        $progress = $this->leadPortalProgressService->ensureForLead($lead);
-        $progress->last_completed_step = 'credit_check';
-        $progress->current_step = 'review';
-        $progress->last_seen_at = now();
-        $progress->save();
-
-        return redirect()->route('portal.entry', ['token' => $token]);
+        // Legacy route kept for compatibility; delegate to real V3 start path.
+        return $this->startCreditCheckFlow($request, $token);
     }
 
-    public function startCreditCheckFlow(Request $request, string $token): JsonResponse
+    public function startCreditCheckFlow(Request $request, string $token): JsonResponse|RedirectResponse
     {
         $portalToken = $this->leadPortalTokenService->resolveRawToken($token, $request->ip());
 
         if (! $portalToken) {
-            return response()->json([
+            return $this->portalStartCheckResponse($request, $token, [
                 'ok' => false,
                 'message' => 'This link is no longer active.',
+                'running' => false,
             ], 410);
         }
 
         if (! $request->session()->get($this->verificationSessionKey($portalToken), false)) {
-            return response()->json([
+            return $this->portalStartCheckResponse($request, $token, [
                 'ok' => false,
                 'message' => 'Verification required.',
+                'running' => false,
             ], 403);
         }
 
         $lead = $portalToken->lead;
+        $routeName = $request->route()?->getName();
+
+        Log::info('Portal credit-check start attempt', [
+            'lead_id' => $lead->id,
+            'vicidial_lead_id' => $lead->vicidial_lead_id,
+            'route' => $routeName,
+            'method' => $request->method(),
+        ]);
+
+        $existingRunningLog = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->where('status', CreditCheckJobLog::STATUS_RUNNING)
+            ->latest('id')
+            ->first();
+
+        if ($existingRunningLog) {
+            $progress = $this->leadPortalProgressService->ensureForLead($lead);
+            $progress->last_completed_step = 'credit_check';
+            $progress->current_step = 'credit_check_running';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            Log::info('Portal credit-check start skipped due to active job', [
+                'lead_id' => $lead->id,
+                'vicidial_lead_id' => $lead->vicidial_lead_id,
+                'route' => $routeName,
+                'service_http' => 200,
+                'job_log_created' => false,
+                'active_job_log_id' => $existingRunningLog->id,
+            ]);
+
+            return $this->portalStartCheckResponse($request, $token, [
+                'ok' => true,
+                'message' => 'Credit check already running.',
+                'running' => true,
+            ], 200);
+        }
+
+        $beforeLogId = (int) (CreditCheckJobLog::query()->max('id') ?? 0);
         $result = $this->creditCheckV3FlowService->startForLead($lead);
+        $afterLogId = (int) (CreditCheckJobLog::query()->max('id') ?? 0);
+        $jobLogCreated = $afterLogId > $beforeLogId;
 
         if (($result['payload']['ok'] ?? false) === true) {
             $lead->portal_credit_check_started_at = $lead->portal_credit_check_started_at ?? now();
@@ -305,7 +326,16 @@ class LeadPortalController extends Controller
             $progress->save();
         }
 
-        return response()->json([
+        Log::info('Portal credit-check start result', [
+            'lead_id' => $lead->id,
+            'vicidial_lead_id' => $lead->vicidial_lead_id,
+            'route' => $routeName,
+            'method' => $request->method(),
+            'service_http' => $result['http'] ?? 500,
+            'job_log_created' => $jobLogCreated,
+        ]);
+
+        return $this->portalStartCheckResponse($request, $token, [
             'ok' => (bool) ($result['payload']['ok'] ?? false),
             'message' => (string) ($result['payload']['message'] ?? ''),
             'running' => (bool) ($result['payload']['ok'] ?? false),
@@ -593,6 +623,18 @@ class LeadPortalController extends Controller
             'employmentStatusOptions' => self::EMPLOYMENT_STATUS_OPTIONS,
             'rawToken' => $rawToken,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function portalStartCheckResponse(Request $request, string $token, array $payload, int $status): JsonResponse|RedirectResponse
+    {
+        if ($request->expectsJson() || $request->isXmlHttpRequest()) {
+            return response()->json($payload, $status);
+        }
+
+        return redirect()->route('portal.entry', ['token' => $token]);
     }
 
     private function expiredResponse()

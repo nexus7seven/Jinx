@@ -264,7 +264,7 @@
                 This won&rsquo;t affect your credit score.
             </p>
 
-            <form method="POST" action="{{ route('portal.credit-check.start', ['token' => $rawToken]) }}">
+            <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
                 @csrf
                 <button type="submit"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
