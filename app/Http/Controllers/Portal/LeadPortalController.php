@@ -8,6 +8,7 @@ use App\Models\CreditCheckJobLog;
 use App\Models\LeadPortalToken;
 use App\Services\CreditCheckV3FlowService;
 use App\Services\LeadPortalCompletionService;
+use App\Services\LeadPortalDebtPresenter;
 use App\Services\LeadPortalProgressService;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Http\JsonResponse;
@@ -50,7 +51,8 @@ class LeadPortalController extends Controller
         private readonly CreditCheckV3FlowService $creditCheckV3FlowService,
         private readonly LeadPortalTokenService $leadPortalTokenService,
         private readonly LeadPortalProgressService $leadPortalProgressService,
-        private readonly LeadPortalCompletionService $leadPortalCompletionService
+        private readonly LeadPortalCompletionService $leadPortalCompletionService,
+        private readonly LeadPortalDebtPresenter $leadPortalDebtPresenter
     ) {
     }
 
@@ -829,10 +831,9 @@ class LeadPortalController extends Controller
                 ]);
         }
 
-        $dobInput = trim((string) $request->input('dob', ''));
         $postcodeInput = trim((string) $request->input('postcode', ''));
 
-        if ($dobInput === '' && $postcodeInput === '') {
+        if ($postcodeInput === '') {
             RateLimiter::hit($rateLimitKey, self::VERIFY_DECAY_SECONDS);
 
             return back()
@@ -842,7 +843,7 @@ class LeadPortalController extends Controller
                 ]);
         }
 
-        if (! $this->passesSoftVerification($portalToken->lead, $dobInput, $postcodeInput)) {
+        if (! $this->passesSoftVerification($portalToken->lead, $postcodeInput)) {
             RateLimiter::hit($rateLimitKey, self::VERIFY_DECAY_SECONDS);
 
             return back()
@@ -894,6 +895,7 @@ class LeadPortalController extends Controller
             'employmentStatusOptions' => self::EMPLOYMENT_STATUS_OPTIONS,
             'titleOptions' => $this->portalTitleOptions(),
             'rawToken' => $rawToken,
+            'leadPortalDebtPresenter' => $this->leadPortalDebtPresenter,
         ]);
     }
 
@@ -994,24 +996,21 @@ class LeadPortalController extends Controller
         return is_array($questions) ? $questions : [];
     }
 
-    private function passesSoftVerification(Lead $lead, string $dobInput, string $postcodeInput): bool
+    private function passesSoftVerification(Lead $lead, string $postcodeInput): bool
     {
-        $leadDob = trim((string) ($lead->dob ?? ''));
         $leadPostcode = trim((string) ($lead->postcode ?? ''));
-
-        $hasDobOnLead = $leadDob !== '';
         $hasPostcodeOnLead = $leadPostcode !== '';
+        $normalizedInput = $this->normalizePostcodeForMatch($postcodeInput);
 
-        if (! $hasDobOnLead && ! $hasPostcodeOnLead) {
+        if (! $hasPostcodeOnLead) {
+            $lead->postcode = $this->normalizePostcodeForStorage($postcodeInput);
+            $lead->save();
+
             return true;
         }
 
-        $dobMatches = $dobInput !== '' && $hasDobOnLead && $dobInput === $leadDob;
-        $postcodeMatches = $postcodeInput !== ''
-            && $hasPostcodeOnLead
-            && $this->normalizePostcodeForMatch($postcodeInput) === $this->normalizePostcodeForMatch($leadPostcode);
-
-        return $dobMatches || $postcodeMatches;
+        return $normalizedInput !== ''
+            && $normalizedInput === $this->normalizePostcodeForMatch($leadPostcode);
     }
 
     private function normalizePostcodeForMatch(string $postcode): string

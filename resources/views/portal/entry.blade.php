@@ -485,7 +485,7 @@
                 @elseif (($creditCheckDebts ?? collect())->count() > 0)
                     @foreach (($creditCheckDebts ?? collect()) as $debt)
                         <div style="font-size:14px; color:#334155;">
-                            {{ $debt->creditor?->name ?: 'Imported debt' }} -
+                            {{ $leadPortalDebtPresenter->customerFacingCreditorName($debt) }} -
                             {{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : 'No balance provided' }}
                         </div>
                     @endforeach

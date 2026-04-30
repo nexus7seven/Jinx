@@ -12,6 +12,7 @@ use App\Models\LeadPortalEmailClick;
 use App\Models\LeadPortalProgress;
 use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
+use App\Services\LeadPortalDebtPresenter;
 use App\Services\LeadPortalTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -48,6 +49,97 @@ class LeadPortalEntryTest extends TestCase
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_verify_page_only_has_postcode(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead();
+        $issued = $service->issueForLead($lead);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('name="postcode"', false)
+            ->assertDontSee('name="dob"', false);
+    }
+
+    public function test_matching_postcode_verifies(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['postcode' => 'sw1a 1aa']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'postcode' => 'SW1A1AA',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+    }
+
+    public function test_missing_postcode_is_saved_and_verified(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['postcode' => null]);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'postcode' => 'sw1a 1aa',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertSame('SW1A 1AA', $lead->fresh()->postcode);
+    }
+
+    public function test_wrong_postcode_fails_generically(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['postcode' => 'SW1A 1AA']);
+        $issued = $service->issueForLead($lead);
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'postcode' => 'AB1 2CD',
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'verification' => 'That doesn’t look quite right. Please check and try again.',
+            ]);
+    }
+
+    public function test_dob_not_used_for_verification(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead([
+            'dob' => '1985-06-15',
+            'postcode' => 'SW1A 1AA',
+        ]);
+        $issued = $service->issueForLead($lead);
+
+        $this->from(route('portal.entry', ['token' => $issued['token']]))
+            ->post(route('portal.verify', ['token' => $issued['token']]), [
+                'dob' => '1985-06-15',
+            ])
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]))
+            ->assertSessionHasErrors([
+                'verification' => 'That doesn’t look quite right. Please check and try again.',
+            ]);
+    }
+
+    public function test_customer_facing_creditor_name_uses_reference(): void
+    {
+        $presenter = app(LeadPortalDebtPresenter::class);
+        $debt = new Debt([
+            'reference' => 'Raw creditor: Example Finance Ltd',
+        ]);
+        $debt->setRelation('creditor', new Creditor(['name' => 'Could Not Match']));
+
+        $this->assertSame('Example Finance Ltd', $presenter->customerFacingCreditorName($debt));
+    }
+
+    public function test_customer_facing_creditor_name_returns_normal_name(): void
+    {
+        $presenter = app(LeadPortalDebtPresenter::class);
+        $debt = new Debt(['reference' => null]);
+        $debt->setRelation('creditor', new Creditor(['name' => 'Barclays']));
+
+        $this->assertSame('Barclays', $presenter->customerFacingCreditorName($debt));
     }
 
     public function test_valid_dob_verifies_and_shows_entry(): void
@@ -2583,7 +2675,7 @@ class LeadPortalEntryTest extends TestCase
     private function verifyThenCompleteWelcomeAndDetails(string $rawToken): void
     {
         $this->post(route('portal.verify', ['token' => $rawToken]), [
-            'dob' => '1985-06-15',
+            'postcode' => 'SW1A1AA',
         ])->assertRedirect(route('portal.entry', ['token' => $rawToken]));
 
         $this->post(route('portal.welcome.complete', ['token' => $rawToken]))

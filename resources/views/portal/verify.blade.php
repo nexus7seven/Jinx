@@ -29,33 +29,18 @@
         <form method="POST" action="{{ route('portal.verify', ['token' => request()->route('token')]) }}">
             @csrf
 
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:22px;">
-                <div>
-                    <label for="dob" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">
-                        Date of birth
-                    </label>
-                    <input
-                        id="dob"
-                        name="dob"
-                        type="date"
-                        value="{{ old('dob') }}"
-                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:14px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;"
-                    >
-                </div>
-
-                <div>
-                    <label for="postcode" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">
-                        Postcode
-                    </label>
-                    <input
-                        id="postcode"
-                        name="postcode"
-                        type="text"
-                        value="{{ old('postcode') }}"
-                        autocomplete="postal-code"
-                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:14px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;"
-                    >
-                </div>
+            <div style="margin-bottom:22px;">
+                <label for="postcode" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">
+                    Postcode
+                </label>
+                <input
+                    id="postcode"
+                    name="postcode"
+                    type="text"
+                    value="{{ old('postcode') }}"
+                    autocomplete="postal-code"
+                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:14px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;"
+                >
             </div>
 
             <button

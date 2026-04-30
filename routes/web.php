@@ -7,7 +7,6 @@ use Illuminate\Validation\Rule;
 use App\Models\Lead;
 use App\Models\Debt;
 use App\Models\Creditor;
-use App\Models\DebtDocument;
 use App\Models\VotingPractice;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CreditCheckWorkerController;
@@ -32,6 +31,7 @@ use App\Http\Controllers\LocalWorkerJobsPageController;
 use App\Http\Controllers\LeadSearchController;
 use App\Http\Controllers\Webhooks\TwilioInboundSmsWebhookController;
 use App\Http\Controllers\Webhooks\SendGridInboundEmailWebhookController;
+use App\Services\LeadDebtService;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
@@ -254,7 +254,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/lead/{lead}/action-points', [LeadCaseController::class, 'storeActionPoint'])->name('lead.action-points.store');
     Route::delete('/lead/{lead}/action-points/{item}', [LeadCaseController::class, 'destroyActionPoint'])->name('lead.action-points.destroy');
 
-    Route::post('/lead/{id}/debts', function ($id, Request $request, LeadChecklistService $checklistService) {
+    Route::post('/lead/{id}/debts', function ($id, Request $request, LeadDebtService $leadDebtService) {
         $lead = Lead::findOrFail($id);
 
         $validated = $request->validate([
@@ -264,25 +264,8 @@ Route::middleware('auth')->group(function () {
             'reference' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $debt = Debt::create([
-            'lead_id' => $lead->id,
-            'creditor_id' => $validated['creditor_id'],
-            'balance' => $validated['balance'],
-            'source_expected' => $validated['source_expected'],
-            'reference' => $validated['reference'] ?? null,
-        ]);
-
-        $isComplete = $validated['source_expected'] === 'credit_check';
-
-        $document = DebtDocument::create([
-            'debt_id' => $debt->id,
-            'proof_type' => $validated['source_expected'],
-            'is_complete' => $isComplete,
-        ]);
-
+        $debt = $leadDebtService->createForLead($lead, $validated);
         $debt->load(['creditor', 'document']);
-
-        $checklistService->syncForLead($lead);
 
         return response()->json([
             'success' => true,
@@ -297,7 +280,7 @@ Route::middleware('auth')->group(function () {
                 'voting_practice1' => $debt->creditor->voting_practice1,
                 'voting_practice2' => $debt->creditor->voting_practice2,
                 'voting_practice3' => $debt->creditor->voting_practice3,
-                'document_complete' => (bool) $document->is_complete,
+                'document_complete' => (bool) $debt->document?->is_complete,
             ],
         ]);
     });
