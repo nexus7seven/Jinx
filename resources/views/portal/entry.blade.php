@@ -456,13 +456,16 @@
             </h1>
 
             <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
-                Please wait a moment and try again. If this keeps happening, contact us and we&rsquo;ll help.
+                Something went wrong while checking your information. You can try again now.
             </p>
 
-            <a href="{{ route('portal.entry', ['token' => $rawToken]) }}"
-               style="display:inline-block; padding:14px 20px; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; text-decoration:none;">
-                Try again
-            </a>
+            <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
+                @csrf
+                <button type="submit"
+                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                    Try again
+                </button>
+            </form>
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step

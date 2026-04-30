@@ -956,6 +956,200 @@ class LeadPortalEntryTest extends TestCase
         ]);
     }
 
+    public function test_credit_check_failed_page_try_again_posts_to_v3_start_route(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_failed', 'last_completed_step' => 'credit_check']
+        );
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('Something went wrong while checking your information. You can try again now.')
+            ->assertSee(route('portal.credit-check.v3.start', ['token' => $issued['token']]), false)
+            ->assertDontSee(route('portal.credit-check.start', ['token' => $issued['token']]), false);
+    }
+
+    public function test_retry_after_failed_job_creates_new_credit_check_job_log(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-retry-failed',
+                'queued' => false,
+            ], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-old-failed',
+            'status' => CreditCheckJobLog::STATUS_FAILED,
+            'friendly_status' => 'Failed',
+            'started_at' => now()->subMinutes(5),
+            'ended_at' => now()->subMinutes(4),
+        ]);
+
+        $beforeCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $afterCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+        $this->assertSame($beforeCount + 1, $afterCount);
+        $this->assertDatabaseHas('credit_check_job_logs', [
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-retry-failed',
+        ]);
+    }
+
+    public function test_retry_after_timeout_job_creates_new_credit_check_job_log(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-retry-timeout',
+                'queued' => false,
+            ], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-old-timeout',
+            'status' => CreditCheckJobLog::STATUS_TIMEOUT,
+            'friendly_status' => 'Timed out',
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subMinutes(19),
+        ]);
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertDatabaseHas('credit_check_job_logs', [
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-retry-timeout',
+        ]);
+    }
+
+    public function test_retry_while_job_running_does_not_create_duplicate_job_log(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-running',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now()->subMinutes(2),
+        ]);
+
+        $beforeCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+        $afterCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+
+        $this->assertSame($beforeCount, $afterCount);
+        Http::assertNothingSent();
+    }
+
+    public function test_retry_after_completed_check_does_not_create_new_job_and_moves_to_review(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake();
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-complete',
+            'status' => CreditCheckJobLog::STATUS_SUCCESS,
+            'friendly_status' => 'Completed',
+            'started_at' => now()->subMinutes(10),
+            'ended_at' => now()->subMinutes(8),
+        ]);
+
+        $lead->portal_credit_check_completed_at = now()->subMinutes(8);
+        $lead->save();
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            ['current_step' => 'credit_check_failed']
+        );
+
+        $beforeCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+        $afterCount = CreditCheckJobLog::where('lead_id', $lead->id)->count();
+
+        $this->assertSame($beforeCount, $afterCount);
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('review', $progress->current_step);
+        Http::assertNothingSent();
+    }
+
+    public function test_portal_credit_check_last_run_at_alone_does_not_block_retry_after_failed_job(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'jobId' => 'portal-job-retry-last-run',
+                'queued' => false,
+            ], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyThenCompleteWelcomeDetailsDebtsIncomeAndCosts($issued['token']);
+
+        $lead->portal_credit_check_last_run_at = now()->subMinutes(1);
+        $lead->save();
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-last-run-failed',
+            'status' => CreditCheckJobLog::STATUS_FAILED,
+            'friendly_status' => 'Failed',
+            'started_at' => now()->subMinutes(4),
+            'ended_at' => now()->subMinutes(3),
+        ]);
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->assertDatabaseHas('credit_check_job_logs', [
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-retry-last-run',
+        ]);
+    }
+
     public function test_invalid_portal_token_cannot_start_or_poll_credit_check_v3(): void
     {
         $this->postJson(route('portal.credit-check.v3.start', ['token' => 'invalid-token']))
