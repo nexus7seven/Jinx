@@ -43,6 +43,7 @@ class LeadPortalController extends Controller
         'postcode',
         'house_number',
     ];
+    private const PORTAL_RUNNING_TIMEOUT_SECONDS = 300;
 
     public function __construct(
         private readonly CreditCheckV3FlowService $creditCheckV3FlowService,
@@ -397,7 +398,38 @@ class LeadPortalController extends Controller
         $afterLogId = (int) (CreditCheckJobLog::query()->max('id') ?? 0);
         $jobLogCreated = $afterLogId > $beforeLogId;
 
-        if (($result['payload']['ok'] ?? false) === true) {
+        $latestLeadLog = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->latest('id')
+            ->first();
+        $payloadOk = (bool) ($result['payload']['ok'] ?? false);
+        $externalJobPresent = $latestLeadLog && ! blank($latestLeadLog->external_job_id);
+        $latestLogActive = $latestLeadLog && $latestLeadLog->isActive();
+        $serviceHttp = (int) ($result['http'] ?? 500);
+        $startSucceeded = $serviceHttp >= 200
+            && $serviceHttp < 300
+            && $payloadOk
+            && $externalJobPresent
+            && $latestLogActive;
+
+        Log::info('Portal credit-check start result', [
+            'lead_id' => $lead->id,
+            'vicidial_lead_id' => $lead->vicidial_lead_id,
+            'route' => $routeName,
+            'method' => $request->method(),
+            'service_http' => $serviceHttp,
+            'payload_ok' => $payloadOk,
+            'latest_log_id' => $latestLeadLog?->id,
+            'external_job_id_present' => $externalJobPresent,
+            'job_log_created' => $jobLogCreated,
+            'decision' => $startSucceeded
+                ? 'started'
+                : ($serviceHttp >= 500
+                    ? 'listener_unavailable'
+                    : ($externalJobPresent ? 'start_failed_no_job' : 'start_failed_no_external_id')),
+        ]);
+
+        if ($startSucceeded) {
             $lead->portal_credit_check_started_at = $lead->portal_credit_check_started_at ?? now();
             $lead->portal_credit_check_last_run_at = now();
             $lead->save();
@@ -407,22 +439,39 @@ class LeadPortalController extends Controller
             $progress->current_step = 'credit_check_running';
             $progress->last_seen_at = now();
             $progress->save();
+
+            return $this->portalStartCheckResponse($request, $token, [
+                'ok' => true,
+                'message' => (string) ($result['payload']['message'] ?? ''),
+                'running' => true,
+            ], 200);
         }
 
-        Log::info('Portal credit-check start result', [
-            'lead_id' => $lead->id,
-            'vicidial_lead_id' => $lead->vicidial_lead_id,
-            'route' => $routeName,
-            'method' => $request->method(),
-            'service_http' => $result['http'] ?? 500,
-            'job_log_created' => $jobLogCreated,
-        ]);
+        if ($latestLeadLog && ! $latestLeadLog->isTerminal()) {
+            $latestLeadLog->status = CreditCheckJobLog::STATUS_FAILED;
+            $latestLeadLog->friendly_status = $latestLeadLog->friendly_status ?: 'Failed';
+            $latestLeadLog->error_message = 'We couldn’t start the check just now. Please try again.';
+            $latestLeadLog->ended_at = $latestLeadLog->ended_at ?? now();
+            $latestLeadLog->save();
+        }
 
-        return $this->portalStartCheckResponse($request, $token, [
-            'ok' => (bool) ($result['payload']['ok'] ?? false),
-            'message' => (string) ($result['payload']['message'] ?? ''),
-            'running' => (bool) ($result['payload']['ok'] ?? false),
-        ], $result['http']);
+        $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $progress->current_step = 'credit_check_failed';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return $this->portalStartCheckResponse(
+            $request,
+            $token,
+            [
+                'ok' => false,
+                'status' => 'failed',
+                'message' => 'We couldn’t start the check just now. Please try again.',
+                'running' => false,
+            ],
+            409,
+            'We couldn’t start the check just now. Please try again.'
+        );
     }
 
     public function pollCreditCheckFlow(Request $request, string $token): JsonResponse
@@ -451,6 +500,34 @@ class LeadPortalController extends Controller
         $questionsRequired = ! empty($payload['security_questions'] ?? []);
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        $timeoutSeconds = (int) config('services.credit_check_v3_listener.portal_running_timeout_seconds', self::PORTAL_RUNNING_TIMEOUT_SECONDS);
+
+        if ($activeLog && $activeLog->isActive()) {
+            $listenerUnavailable = in_array((string) ($payload['listener_status'] ?? ''), ['Listener offline', 'Listener unavailable'], true);
+            $bundleInvalid = ! is_array($bundle);
+            $timedOut = (int) ($payload['elapsed_seconds'] ?? 0) > $timeoutSeconds;
+
+            if ($listenerUnavailable || $bundleInvalid || $timedOut) {
+                $activeLog->status = $timedOut ? CreditCheckJobLog::STATUS_TIMEOUT : CreditCheckJobLog::STATUS_FAILED;
+                $activeLog->friendly_status = $timedOut ? 'Credit check timed out' : 'Failed';
+                $activeLog->error_message = 'Something went wrong while checking your information. You can try again now.';
+                $activeLog->ended_at = $activeLog->ended_at ?? now();
+                $activeLog->save();
+
+                $progress->current_step = 'credit_check_failed';
+                $progress->last_seen_at = now();
+                $progress->save();
+
+                return response()->json([
+                    'ok' => false,
+                    'status' => 'failed',
+                    'message' => 'Something went wrong while checking your information. You can try again now.',
+                    'running' => false,
+                    'redirect_url' => route('portal.entry', ['token' => $token]),
+                ]);
+            }
+        }
+
         if (($payload['job_status'] ?? null) === CreditCheckJobLog::STATUS_FAILED) {
             $progress->current_step = 'credit_check_failed';
             $progress->last_seen_at = now();
@@ -459,8 +536,9 @@ class LeadPortalController extends Controller
             return response()->json([
                 'ok' => false,
                 'status' => 'failed',
-                'message' => 'We could not complete the check just now. Please try again shortly.',
+                'message' => 'Something went wrong while checking your information. You can try again now.',
                 'running' => false,
+                'redirect_url' => route('portal.entry', ['token' => $token]),
             ]);
         }
 
@@ -490,8 +568,9 @@ class LeadPortalController extends Controller
             return response()->json([
                 'ok' => false,
                 'status' => 'failed',
-                'message' => 'We could not complete the check just now. Please try again shortly.',
+                'message' => 'Something went wrong while checking your information. You can try again now.',
                 'running' => false,
+                'redirect_url' => route('portal.entry', ['token' => $token]),
             ], $importResult['http'] >= 400 ? $importResult['http'] : 409);
         }
 

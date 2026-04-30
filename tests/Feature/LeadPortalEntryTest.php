@@ -1041,6 +1041,58 @@ class LeadPortalEntryTest extends TestCase
         ]);
     }
 
+    public function test_portal_start_with_listener_failure_moves_to_credit_check_failed(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => false,
+                'message' => 'Listener down',
+            ], 500),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_failed', $progress->current_step);
+    }
+
+    public function test_portal_start_with_no_external_job_id_moves_to_credit_check_failed(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/jobs/start' => Http::response([
+                'ok' => true,
+                'queued' => false,
+            ], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']));
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_failed', $progress->current_step);
+    }
+
     public function test_credit_check_failed_page_try_again_posts_to_v3_start_route(): void
     {
         $service = app(LeadPortalTokenService::class);
@@ -1438,6 +1490,88 @@ class LeadPortalEntryTest extends TestCase
             'source_expected' => 'credit_check',
             'balance' => 1234.56,
         ]);
+    }
+
+    public function test_portal_poll_with_listener_unavailable_moves_to_credit_check_failed(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => false], 503),
+            'http://listener.test/jobs/portal-job-poll-fail/state' => Http::response([], 503),
+            'http://listener.test/jobs/portal-job-poll-fail/questions' => Http::response([], 503),
+            'http://listener.test/jobs/portal-job-poll-fail/report-data' => Http::response([], 503),
+            'http://listener.test/jobs/portal-job-poll-fail/pdf-state' => Http::response([], 503),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-poll-fail',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now()->subMinutes(1),
+        ]);
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson([
+                'status' => 'failed',
+            ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_failed', $progress->current_step);
+    }
+
+    public function test_portal_poll_with_active_job_older_than_timeout_moves_to_credit_check_failed(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        config()->set('services.credit_check_v3_listener.portal_running_timeout_seconds', 60);
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => true, 'activeJob' => true], 200),
+            'http://listener.test/jobs/portal-job-timeout/state' => Http::response([
+                'ok' => true,
+                'active' => true,
+                'activeJob' => ['leadId' => 1],
+                'latestStatus' => ['data' => ['step' => 'running']],
+            ], 200),
+            'http://listener.test/jobs/portal-job-timeout/questions' => Http::response(['payload' => ['questions' => []]], 200),
+            'http://listener.test/jobs/portal-job-timeout/report-data' => Http::response(['payload' => []], 200),
+            'http://listener.test/jobs/portal-job-timeout/pdf-state' => Http::response(['payload' => ['status' => 'pending']], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+
+        $this->post(route('portal.verify', ['token' => $issued['token']]), [
+            'dob' => '1985-06-15',
+        ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-timeout',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now()->subMinutes(5),
+        ]);
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson([
+                'status' => 'failed',
+            ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_failed', $progress->current_step);
     }
 
     public function test_repeated_portal_poll_does_not_duplicate_imported_debts(): void

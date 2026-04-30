@@ -309,6 +309,7 @@
                 (function () {
                     const statusEl = document.getElementById('portal-credit-check-status');
                     const pollUrl = @json(route('portal.credit-check.poll', ['token' => $rawToken]));
+                    let pollFailureCount = 0;
 
                     async function pollOnce() {
                         try {
@@ -320,21 +321,32 @@
                                 },
                                 credentials: 'same-origin'
                             });
+                            if (!response.ok) {
+                                throw new Error('poll_failed');
+                            }
                             const data = await response.json();
+                            pollFailureCount = 0;
                             if (data.status === 'complete' || data.status === 'questions') {
                                 window.location.href = @json(route('portal.entry', ['token' => $rawToken]));
                                 return;
                             }
                             if (data.status === 'failed') {
                                 if (statusEl) {
-                                    statusEl.textContent = data.message || 'We could not complete the check just now. Please try again shortly.';
+                                    statusEl.textContent = data.message || 'Something went wrong while checking your information. You can try again now.';
                                 }
                                 window.location.href = @json(route('portal.entry', ['token' => $rawToken]));
                                 return;
                             }
                         } catch (error) {
+                            pollFailureCount += 1;
                             if (statusEl) {
-                                statusEl.textContent = 'Still checking... We will keep trying automatically.';
+                                statusEl.textContent = pollFailureCount >= 3
+                                    ? 'Something went wrong while checking your information. Redirecting now...'
+                                    : 'Still checking... We will keep trying automatically.';
+                            }
+                            if (pollFailureCount >= 3) {
+                                window.location.href = @json(route('portal.entry', ['token' => $rawToken]));
+                                return;
                             }
                         }
 
@@ -525,7 +537,7 @@
             </div>
 
             <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
-                We couldn&rsquo;t complete your check right now
+                We couldn&rsquo;t complete the check
             </h1>
 
             <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
