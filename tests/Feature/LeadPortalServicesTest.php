@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Lead;
+use App\Models\LeadPortalEmailClick;
 use App\Models\LeadPortalProgress;
+use App\Models\LeadPortalSnapshot;
 use App\Models\LeadPortalToken;
 use App\Services\LeadPortalLinkService;
 use App\Services\LeadPortalProgressService;
@@ -251,6 +253,140 @@ class LeadPortalServicesTest extends TestCase
             ->expectsOutputToContain('"ok": false')
             ->expectsOutputToContain('"message": "Lead not found for given Jinx ID or Vicidial lead ID: 999999"')
             ->assertExitCode(1);
+    }
+
+    public function test_portal_reset_command_dry_run_changes_nothing(): void
+    {
+        $lead = $this->makeLead();
+        $service = app(LeadPortalTokenService::class);
+        $issued = $service->issueForLead($lead);
+
+        LeadPortalProgress::create([
+            'lead_id' => $lead->id,
+            'current_step' => 'review',
+            'last_completed_step' => 'credit_check',
+            'started_at' => now(),
+            'last_seen_at' => now(),
+            'completed_at' => now(),
+        ]);
+        $snapshot = LeadPortalSnapshot::create([
+            'lead_id' => $lead->id,
+            'snapshot_json' => ['ok' => true],
+            'emailed_at' => now(),
+        ]);
+        LeadPortalEmailClick::create([
+            'lead_id' => $lead->id,
+            'lead_portal_snapshot_id' => $snapshot->id,
+            'click_type' => 'whatsapp',
+            'destination_url' => 'https://wa.me/123',
+            'clicked_at' => now(),
+        ]);
+
+        $lead->update([
+            'portal_credit_check_started_at' => now()->subDay(),
+            'portal_credit_check_completed_at' => now()->subHours(12),
+            'portal_credit_check_last_run_at' => now()->subHours(12),
+        ]);
+
+        $this->artisan('portal:reset', ['leadId' => $lead->id])
+            ->expectsOutputToContain('DRY RUN ONLY')
+            ->expectsOutput('mode: dry-run')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('lead_portal_tokens', [
+            'id' => $issued['portal_token']->id,
+            'status' => LeadPortalToken::STATUS_PENDING,
+        ]);
+        $this->assertDatabaseHas('lead_portal_progress', [
+            'lead_id' => $lead->id,
+            'current_step' => 'review',
+        ]);
+        $this->assertDatabaseHas('lead_portal_snapshots', [
+            'lead_id' => $lead->id,
+        ]);
+        $this->assertDatabaseHas('lead_portal_email_clicks', [
+            'lead_id' => $lead->id,
+        ]);
+        $lead->refresh();
+        $this->assertNotNull($lead->portal_credit_check_started_at);
+        $this->assertNotNull($lead->portal_credit_check_completed_at);
+        $this->assertNotNull($lead->portal_credit_check_last_run_at);
+    }
+
+    public function test_portal_reset_command_yes_clears_portal_state(): void
+    {
+        $lead = $this->makeLead();
+        $service = app(LeadPortalTokenService::class);
+        $issued = $service->issueForLead($lead);
+
+        LeadPortalProgress::create([
+            'lead_id' => $lead->id,
+            'current_step' => 'review',
+            'last_completed_step' => 'credit_check',
+            'started_at' => now(),
+            'last_seen_at' => now(),
+            'completed_at' => now(),
+        ]);
+        $snapshot = LeadPortalSnapshot::create([
+            'lead_id' => $lead->id,
+            'snapshot_json' => ['ok' => true],
+            'emailed_at' => now(),
+        ]);
+        LeadPortalEmailClick::create([
+            'lead_id' => $lead->id,
+            'lead_portal_snapshot_id' => $snapshot->id,
+            'click_type' => 'whatsapp',
+            'destination_url' => 'https://wa.me/123',
+            'clicked_at' => now(),
+        ]);
+
+        $lead->update([
+            'portal_credit_check_started_at' => now()->subDay(),
+            'portal_credit_check_completed_at' => now()->subHours(12),
+            'portal_credit_check_last_run_at' => now()->subHours(12),
+        ]);
+
+        $this->artisan('portal:reset', ['leadId' => $lead->id, '--yes' => true])
+            ->expectsOutput('mode: committed')
+            ->expectsOutputToContain('Portal state reset committed.')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('lead_portal_tokens', [
+            'id' => $issued['portal_token']->id,
+            'status' => LeadPortalToken::STATUS_REVOKED,
+        ]);
+
+        $this->assertDatabaseHas('lead_portal_progress', [
+            'lead_id' => $lead->id,
+            'current_step' => 'welcome',
+            'last_completed_step' => null,
+            'started_at' => null,
+            'last_seen_at' => null,
+            'completed_at' => null,
+        ]);
+
+        $this->assertDatabaseMissing('lead_portal_snapshots', [
+            'lead_id' => $lead->id,
+        ]);
+        $this->assertDatabaseMissing('lead_portal_email_clicks', [
+            'lead_id' => $lead->id,
+        ]);
+
+        $lead->refresh();
+        $this->assertNull($lead->portal_credit_check_started_at);
+        $this->assertNull($lead->portal_credit_check_completed_at);
+        $this->assertNull($lead->portal_credit_check_last_run_at);
+    }
+
+    public function test_portal_reset_command_accepts_vicidial_lead_id(): void
+    {
+        $lead = $this->makeLead();
+
+        $this->artisan('portal:reset', ['leadId' => $lead->vicidial_lead_id])
+            ->expectsOutput('jinx_lead_id: '.$lead->id)
+            ->expectsOutput('vicidial_lead_id: '.$lead->vicidial_lead_id)
+            ->expectsOutput('mode: dry-run')
+            ->assertExitCode(0);
     }
 
     private function makeLead(): Lead
