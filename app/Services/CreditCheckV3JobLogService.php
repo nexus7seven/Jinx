@@ -164,6 +164,8 @@ class CreditCheckV3JobLogService
     {
         return match ($step) {
             'job_finalized' => (string) ($latestData['userStatusTitle'] ?? 'Completed'),
+            'retrying' => (string) ($latestData['friendly_status'] ?? 'The credit report page did not load correctly, trying again.'),
+            'retry_started' => 'Preparing secure browser session',
             'security_questions' => 'Awaiting verification',
             'kba_answers_applied' => 'Completing verification',
             'otp_submitted', 'page_detected' => 'Submitting details',
