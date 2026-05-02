@@ -50,6 +50,8 @@ class LeadPortalController extends Controller
         'house_number',
     ];
     private const PORTAL_RUNNING_TIMEOUT_SECONDS = 300;
+    private const MAX_PORTAL_CREDIT_CHECK_ATTEMPTS = 3;
+    private const CREDIT_CHECK_EXHAUSTED_MESSAGE = 'Sorry, our system couldn’t find your credit report automatically. You can still continue by listing any debts you know about below.';
 
     public function __construct(
         private readonly CreditCheckV3FlowService $creditCheckV3FlowService,
@@ -298,7 +300,27 @@ class LeadPortalController extends Controller
         $routeName = $request->route()?->getName();
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $previousStep = (string) ($progress->current_step ?? '');
+        $attemptsUsed = (int) ($progress->credit_check_attempts ?? 0);
         $missingRequired = $this->missingCreditCheckRequiredFields($lead);
+
+        if ($attemptsUsed >= self::MAX_PORTAL_CREDIT_CHECK_ATTEMPTS) {
+            $progress->current_step = 'add_missing_debts';
+            $progress->last_completed_step = 'credit_check';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return $this->portalStartCheckResponse(
+                $request,
+                $token,
+                [
+                    'ok' => false,
+                    'message' => self::CREDIT_CHECK_EXHAUSTED_MESSAGE,
+                    'running' => false,
+                ],
+                409,
+                self::CREDIT_CHECK_EXHAUSTED_MESSAGE
+            );
+        }
 
         if ($missingRequired !== []) {
             Log::info('Portal credit-check start blocked by missing details', [
@@ -321,6 +343,26 @@ class LeadPortalController extends Controller
                 ],
                 422,
                 'We need a few details before we can start the check.'
+            );
+        }
+        $readinessErrors = $this->portalCreditCheckReadinessErrors($lead);
+        if ($readinessErrors !== []) {
+            $progress->current_step = 'details';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return $this->portalStartCheckResponse(
+                $request,
+                $token,
+                [
+                    'ok' => false,
+                    'message' => 'Please check your details before starting the credit check.',
+                    'running' => false,
+                    'details_errors' => $readinessErrors,
+                ],
+                422,
+                'Please check your details before starting the credit check.',
+                $readinessErrors
             );
         }
 
@@ -481,6 +523,7 @@ class LeadPortalController extends Controller
 
             $progress->last_completed_step = 'credit_check';
             $progress->current_step = 'credit_check_running';
+            $progress->credit_check_attempts = ((int) ($progress->credit_check_attempts ?? 0)) + 1;
             $progress->last_seen_at = now();
             $progress->save();
 
@@ -594,28 +637,12 @@ class LeadPortalController extends Controller
                 $progress->last_seen_at = now();
                 $progress->save();
 
-                return response()->json([
-                    'ok' => false,
-                    'status' => 'failed',
-                    'message' => 'Something went wrong while checking your information. You can try again now.',
-                    'running' => false,
-                    'redirect_url' => route('portal.entry', ['token' => $token]),
-                ]);
+                return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
             }
         }
 
         if (($payload['job_status'] ?? null) === CreditCheckJobLog::STATUS_FAILED) {
-            $progress->current_step = 'credit_check_failed';
-            $progress->last_seen_at = now();
-            $progress->save();
-
-            return response()->json([
-                'ok' => false,
-                'status' => 'failed',
-                'message' => 'Something went wrong while checking your information. You can try again now.',
-                'running' => false,
-                'redirect_url' => route('portal.entry', ['token' => $token]),
-            ]);
+            return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
         }
 
         if ($activeLog && is_array($bundle) && $this->creditCheckV3FlowService->shouldAttemptImportFromBundle($activeLog, $bundle)) {
@@ -640,14 +667,15 @@ class LeadPortalController extends Controller
             $progress->current_step = 'credit_check_failed';
             $progress->last_seen_at = now();
             $progress->save();
+            if (! $activeLog->isTerminal()) {
+                $activeLog->status = CreditCheckJobLog::STATUS_FAILED;
+                $activeLog->friendly_status = (string) (($importResult['payload']['message'] ?? '') ?: ($activeLog->friendly_status ?: 'Failed'));
+                $activeLog->error_message = (string) (($importResult['payload']['message'] ?? '') ?: 'Something went wrong while checking your information. You can try again now.');
+                $activeLog->ended_at = $activeLog->ended_at ?? now();
+                $activeLog->save();
+            }
 
-            return response()->json([
-                'ok' => false,
-                'status' => 'failed',
-                'message' => 'Something went wrong while checking your information. You can try again now.',
-                'running' => false,
-                'redirect_url' => route('portal.entry', ['token' => $token]),
-            ], $importResult['http'] >= 400 ? $importResult['http'] : 409);
+            return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
         }
 
         if (($payload['job_status'] ?? null) === 'success') {
@@ -1020,6 +1048,9 @@ class LeadPortalController extends Controller
     private function entryResponse(Lead $lead, string $rawToken)
     {
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        if (request()->query('edit_details') === '1') {
+            $progress->current_step = 'details';
+        }
         if (blank($progress->current_step)) {
             $progress->current_step = 'welcome';
         }
@@ -1069,6 +1100,13 @@ class LeadPortalController extends Controller
             'rawToken' => $rawToken,
             'leadPortalDebtPresenter' => $this->leadPortalDebtPresenter,
             'ivaEstimate' => $this->leadPortalIvaEstimateService->buildEstimateForLead($lead),
+            'portalCreditCheckAttemptsUsed' => (int) ($progress->credit_check_attempts ?? 0),
+            'portalCreditCheckAttemptsMax' => self::MAX_PORTAL_CREDIT_CHECK_ATTEMPTS,
+            'portalCreditCheckCanRetry' => (int) ($progress->credit_check_attempts ?? 0) < self::MAX_PORTAL_CREDIT_CHECK_ATTEMPTS,
+            'portalCreditCheckLatestLog' => CreditCheckJobLog::query()->where('lead_id', $lead->id)->latest('id')->first(),
+            'portalCreditCheckFailureMessage' => $this->terminalFailureMessageForLog(
+                CreditCheckJobLog::query()->where('lead_id', $lead->id)->latest('id')->first()
+            ),
         ]);
     }
 
@@ -1080,7 +1118,8 @@ class LeadPortalController extends Controller
         string $token,
         array $payload,
         int $status,
-        ?string $flashError = null
+        ?string $flashError = null,
+        array $fieldErrors = []
     ): JsonResponse|RedirectResponse
     {
         if ($request->expectsJson() || $request->isXmlHttpRequest()) {
@@ -1089,7 +1128,14 @@ class LeadPortalController extends Controller
 
         $redirect = redirect()->route('portal.entry', ['token' => $token]);
         if ($flashError) {
-            return $redirect->withErrors(['credit_check' => $flashError]);
+            $errors = ['credit_check' => $flashError];
+            foreach ($fieldErrors as $field => $message) {
+                if (is_string($field) && is_string($message) && $message !== '') {
+                    $errors[$field] = $message;
+                }
+            }
+
+            return $redirect->withErrors($errors);
         }
 
         return $redirect;
@@ -1243,7 +1289,118 @@ class LeadPortalController extends Controller
             return null;
         }
 
-        return strtoupper($trimmed);
+        $normalized = strtoupper(preg_replace('/\s+/', '', $trimmed) ?? '');
+        if ($normalized === '') {
+            return null;
+        }
+        if (strlen($normalized) > 3) {
+            return substr($normalized, 0, -3).' '.substr($normalized, -3);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function portalCreditCheckReadinessErrors(Lead $lead): array
+    {
+        $errors = [];
+        if (! blank($lead->dob) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $lead->dob) !== 1) {
+            $errors['dob'] = 'Please enter your date of birth in YYYY-MM-DD format.';
+        }
+        if (blank($lead->dob)) {
+            $errors['dob'] = 'Please add your date of birth before we run the check.';
+        }
+        $postcode = trim((string) ($lead->postcode ?? ''));
+        if ($postcode === '' || preg_match('/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i', $postcode) !== 1) {
+            $errors['postcode'] = 'Please enter a valid UK postcode.';
+        }
+        if (trim((string) ($lead->phone_number ?? '')) === '') {
+            $errors['phone'] = 'Please add a contact phone number.';
+        }
+        if (trim((string) ($lead->title ?? '')) === '') {
+            $errors['title'] = 'Please choose your title.';
+        }
+        if (trim((string) ($lead->first_name ?? '')) === '') {
+            $errors['first_name'] = 'Please enter your first name.';
+        }
+        if (trim((string) ($lead->last_name ?? '')) === '') {
+            $errors['last_name'] = 'Please enter your last name.';
+        }
+        if (trim((string) ($lead->house_number ?? '')) === '') {
+            $errors['house_number'] = 'Please enter your house number.';
+        }
+
+        return $errors;
+    }
+
+    private function terminalCreditCheckFailureResponse(
+        string $token,
+        Lead $lead,
+        \App\Models\LeadPortalProgress $progress,
+        ?CreditCheckJobLog $activeLog
+    ): JsonResponse {
+        $attemptsUsed = (int) ($progress->credit_check_attempts ?? 0);
+        if ($attemptsUsed >= self::MAX_PORTAL_CREDIT_CHECK_ATTEMPTS) {
+            $progress->current_step = 'add_missing_debts';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            return response()->json([
+                'ok' => false,
+                'status' => 'failed',
+                'message' => self::CREDIT_CHECK_EXHAUSTED_MESSAGE,
+                'running' => false,
+                'redirect_url' => route('portal.entry', ['token' => $token]),
+            ]);
+        }
+
+        $failureMessage = $this->terminalFailureMessageForLog($activeLog);
+        $progress->current_step = 'credit_check_failed';
+        $progress->last_seen_at = now();
+        $progress->save();
+
+        return response()->json([
+            'ok' => false,
+            'status' => 'failed',
+            'message' => $failureMessage,
+            'running' => false,
+            'redirect_url' => route('portal.entry', ['token' => $token]),
+        ]);
+    }
+
+    private function terminalFailureMessageForLog(?CreditCheckJobLog $log): string
+    {
+        if (! $log) {
+            return 'Something went wrong while checking your information. You can try again now.';
+        }
+
+        $haystack = strtolower(
+            trim(
+                ((string) ($log->friendly_status ?? '')).' '.
+                ((string) ($log->error_message ?? '')).' '.
+                ((string) ($log->raw_log ?? ''))
+            )
+        );
+
+        $verificationIndicators = [
+            'identity_validation_failed',
+            'otp_poll_exhausted',
+            'security_questions',
+            'kba',
+            'could not verify',
+            'verification code was not received',
+            'report_flow_failed',
+        ];
+
+        foreach ($verificationIndicators as $needle) {
+            if (str_contains($haystack, $needle)) {
+                return 'We couldn’t verify your identity from the details provided. Please check your details and try again.';
+            }
+        }
+
+        return 'Something went wrong while checking your information. You can try again now.';
     }
 
     private function normalizeMoneyInput(mixed $value): mixed
