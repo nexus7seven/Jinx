@@ -1,13 +1,22 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Portal</title>
-</head>
-<body style="margin:0; background:#f8fafc; color:#0f172a; font-family:Arial, sans-serif; min-height:100vh;">
-<div style="max-width:760px; margin:0 auto; padding:40px 20px;">
-    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:24px; padding:32px; box-shadow:0 20px 50px rgba(15,23,42,.08);">
+@extends('portal.layout')
+
+@section('title', 'Secure Portal')
+
+@section('content')
+@php
+    $currentStep = (string) ($progress->current_step ?? 'welcome');
+    $stepOrder = ['welcome','details','debts','income','costs','credit_check','credit_check_running','credit_check_questions','credit_report_debts','add_missing_debts','iva_results','review','completed'];
+    $stepIndex = array_search($currentStep, $stepOrder, true);
+    $stepIndex = $stepIndex === false ? 0 : $stepIndex;
+    $progressPercent = (int) round((($stepIndex + 1) / count($stepOrder)) * 100);
+@endphp
+
+<div style="max-width:760px; margin:0 auto;">
+    <div style="margin-bottom:14px; padding:12px 14px; border-radius:14px; border:1px solid #dbeafe; background:#eff6ff;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; color:#1e3a8a; margin-bottom:8px;"><span>Your progress</span><span>{{ $progressPercent }}%</span></div>
+        <div style="height:8px; border-radius:999px; background:#dbeafe; overflow:hidden;"><div style="height:8px; width: {{ $progressPercent }}%; background:#2563eb;"></div></div>
+    </div>
+    <div class="portal-card">
         @if ($errors->has('credit_check'))
             <div style="margin-bottom:16px; padding:12px 14px; border-radius:12px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; font-size:14px;">
                 {{ $errors->first('credit_check') }}
@@ -892,5 +901,4 @@
         @endif
     </div>
 </div>
-</body>
-</html>
+@endsection
