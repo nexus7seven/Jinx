@@ -872,16 +872,37 @@
             </h1>
 
             <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
-                Something went wrong while checking your information. You can try again now.
+                {{ $portalCreditCheckFailureMessage }}
             </p>
+            <div style="margin:0 0 12px 0; color:#475569; font-size:14px;">
+                Attempts used: {{ $portalCreditCheckAttemptsUsed }} / {{ $portalCreditCheckAttemptsMax }}
+            </div>
 
-            <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
-                @csrf
-                <button type="submit"
-                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                    Try again
-                </button>
-            </form>
+            @if($portalCreditCheckLatestLog && $portalCreditCheckLatestLog->isActive())
+                <div style="padding:12px 14px; border-radius:12px; border:1px solid #dbeafe; background:#eff6ff; color:#1e3a8a; font-size:14px;">
+                    We&rsquo;re still checking your details. Please stay on this page while we continue.
+                </div>
+            @else
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'edit_details' => 1]) }}"
+                       style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">
+                        Check details
+                    </a>
+                    @if($portalCreditCheckCanRetry)
+                        <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
+                            @csrf
+                            <button type="submit"
+                                    style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                                Try again
+                            </button>
+                        </form>
+                    @else
+                        <div style="padding:12px 14px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px;">
+                            Sorry, our system couldn’t find your credit report automatically. You can still continue by listing any debts you know about below.
+                        </div>
+                    @endif
+                </div>
+            @endif
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Next step
