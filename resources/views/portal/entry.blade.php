@@ -566,32 +566,6 @@
                 </div>
             @endif
 
-            @if (($creditCheckCcjCount ?? 0) > 0)
-                @php
-                    $portalWhatsAppUrl = config('services.portal.whatsapp_url');
-                    $portalCallUrl = config('services.portal.call_url');
-                    $ccjMessage = rawurlencode('I have CCJs on my credit report and I need help finding who they are with');
-                    $ccjWhatsAppUrl = blank($portalWhatsAppUrl) ? null : ($portalWhatsAppUrl.(str_contains($portalWhatsAppUrl, '?') ? '&' : '?').'text='.$ccjMessage);
-                @endphp
-                <div style="margin:0 0 16px 0; padding:14px 16px; border-radius:14px; border:1px solid #fecaca; background:#fff1f2; color:#7f1d1d;">
-                    <div style="font-weight:700; margin-bottom:6px;">Important: County Court Judgments detected</div>
-                    <div style="font-size:14px; line-height:1.6;">
-                        CCJs can lead to serious enforcement, including High Court writ enforcement and bailiff action. In some cases, bailiffs may be able to force entry to remove goods.
-                    </div>
-                    <div style="margin-top:8px; font-size:14px; font-weight:600;">
-                        Not sure who your CCJ is with? We can help you find the exact creditor and balance.
-                    </div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-                        @if(!blank($ccjWhatsAppUrl))
-                            <a href="{{ $ccjWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#16a34a; color:#fff; font-size:13px; font-weight:700;">Message us about my results</a>
-                        @endif
-                        @if(!blank($portalCallUrl))
-                            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:13px; font-weight:700;">Talk through my options</a>
-                        @endif
-                    </div>
-                </div>
-            @endif
-
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:16px; background:#f8fafc;">
                 <div style="font-weight:700; margin-bottom:8px;">What we found on your credit file</div>
                 <div style="display:grid; grid-template-columns:repeat(3,minmax(110px,1fr)); gap:8px; margin-bottom:10px;">
