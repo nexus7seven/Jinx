@@ -293,7 +293,7 @@ Route::middleware('auth')->group(function () {
         $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());
 
         $portalToken = $issued['portal_token'];
-        $portalUrl = $issued['portal_url'];
+        $portalUrl = (string) $issued['portal_url'];
 
         $normalizeUkWhatsAppPhone = static function (?string $phone): ?string {
             $rawPhone = trim((string) ($phone ?? ''));
