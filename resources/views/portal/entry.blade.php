@@ -510,12 +510,65 @@
                 Is anything missing?
             </h1>
 
-            <p style="margin:0 0 8px 0; color:#475569; font-size:16px; line-height:1.6;">
-                Some debts may not show on your credit file, such as council tax, water bills, parking fines, rent arrears, or recent accounts.
+            <p style="margin:0 0 18px 0; color:#475569; font-size:16px; line-height:1.6;">
+                Here&rsquo;s what we found. If anything is missing, add it below so we can build the most accurate picture possible.
             </p>
-            <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
-                If you can&rsquo;t find the creditor, choose Other.
-            </p>
+
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:16px; background:#f8fafc;">
+                <div style="font-weight:700; margin-bottom:8px;">What we found on your credit file</div>
+                <div style="display:grid; grid-template-columns:repeat(3,minmax(110px,1fr)); gap:8px; margin-bottom:10px;">
+                    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:8px;">
+                        <div style="font-size:11px; color:#64748b;">Total found</div>
+                        <div style="font-size:16px; font-weight:700;">{{ '£'.number_format((float) ($creditCheckTotal ?? 0), 2) }}</div>
+                    </div>
+                    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:8px;">
+                        <div style="font-size:11px; color:#64748b;">Accounts</div>
+                        <div style="font-size:16px; font-weight:700;">{{ (int) ($creditCheckCount ?? 0) }}</div>
+                    </div>
+                    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:8px;">
+                        <div style="font-size:11px; color:#64748b;">CCJs</div>
+                        <div style="font-size:16px; font-weight:700;">{{ (int) ($creditCheckCcjCount ?? 0) }}</div>
+                    </div>
+                </div>
+                <div style="max-height:190px; overflow:auto; border:1px solid #e2e8f0; border-radius:10px; background:#fff;">
+                    @forelse (($creditCheckDebts ?? collect())->take(10) as $debt)
+                        <div style="display:grid; grid-template-columns:1.3fr .8fr 1fr; gap:8px; padding:8px 10px; border-bottom:1px solid #f1f5f9; font-size:12px;">
+                            <div>
+                                <div style="font-weight:600; color:#0f172a;">{{ $leadPortalDebtPresenter->customerFacingCreditorName($debt) }}</div>
+                                <div style="color:#64748b;">{{ $debt->creditor?->name }}</div>
+                            </div>
+                            <div style="font-weight:700; color:#0f172a;">{{ $debt->balance !== null ? '£'.number_format((float) $debt->balance, 2) : '—' }}</div>
+                            <div style="color:#64748b;">{{ $debt->reference ?: '—' }}</div>
+                        </div>
+                    @empty
+                        <div style="padding:10px; font-size:13px; color:#64748b;">No credit-file balances were found automatically.</div>
+                    @endforelse
+                </div>
+            </div>
+
+            @if (($creditCheckCcjCount ?? 0) > 0)
+                @php
+                    $portalWhatsAppUrl = config('services.portal.whatsapp_url');
+                    $portalCallUrl = config('services.portal.call_url');
+                @endphp
+                <div style="margin:0 0 16px 0; padding:14px 16px; border-radius:14px; border:1px solid #fecaca; background:#fff1f2; color:#7f1d1d;">
+                    <div style="font-weight:700; margin-bottom:6px;">Important: County Court Judgments detected</div>
+                    <div style="font-size:14px; line-height:1.6;">
+                        CCJs can lead to serious enforcement, including High Court writ enforcement and bailiff action. In some cases, bailiffs may be able to force entry to remove goods.
+                    </div>
+                    <div style="margin-top:8px; font-size:14px; font-weight:600;">
+                        Not sure who your CCJ is with? We can help you find the exact creditor and balance.
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                        @if(!blank($portalWhatsAppUrl))
+                            <a href="{{ $portalWhatsAppUrl }}" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#16a34a; color:#fff; font-size:13px; font-weight:700;">Message us about my results</a>
+                        @endif
+                        @if(!blank($portalCallUrl))
+                            <a href="{{ $portalCallUrl }}" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:13px; font-weight:700;">Talk through my options</a>
+                        @endif
+                    </div>
+                </div>
+            @endif
 
             @if ($errors->has('missing_debts'))
                 <div style="margin-bottom:18px; padding:14px 16px; border-radius:16px; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; font-size:14px; font-weight:700;">
@@ -543,8 +596,8 @@
                                 ? 'Other'
                                 : ($selectedCreditor?->name ?? '');
                         @endphp
-                        <div class="missing-debt-row" data-row-index="{{ $index }}" style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
-                            <div style="display:grid; grid-template-columns:1.6fr .8fr 1.3fr; gap:12px; align-items:start;">
+                        <div class="missing-debt-row" data-row-index="{{ $index }}" style="border:1px solid #e2e8f0; border-radius:12px; padding:10px; margin-bottom:10px;">
+                            <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
                                 <div style="position:relative;">
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
                                     <input type="hidden" name="debts[{{ $index }}][creditor_id]" value="{{ $selectedCreditorId }}" class="missing-debt-creditor-id">
@@ -553,20 +606,20 @@
                                            class="missing-debt-creditor-search"
                                            placeholder="Start typing creditor name..."
                                            autocomplete="off"
-                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                     <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
                                 </div>
                                 <div>
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
                                     <input name="debts[{{ $index }}][balance]" type="text" inputmode="decimal"
                                            value="{{ $row['balance'] ?? '' }}"
-                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 </div>
                                 <div>
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name (optional)</label>
                                     <input name="debts[{{ $index }}][creditor_name]" type="text"
                                            value="{{ $row['creditor_name'] ?? '' }}"
-                                           style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
+                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                     <div style="margin-top:6px; font-size:12px; color:#64748b;">Only use this if you can&rsquo;t find the creditor in the search.</div>
                                 </div>
                             </div>
@@ -579,8 +632,8 @@
                     Add another debt
                 </button>
                 <template id="missing-debt-row-template">
-                    <div class="missing-debt-row" data-row-index="__INDEX__" style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
-                        <div style="display:grid; grid-template-columns:1.6fr .8fr 1.3fr; gap:12px; align-items:start;">
+                    <div class="missing-debt-row" data-row-index="__INDEX__" style="border:1px solid #e2e8f0; border-radius:12px; padding:10px; margin-bottom:10px;">
+                        <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
                             <div style="position:relative;">
                                 <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
                                 <input type="hidden" name="debts[__INDEX__][creditor_id]" value="" class="missing-debt-creditor-id">
@@ -703,13 +756,16 @@
                     </p>
                 @else
                     <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                        The biggest benefit may not be the amount written off &mdash; it may be getting creditor pressure under control and having one affordable payment.
+                        Seeing all your debts together can feel overwhelming, but this is often the moment things start to get fixed.
                     </p>
                     <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                        For example, an IVA is often based around an affordable monthly payment, such as £100 per month, subject to assessment.
+                        We may be able to help stop creditor pressure quickly and, depending on your circumstances, help stop or prevent bailiff and enforcement action.
                     </p>
                     <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
-                        This can still be a quicker route out of debt and may help reduce creditor pressure once approved.
+                        We may also be able to help with Universal Credit deductions, including getting deductions reviewed, reduced, or removed where appropriate.
+                    </p>
+                    <p style="margin:0 0 10px 0; color:#475569; font-size:16px; line-height:1.6;">
+                        The benefit is not just possible debt write-off. It is getting control back, having one affordable payment, and reducing day-to-day pressure. Some solutions can be based around affordable monthly payments, sometimes from around £100 per month, subject to assessment.
                     </p>
                 @endif
             @else
@@ -794,7 +850,7 @@
                         </div>
                     @else
                         <div style="font-size:14px; color:#475569;">
-                            The biggest benefit may not be the amount written off &mdash; it may be getting creditor pressure under control with one affordable monthly payment, subject to assessment.
+                            The benefit is not just possible debt write-off. It is getting control back, reducing creditor pressure, and moving to one affordable payment. Some solutions can be based around affordable monthly payments, sometimes from around £100 per month, subject to assessment.
                         </div>
                     @endif
                 @else
@@ -813,13 +869,13 @@
             <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
                 <div style="font-weight:700; margin-bottom:8px;">What happens next?</div>
                 <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    We can talk you through your options.
+                    We&rsquo;ve emailed your summary so you have a copy of your results.
                 </div>
                 <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    We&rsquo;ll explain whether an IVA or another route may suit you.
+                    You can continue online by adding any missing debts and completing the remaining details.
                 </div>
                 <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    If enforcement or creditor pressure is an issue, tell us now so we can prioritise that.
+                    If you&rsquo;d like to discuss the results now, message us and we can talk through your options straight away.
                 </div>
             </div>
 
@@ -837,9 +893,21 @@
                 @csrf
                 <button type="submit"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                    Send my summary and speak to the team
+                    Continue online
                 </button>
             </form>
+            @php
+                $portalWhatsAppUrl = config('services.portal.whatsapp_url');
+                $portalCallUrl = config('services.portal.call_url');
+            @endphp
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+                @if(!blank($portalWhatsAppUrl))
+                    <a href="{{ $portalWhatsAppUrl }}" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#fff; font-size:14px; font-weight:700;">Message us about my results</a>
+                @endif
+                @if(!blank($portalCallUrl))
+                    <a href="{{ $portalCallUrl }}" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:14px; font-weight:700;">Talk through my options</a>
+                @endif
+            </div>
             @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'complete_pending')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">

@@ -1062,6 +1062,14 @@ class LeadPortalController extends Controller
             ->where('source_expected', 'credit_check')
             ->orderByDesc('id')
             ->get();
+        $creditCheckCcjCount = $creditCheckDebts->filter(function ($debt): bool {
+            $creditorName = (string) ($debt->creditor?->name ?? '');
+            $reference = (string) ($debt->reference ?? '');
+
+            return stripos($creditorName, 'County Court Judgment') !== false
+                || stripos($reference, 'County Court Judgment') !== false
+                || stripos($reference, 'CCJ') !== false;
+        })->count();
         $reviewDebts = $lead->debts()
             ->with('creditor')
             ->whereIn('source_expected', ['credit_check', 'customer_added'])
@@ -1074,6 +1082,8 @@ class LeadPortalController extends Controller
             'creditCheckQuestions' => $this->resolveCreditCheckQuestions($lead, $rawToken),
             'creditCheckDebts' => $creditCheckDebts,
             'creditCheckTotal' => $creditCheckDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
+            'creditCheckCount' => $creditCheckDebts->count(),
+            'creditCheckCcjCount' => $creditCheckCcjCount,
             'reviewDebts' => $reviewDebts,
             'reviewDebtTotal' => $reviewDebts->sum(fn ($debt) => (float) ($debt->balance ?? 0)),
             'creditors' => Creditor::query()
