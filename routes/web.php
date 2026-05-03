@@ -264,24 +264,42 @@ Route::middleware('auth')->group(function () {
         $portalToken = $issued['portal_token'];
         $portalUrl = $issued['portal_url'];
 
-        $rawPhone = trim((string) ($lead->phone_number ?? ''));
-        $digitsOnlyPhone = preg_replace('/\D+/', '', $rawPhone) ?? '';
+        $normalizeUkWhatsAppPhone = static function (?string $phone): ?string {
+            $rawPhone = trim((string) ($phone ?? ''));
+            if ($rawPhone === '') {
+                return null;
+            }
 
-        if (str_starts_with($digitsOnlyPhone, '0044')) {
-            $normalizedPhone = '44'.substr($digitsOnlyPhone, 4);
-        } elseif (str_starts_with($digitsOnlyPhone, '44')) {
-            $normalizedPhone = $digitsOnlyPhone;
-        } elseif (str_starts_with($digitsOnlyPhone, '0')) {
-            $normalizedPhone = '44'.substr($digitsOnlyPhone, 1);
-        } else {
-            $normalizedPhone = $digitsOnlyPhone;
-        }
+            $digitsOnlyPhone = preg_replace('/\D+/', '', $rawPhone) ?? '';
+            if ($digitsOnlyPhone === '') {
+                return null;
+            }
 
-        $normalizedLength = strlen($normalizedPhone);
-        $isSensibleUkLength = $normalizedLength >= 11 && $normalizedLength <= 13;
+            if (str_starts_with($digitsOnlyPhone, '0044')) {
+                $normalizedPhone = '44'.substr($digitsOnlyPhone, 4);
+            } elseif (str_starts_with($digitsOnlyPhone, '44')) {
+                $normalizedPhone = $digitsOnlyPhone;
+            } elseif (str_starts_with($digitsOnlyPhone, '07')) {
+                $normalizedPhone = '44'.substr($digitsOnlyPhone, 1);
+            } elseif (str_starts_with($digitsOnlyPhone, '7')) {
+                $normalizedPhone = '44'.$digitsOnlyPhone;
+            } else {
+                $normalizedPhone = $digitsOnlyPhone;
+            }
+
+            if (! str_starts_with($normalizedPhone, '44')) {
+                return null;
+            }
+
+            $normalizedLength = strlen($normalizedPhone);
+
+            return ($normalizedLength >= 12 && $normalizedLength <= 13) ? $normalizedPhone : null;
+        };
+
+        $normalizedPhone = $normalizeUkWhatsAppPhone($lead->phone_number);
         $whatsappUrl = null;
 
-        if ($normalizedPhone !== '' && $isSensibleUkLength) {
+        if ($normalizedPhone !== null) {
             $message = "Here's a link to your personalised portal where you can run a free credit check and get a review on your situation: {$portalUrl}";
             $whatsappUrl = 'https://wa.me/'.$normalizedPhone.'?text='.rawurlencode($message);
         }
