@@ -19,6 +19,7 @@ use App\Http\Controllers\WipController;
 use App\Http\Controllers\RemarketingController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
+use App\Services\LeadPortalLinkService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
@@ -255,6 +256,42 @@ Route::middleware('auth')->group(function () {
 
     Route::patch('/lead/{lead}/financial-statement', [LeadFinancialStatementController::class, 'update'])
         ->name('lead.financial-statement.update');
+
+
+    Route::post('/lead/{lead}/portal-link', function (Lead $lead, Request $request, LeadPortalLinkService $leadPortalLinkService) {
+        $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());
+
+        $portalToken = $issued['portal_token'];
+        $portalUrl = $issued['portal_url'];
+
+        $rawPhone = trim((string) ($lead->phone_number ?? ''));
+        $digitsOnlyPhone = preg_replace('/\D+/', '', $rawPhone) ?? '';
+
+        if (str_starts_with($digitsOnlyPhone, '0044')) {
+            $normalizedPhone = '44'.substr($digitsOnlyPhone, 4);
+        } elseif (str_starts_with($digitsOnlyPhone, '44')) {
+            $normalizedPhone = $digitsOnlyPhone;
+        } elseif (str_starts_with($digitsOnlyPhone, '0')) {
+            $normalizedPhone = '44'.substr($digitsOnlyPhone, 1);
+        } else {
+            $normalizedPhone = $digitsOnlyPhone;
+        }
+
+        $normalizedLength = strlen($normalizedPhone);
+        $isSensibleUkLength = $normalizedLength >= 11 && $normalizedLength <= 13;
+        $whatsappUrl = null;
+
+        if ($normalizedPhone !== '' && $isSensibleUkLength) {
+            $message = "Here's a link to your personalised portal where you can run a free credit check and get a review on your situation: {$portalUrl}";
+            $whatsappUrl = 'https://wa.me/'.$normalizedPhone.'?text='.rawurlencode($message);
+        }
+
+        return response()->json([
+            'portal_url' => $portalUrl,
+            'whatsapp_url' => $whatsappUrl,
+            'expires_at' => optional($portalToken->expires_at)?->toIso8601String(),
+        ]);
+    })->name('lead.portal-link');
 
     Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
     Route::post('/lead/{lead}/action-points', [LeadCaseController::class, 'storeActionPoint'])->name('lead.action-points.store');

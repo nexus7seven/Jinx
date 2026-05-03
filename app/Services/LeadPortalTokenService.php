@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Lead;
 use App\Models\LeadPortalToken;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class LeadPortalTokenService
@@ -23,14 +24,23 @@ class LeadPortalTokenService
                             ->where('expires_at', '>', now());
                     });
             })
+            ->latest('id')
             ->get();
 
-        if ($usableTokens->isNotEmpty()) {
-            // The raw token is intentionally never stored, so an existing pending/active
-            // token cannot be safely re-shown or recovered here. Instead, revoke any
-            // currently usable tokens and mint a fresh raw token for one-time return.
-            foreach ($usableTokens as $existingToken) {
-                $this->revoke($existingToken);
+        $usableToken = $usableTokens->first();
+
+        if ($usableToken) {
+            $cachedRawToken = Cache::get($this->rawTokenCacheKey($usableToken));
+            if (is_string($cachedRawToken) && $cachedRawToken !== '') {
+                return [
+                    'token' => $cachedRawToken,
+                    'portal_token' => $usableToken,
+                    'reused' => true,
+                ];
+            }
+
+            foreach ($usableTokens as $tokenToRevoke) {
+                $this->revoke($tokenToRevoke);
             }
         }
 
@@ -42,6 +52,12 @@ class LeadPortalTokenService
             'status' => LeadPortalToken::STATUS_PENDING,
             'created_ip' => $createdIp,
         ]);
+
+        Cache::put(
+            $this->rawTokenCacheKey($portalToken),
+            $rawToken,
+            now()->addDays(35)
+        );
 
         return [
             'token' => $rawToken,
@@ -55,6 +71,10 @@ class LeadPortalTokenService
         $token = LeadPortalToken::query()
             ->where('token_hash', $this->hashRawToken($rawToken))
             ->first();
+
+        if ($token) {
+            Cache::put($this->rawTokenCacheKey($token), $rawToken, now()->addDays(35));
+        }
 
         if (! $token) {
             return null;
@@ -132,5 +152,10 @@ class LeadPortalTokenService
     public function hashRawToken(string $rawToken): string
     {
         return hash('sha256', $rawToken);
+    }
+
+    private function rawTokenCacheKey(LeadPortalToken $token): string
+    {
+        return 'lead_portal_token_raw:'.$token->id;
     }
 }
