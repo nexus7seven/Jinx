@@ -277,6 +277,19 @@
                         {{ $lastDialledAt ? $lastDialledAt->format('d M Y, H:i') : 'Never dialled' }}
                     </span>
                 </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                    <button type="button" id="getPortalLinkBtn" style="background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; cursor:pointer;">
+                        Get portal link
+                    </button>
+                    <button type="button" id="copyPortalLinkBtn" style="display:none; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:8px; padding:10px 14px; font-size:13px; cursor:pointer;">
+                        Copy portal link
+                    </button>
+                    <a id="sendPortalWhatsappBtn" href="#" target="_blank" rel="noopener noreferrer" style="display:none; background:#16a34a; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; text-decoration:none; line-height:20px;">
+                        Send via WhatsApp
+                    </a>
+                </div>
+                <div id="portalLinkStatus" style="margin-top:6px; font-size:12px; color:#9ca3af;">Ready</div>
+                <div id="portalLinkOutput" style="display:none; margin-top:6px; font-size:12px; color:#cbd5e1; word-break:break-all;"></div>
                 </div>
 
                 <div class="client-field">
@@ -581,6 +594,11 @@
     const addActionPointBtn = document.getElementById('addActionPointBtn');
     const actionPointStatus = document.getElementById('actionPointStatus');
     const actionPointsList = document.getElementById('actionPointsList');
+    const getPortalLinkBtn = document.getElementById('getPortalLinkBtn');
+    const copyPortalLinkBtn = document.getElementById('copyPortalLinkBtn');
+    const sendPortalWhatsappBtn = document.getElementById('sendPortalWhatsappBtn');
+    const portalLinkStatus = document.getElementById('portalLinkStatus');
+    const portalLinkOutput = document.getElementById('portalLinkOutput');
 
     let caseNotesOpen = false;
     let caseNotesSaveTimer = null;
@@ -781,6 +799,63 @@
         }
     }
 
+
+    function setPortalLinkStatus(message, color = '#9ca3af') {
+        if (!portalLinkStatus) return;
+
+        portalLinkStatus.textContent = message;
+        portalLinkStatus.style.color = color;
+    }
+
+    async function getPortalLink() {
+        if (!getPortalLinkBtn) return;
+
+        getPortalLinkBtn.disabled = true;
+        setPortalLinkStatus('Fetching portal link...', '#fbbf24');
+
+        try {
+            const response = await fetch('/lead/{{ $lead->id }}/portal-link', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.portal_url) {
+                throw new Error('Failed fetching portal link');
+            }
+
+            if (portalLinkOutput) {
+                portalLinkOutput.style.display = 'block';
+                portalLinkOutput.textContent = data.portal_url;
+            }
+
+            if (copyPortalLinkBtn) {
+                copyPortalLinkBtn.style.display = 'inline-block';
+                copyPortalLinkBtn.dataset.portalUrl = data.portal_url;
+            }
+
+            if (sendPortalWhatsappBtn) {
+                if (data.whatsapp_url) {
+                    sendPortalWhatsappBtn.href = data.whatsapp_url;
+                    sendPortalWhatsappBtn.style.display = 'inline-block';
+                } else {
+                    sendPortalWhatsappBtn.style.display = 'none';
+                }
+            }
+
+            const expiry = data.expires_at ? ` Expires: ${data.expires_at}` : '';
+            setPortalLinkStatus('Portal link ready.' + expiry, '#10b981');
+        } catch (e) {
+            setPortalLinkStatus('Failed to fetch portal link.', '#ef4444');
+        } finally {
+            getPortalLinkBtn.disabled = false;
+        }
+    }
+
     if (openScribbleNotesBtn) {
         openScribbleNotesBtn.addEventListener('click', function () {
             setCaseNotesOpen(!caseNotesOpen);
@@ -821,6 +896,27 @@
                 saveCaseNotes();
             }, 700);
 
+        });
+    }
+
+
+    if (getPortalLinkBtn) {
+        getPortalLinkBtn.addEventListener('click', async function () {
+            await getPortalLink();
+        });
+    }
+
+    if (copyPortalLinkBtn) {
+        copyPortalLinkBtn.addEventListener('click', async function () {
+            const url = copyPortalLinkBtn.dataset.portalUrl || '';
+            if (!url) return;
+
+            try {
+                await navigator.clipboard.writeText(url);
+                setPortalLinkStatus('Portal link copied.', '#10b981');
+            } catch (e) {
+                setPortalLinkStatus('Copy failed.', '#ef4444');
+            }
         });
     }
 
