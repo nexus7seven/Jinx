@@ -13,6 +13,7 @@ class LeadPortalProgress extends Model
         'lead_id',
         'current_step',
         'last_completed_step',
+        'credit_check_attempts',
         'started_at',
         'last_seen_at',
         'completed_at',
@@ -20,6 +21,7 @@ class LeadPortalProgress extends Model
 
     protected $casts = [
         'lead_id' => 'integer',
+        'credit_check_attempts' => 'integer',
         'started_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'completed_at' => 'datetime',
