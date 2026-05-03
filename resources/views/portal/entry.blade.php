@@ -12,6 +12,11 @@
 @endphp
 
 <div style="max-width:760px; margin:0 auto;">
+    @if (!empty($isDemoMode) && auth()->check())
+        <div style="display:inline-block; margin-bottom:10px; padding:4px 10px; border-radius:999px; background:#ede9fe; color:#5b21b6; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
+            Demo mode (internal test data)
+        </div>
+    @endif
     <div style="margin-bottom:14px; padding:12px 14px; border-radius:14px; border:1px solid #dbeafe; background:#eff6ff;">
         <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; color:#1e3a8a; margin-bottom:8px;"><span>Your progress</span><span>{{ $progressPercent }}%</span></div>
         <div style="height:8px; border-radius:999px; background:#dbeafe; overflow:hidden;"><div style="height:8px; width: {{ $progressPercent }}%; background:#2563eb;"></div></div>
