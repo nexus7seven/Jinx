@@ -561,10 +561,10 @@
                     </div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
                         @if(!blank($portalWhatsAppUrl))
-                            <a href="{{ $portalWhatsAppUrl }}" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#16a34a; color:#fff; font-size:13px; font-weight:700;">Message us about my results</a>
+                            <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#16a34a; color:#fff; font-size:13px; font-weight:700;">Message us about my results</a>
                         @endif
                         @if(!blank($portalCallUrl))
-                            <a href="{{ $portalCallUrl }}" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:13px; font-weight:700;">Talk through my options</a>
+                            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:13px; font-weight:700;">Talk through my options</a>
                         @endif
                     </div>
                 </div>
@@ -902,10 +902,10 @@
             @endphp
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
                 @if(!blank($portalWhatsAppUrl))
-                    <a href="{{ $portalWhatsAppUrl }}" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#fff; font-size:14px; font-weight:700;">Message us about my results</a>
+                    <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#fff; font-size:14px; font-weight:700;">Message us about my results</a>
                 @endif
                 @if(!blank($portalCallUrl))
-                    <a href="{{ $portalCallUrl }}" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:14px; font-weight:700;">Talk through my options</a>
+                    <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:14px; font-weight:700;">Talk through my options</a>
                 @endif
             </div>
             @include('portal.partials.help-cta')
