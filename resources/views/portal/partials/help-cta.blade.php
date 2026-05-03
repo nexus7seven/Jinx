@@ -10,13 +10,13 @@
     </div>
     <div style="display:flex; flex-wrap:wrap; gap:10px;">
         @if(!blank($portalWhatsAppUrl))
-            <a href="{{ $portalWhatsAppUrl }}"
+            <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer"
                style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#ffffff; font-size:14px; font-weight:700;">
                 Message us now
             </a>
         @endif
         @if(!blank($portalCallUrl))
-            <a href="{{ $portalCallUrl }}"
+            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer"
                style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#ffffff; font-size:14px; font-weight:700;">
                 Speak to our team
             </a>
