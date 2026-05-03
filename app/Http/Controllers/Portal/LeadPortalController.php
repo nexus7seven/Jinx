@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Models\Creditor;
+use App\Models\Debt;
 use App\Models\Lead;
 use App\Models\CreditCheckJobLog;
 use App\Models\LeadPortalToken;
@@ -1077,13 +1078,14 @@ class LeadPortalController extends Controller
         $isDemoMode = (bool) ($progress->is_demo_mode ?? false);
         if ($isDemoMode) {
             $creditCheckDebts = collect($this->defaultDemoPayload()['debts'])->map(function (array $row) {
-                return (object) [
-                    'id' => null,
+                $debt = new Debt([
                     'balance' => $row['balance'],
                     'reference' => $row['reference'],
                     'source_expected' => 'demo_credit_check',
-                    'creditor' => (object) ['name' => $row['creditor_name']],
-                ];
+                ]);
+                $debt->setRelation('creditor', new Creditor(['name' => $row['creditor_name']]));
+
+                return $debt;
             });
         }
         $creditCheckCcjCount = $creditCheckDebts->filter(function ($debt): bool {
