@@ -1068,6 +1068,26 @@ class LeadPortalController extends Controller
         if (request()->query('edit_details') === '1') {
             $progress->current_step = 'details';
         }
+        if (request()->query('go_back') === '1') {
+            $backMap = [
+                'details' => 'welcome',
+                'debts' => 'details',
+                'income' => 'debts',
+                'costs' => 'income',
+                'credit_check' => 'costs',
+                'credit_check_running' => 'costs',
+                'credit_check_questions' => 'costs',
+                'credit_report_debts' => 'costs',
+                'add_missing_debts' => 'credit_report_debts',
+                'iva_results' => 'add_missing_debts',
+                'review' => 'iva_results',
+                'complete_pending' => 'review',
+            ];
+            $current = (string) ($progress->current_step ?? '');
+            if (isset($backMap[$current])) {
+                $progress->current_step = $backMap[$current];
+            }
+        }
         if (blank($progress->current_step)) {
             $progress->current_step = 'welcome';
         }
