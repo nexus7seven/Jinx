@@ -39,4 +39,9 @@ class LeadPortalToken extends Model
     {
         return $this->belongsTo(Lead::class);
     }
+
+    public function shortLink()
+    {
+        return $this->hasOne(LeadPortalShortLink::class, 'lead_portal_token_id');
+    }
 }
