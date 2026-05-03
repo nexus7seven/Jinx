@@ -264,17 +264,25 @@ Route::middleware('auth')->group(function () {
         $portalToken = $issued['portal_token'];
         $portalUrl = $issued['portal_url'];
 
-        $rawPhone = (string) ($lead->phone_number ?? '');
-        $normalizedPhone = preg_replace('/\D+/', '', $rawPhone) ?? '';
+        $rawPhone = trim((string) ($lead->phone_number ?? ''));
+        $digitsOnlyPhone = preg_replace('/\D+/', '', $rawPhone) ?? '';
 
-        if (str_starts_with($normalizedPhone, '0')) {
-            $normalizedPhone = '44'.substr($normalizedPhone, 1);
+        if (str_starts_with($digitsOnlyPhone, '0044')) {
+            $normalizedPhone = '44'.substr($digitsOnlyPhone, 4);
+        } elseif (str_starts_with($digitsOnlyPhone, '44')) {
+            $normalizedPhone = $digitsOnlyPhone;
+        } elseif (str_starts_with($digitsOnlyPhone, '0')) {
+            $normalizedPhone = '44'.substr($digitsOnlyPhone, 1);
+        } else {
+            $normalizedPhone = $digitsOnlyPhone;
         }
 
+        $normalizedLength = strlen($normalizedPhone);
+        $isSensibleUkLength = $normalizedLength >= 11 && $normalizedLength <= 13;
         $whatsappUrl = null;
 
-        if ($normalizedPhone !== '') {
-            $message = 'Hi '.trim((string) ($lead->formattedName() ?: 'there')).", here is your customer portal link: ".$portalUrl;
+        if ($normalizedPhone !== '' && $isSensibleUkLength) {
+            $message = "Here's a link to your personalised portal where you can run a free credit check and get a review on your situation: {$portalUrl}";
             $whatsappUrl = 'https://wa.me/'.$normalizedPhone.'?text='.rawurlencode($message);
         }
 
