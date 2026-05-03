@@ -522,11 +522,13 @@
 
             <form method="POST" action="{{ route('portal.credit-report-debts.continue', ['token' => $rawToken]) }}">
                 @csrf
-                <button type="submit"
-                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                    Continue
-                </button>
-                <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                <div style="display:flex; gap:10px; margin-top:18px;">
+                    <button type="submit"
+                            style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                        Continue
+                    </button>
+                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                </div>
             </form>
             @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'add_missing_debts')
@@ -535,12 +537,34 @@
             </div>
 
             <h1 style="margin:0 0 12px 0; font-size:32px; line-height:1.2;">
-                Is anything missing?
+                Here&rsquo;s what we found on your report
             </h1>
 
-            <p style="margin:0 0 18px 0; color:#475569; font-size:16px; line-height:1.6;">
-                Here&rsquo;s what we found. If anything is missing, add it below so we can build the most accurate picture possible.
-            </p>
+            @if (($creditCheckCcjCount ?? 0) > 0)
+                @php
+                    $portalWhatsAppUrl = config('services.portal.whatsapp_url');
+                    $portalCallUrl = config('services.portal.call_url');
+                    $ccjMessage = rawurlencode('I have CCJs on my credit report and I need help finding who they are with');
+                    $ccjWhatsAppUrl = blank($portalWhatsAppUrl) ? null : ($portalWhatsAppUrl.(str_contains($portalWhatsAppUrl, '?') ? '&' : '?').'text='.$ccjMessage);
+                @endphp
+                <div style="margin:0 0 16px 0; padding:14px 16px; border-radius:14px; border:1px solid #fecaca; background:#fff1f2; color:#7f1d1d;">
+                    <div style="font-weight:700; margin-bottom:6px;">Important: County Court Judgments detected</div>
+                    <div style="font-size:14px; line-height:1.6;">
+                        CCJs can lead to serious enforcement, including High Court writ enforcement and bailiff action. In some cases, bailiffs may be able to force entry to remove goods.
+                    </div>
+                    <div style="margin-top:8px; font-size:14px; font-weight:600;">
+                        Not sure who your CCJ is with? We can help you find the exact creditor and balance.
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                        @if(!blank($ccjWhatsAppUrl))
+                            <a href="{{ $ccjWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#16a34a; color:#fff; font-size:13px; font-weight:700;">Message us about my results</a>
+                        @endif
+                        @if(!blank($portalCallUrl))
+                            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:9px 12px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:13px; font-weight:700;">Talk through my options</a>
+                        @endif
+                    </div>
+                </div>
+            @endif
 
             @if (($creditCheckCcjCount ?? 0) > 0)
                 @php
@@ -613,6 +637,16 @@
                     $initialRows = is_array($oldRows) ? array_values($oldRows) : [];
                 @endphp
 
+                <h2 style="margin:8px 0 8px 0; font-size:28px; line-height:1.2; color:#0f172a;">Is anything missing?</h2>
+                <p style="margin:0 0 16px 0; color:#475569; font-size:16px; line-height:1.6;">
+                    If anything is missing, add it below so we can complete the picture.
+                </p>
+
+                <button type="button" id="add-missing-debt-row"
+                        style="display:inline-block; margin:0 0 18px 0; padding:10px 14px; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; color:#0f172a; font-size:14px; font-weight:700; cursor:pointer;">
+                    Add creditor
+                </button>
+
                 <div id="missing-debts-rows"
                      data-creditors='@json((($creditors ?? collect())->map(fn ($c) => ["id" => (string) $c->id, "name" => $c->name])->values()->all()))'>
                     @foreach($initialRows as $index => $row)
@@ -643,7 +677,7 @@
                                            style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 </div>
                                 <div class="missing-debt-other-wrap" style="{{ $selectedCreditorId === 'other' ? '' : 'display:none;' }}">
-                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name</label>
+                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
                                     <input name="debts[{{ $index }}][creditor_name]" type="text"
                                            value="{{ $row['creditor_name'] ?? '' }}"
                                            style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
@@ -653,11 +687,6 @@
                         </div>
                     @endforeach
                 </div>
-
-                <button type="button" id="add-missing-debt-row"
-                        style="display:inline-block; margin-bottom:14px; padding:10px 14px; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; color:#0f172a; font-size:14px; font-weight:700; cursor:pointer;">
-                    Add creditor
-                </button>
                 <template id="missing-debt-row-template">
                     <div class="missing-debt-row" data-row-index="__INDEX__" style="border:1px solid #e2e8f0; border-radius:12px; padding:10px; margin-bottom:10px;">
                         <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
@@ -674,7 +703,7 @@
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                             </div>
                             <div class="missing-debt-other-wrap" style="display:none;">
-                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name</label>
+                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
                                 <input name="debts[__INDEX__][creditor_name]" type="text"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 <div style="margin-top:6px; font-size:12px; color:#64748b;">Can&rsquo;t find it? Choose Other.</div>
@@ -853,48 +882,23 @@
                 @endif
             </div>
 
-            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
-                <div style="font-weight:700; margin-bottom:8px;">What this could mean</div>
-                @if (($ivaEstimate['is_eligible'] ?? false) === true)
-                    @if(($ivaEstimate['has_meaningful_write_off'] ?? false) === true)
-                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                            Estimated total debt: {{ '£'.number_format((float) ($ivaEstimate['total_debt'] ?? 0), 2) }}
-                        </div>
-                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                            Example repayment total: £6,000.00
-                        </div>
-                        <div style="font-size:14px; color:#334155; margin-bottom:6px;">
-                            Potential write-off: {{ '£'.number_format((float) ($ivaEstimate['estimated_write_off'] ?? 0), 2) }}
-                        </div>
-                        <div style="font-size:14px; color:#475569;">
-                            Based on the figures so far, an IVA could be worth exploring and may reduce what you repay, subject to assessment.
-                        </div>
-                    @else
-                        <div style="font-size:14px; color:#475569;">
-                            The benefit is not just possible debt write-off. It is getting control back, reducing creditor pressure, and moving to one affordable payment. Some solutions can be based around affordable monthly payments, sometimes from around £100 per month, subject to assessment.
-                        </div>
-                    @endif
-                @else
-                    <div style="font-size:14px; color:#475569;">We can still help you review the most suitable next step based on your circumstances.</div>
-                @endif
+            @if ((float) ($ivaEstimate['total_debt'] ?? 0) >= 3000)
+                <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:18px;">
+                    <div style="font-weight:700; margin-bottom:8px;">What this could mean</div>
+                    <div style="font-size:14px; color:#475569; margin-bottom:8px;">We may be able to help you:</div>
+                    <ul style="margin:0; padding-left:18px; color:#475569; font-size:14px; line-height:1.7;">
+                        <li>Stop creditor pressure</li>
+                        <li>Prevent enforcement or bailiff action (depending on circumstances)</li>
+                        <li>Reduce multiple payments into one affordable monthly amount</li>
+                        <li>Deal with creditors on your behalf</li>
+                    </ul>
+                </div>
+            @endif
 
-                @if (($ivaEstimate['has_court_judgment_debt'] ?? false) === true)
-                    <div style="margin-top:10px; padding:12px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px;">
-                        If court action or bailiffs are a concern, it&rsquo;s important to speak to someone quickly. An approved solution may help stop further enforcement.
-                    </div>
-                @endif
-            </div>
-
-            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px;">
+            <div style="border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:18px;">
                 <div style="font-weight:700; margin-bottom:8px;">What happens next?</div>
                 <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    We&rsquo;ve emailed your summary so you have a copy of your results.
-                </div>
-                <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    You can continue online by adding any missing debts and completing the remaining details.
-                </div>
-                <div style="font-size:14px; color:#334155; line-height:1.6;">
-                    If you&rsquo;d like to discuss the results now, message us and we can talk through your options straight away.
+                    You can have your summary emailed to you or speak to us now to go through your options.
                 </div>
             </div>
 
@@ -910,24 +914,23 @@
 
             <form method="POST" action="{{ route('portal.review.finish', ['token' => $rawToken]) }}">
                 @csrf
-                <button type="submit"
-                        style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                    Email me my summary
-                </button>
-                <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                @php
+                    $portalWhatsAppUrl = config('services.portal.whatsapp_url');
+                    $reviewWhatsAppMessage = rawurlencode('I’d like help understanding my debts and what my options are');
+                    $reviewWhatsAppUrl = blank($portalWhatsAppUrl) ? null : ($portalWhatsAppUrl.(str_contains($portalWhatsAppUrl, '?') ? '&' : '?').'text='.$reviewWhatsAppMessage);
+                @endphp
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
+                    <button type="submit"
+                            style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                        Email my summary
+                    </button>
+                    @if(!blank($reviewWhatsAppUrl))
+                        <a href="{{ $reviewWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:1px solid #16a34a; border-radius:14px; background:#16a34a; color:#fff; font-size:16px; font-weight:700; text-decoration:none;">WhatsApp us about your debts</a>
+                    @endif
+                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                </div>
             </form>
-            @php
-                $portalWhatsAppUrl = config('services.portal.whatsapp_url');
-                $portalCallUrl = config('services.portal.call_url');
-            @endphp
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-                @if(!blank($portalWhatsAppUrl))
-                    <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#fff; font-size:14px; font-weight:700;">Message us about my results</a>
-                @endif
-                @if(!blank($portalCallUrl))
-                    <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#fff; font-size:14px; font-weight:700;">Talk through my options</a>
-                @endif
-            </div>
+            <p style="margin:12px 0 0 0; font-size:14px; color:#334155;">Click below to have your summary emailed to you.</p>
             @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'complete_pending')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
