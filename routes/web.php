@@ -291,6 +291,10 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/lead/{lead}/portal-link', function (Lead $lead, Request $request, LeadPortalLinkService $leadPortalLinkService) {
         $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());
+        $progress = app(\App\Services\LeadPortalProgressService::class)->ensureForLead($lead);
+        $progress->is_demo_mode = false;
+        $progress->demo_payload = null;
+        $progress->save();
 
         $portalToken = $issued['portal_token'];
         $portalUrl = (string) $issued['portal_url'];
@@ -376,6 +380,20 @@ Route::middleware('auth')->group(function () {
             ],
         ]);
     });
+
+    Route::post('/lead/{lead}/portal-link/demo', function (Lead $lead, Request $request, LeadPortalLinkService $leadPortalLinkService) {
+        $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());
+        $progress = app(\App\Services\LeadPortalProgressService::class)->ensureForLead($lead);
+        $progress->is_demo_mode = true;
+        $progress->demo_payload = null;
+        $progress->save();
+
+        return response()->json([
+            'portal_url' => (string) $issued['portal_url'],
+            'expires_at' => optional($issued['portal_token']->expires_at)->toDateTimeString(),
+            'demo_mode' => true,
+        ]);
+    })->name('lead.portal-link.demo');
 
     Route::get('/debt/{debt}', [DebtController::class, 'show']);
     Route::put('/debt/{debt}', [DebtController::class, 'update']);
