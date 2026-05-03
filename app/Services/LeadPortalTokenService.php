@@ -114,6 +114,40 @@ class LeadPortalTokenService
         return $token->load('lead');
     }
 
+
+    public function isTokenCurrentlyUsable(LeadPortalToken $token): bool
+    {
+        if ($token->revoked_at !== null || $token->completed_at !== null) {
+            return false;
+        }
+
+        if ($token->status === LeadPortalToken::STATUS_EXPIRED) {
+            return false;
+        }
+
+        if ($token->expires_at !== null && $token->expires_at->isPast()) {
+            $token->status = LeadPortalToken::STATUS_EXPIRED;
+            $token->save();
+
+            return false;
+        }
+
+        if ($token->status === LeadPortalToken::STATUS_PENDING) {
+            return true;
+        }
+
+        return $token->status === LeadPortalToken::STATUS_ACTIVE
+            && $token->expires_at !== null
+            && $token->expires_at->isFuture();
+    }
+
+    public function getCachedRawToken(LeadPortalToken $token): ?string
+    {
+        $cachedRawToken = Cache::get($this->rawTokenCacheKey($token));
+
+        return is_string($cachedRawToken) && $cachedRawToken !== '' ? $cachedRawToken : null;
+    }
+
     public function revoke(
         LeadPortalToken $token,
         string $status = LeadPortalToken::STATUS_REVOKED

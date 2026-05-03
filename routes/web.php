@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Models\Debt;
 use App\Models\Creditor;
 use App\Models\VotingPractice;
+use App\Models\LeadPortalShortLink;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CreditCheckWorkerController;
 use App\Http\Controllers\CreditCheckV2Controller;
@@ -20,6 +21,7 @@ use App\Http\Controllers\RemarketingController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
 use App\Services\LeadPortalLinkService;
+use App\Services\LeadPortalTokenService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
@@ -36,6 +38,35 @@ use App\Services\LeadDebtService;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
+
+Route::get('/p/{shortCode}', function (string $shortCode, Request $request, LeadPortalTokenService $leadPortalTokenService) {
+    $shortLink = LeadPortalShortLink::query()
+        ->where('short_code', $shortCode)
+        ->with('portalToken')
+        ->first();
+
+    if (! $shortLink || ! $shortLink->portalToken) {
+        abort(404);
+    }
+
+    $portalToken = $shortLink->portalToken;
+
+    if (! $leadPortalTokenService->isTokenCurrentlyUsable($portalToken)) {
+        abort(410);
+    }
+
+    $rawToken = $leadPortalTokenService->getCachedRawToken($portalToken);
+
+    if (! is_string($rawToken) || $rawToken === '') {
+        abort(410);
+    }
+
+    $shortLink->increment('click_count');
+    $shortLink->last_clicked_at = now();
+    $shortLink->save();
+
+    return redirect()->route('portal.entry', ['token' => $rawToken]);
+})->name('portal.short-link');
 
 Route::get('/portal/{token}', [LeadPortalController::class, 'show'])
     ->name('portal.entry');

@@ -180,6 +180,12 @@ class Lead extends Model
         return $this->hasOne(LeadPortalToken::class)->latestOfMany();
     }
 
+
+    public function portalShortLinks()
+    {
+        return $this->hasMany(LeadPortalShortLink::class)->latest('id');
+    }
+
     public function portalProgress()
     {
         return $this->hasOne(LeadPortalProgress::class);
