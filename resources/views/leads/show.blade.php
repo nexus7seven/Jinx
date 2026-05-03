@@ -281,6 +281,9 @@
                     <button type="button" id="getPortalLinkBtn" style="background:#2563eb; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; cursor:pointer;">
                         Get portal link
                     </button>
+                    <button type="button" id="openDemoPortalBtn" style="background:#7c3aed; color:#ffffff; border:0; border-radius:8px; padding:10px 14px; font-size:13px; cursor:pointer;">
+                        Open demo portal
+                    </button>
                     <button type="button" id="copyPortalLinkBtn" style="display:none; background:#1f2937; color:#f9fafb; border:1px solid #374151; border-radius:8px; padding:10px 14px; font-size:13px; cursor:pointer;">
                         Copy portal link
                     </button>
@@ -596,6 +599,7 @@
     const actionPointsList = document.getElementById('actionPointsList');
     const getPortalLinkBtn = document.getElementById('getPortalLinkBtn');
     const copyPortalLinkBtn = document.getElementById('copyPortalLinkBtn');
+    const openDemoPortalBtn = document.getElementById('openDemoPortalBtn');
     const sendPortalWhatsappBtn = document.getElementById('sendPortalWhatsappBtn');
     const portalLinkStatus = document.getElementById('portalLinkStatus');
     const portalLinkOutput = document.getElementById('portalLinkOutput');
@@ -856,6 +860,31 @@
         }
     }
 
+    async function openDemoPortal() {
+        if (!openDemoPortalBtn) return;
+        openDemoPortalBtn.disabled = true;
+        setPortalLinkStatus('Preparing demo portal...', '#fbbf24');
+        try {
+            const response = await fetch('/lead/{{ $lead->id }}/portal-link/demo', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+            });
+            const data = await response.json();
+            if (!response.ok || !data.portal_url) {
+                throw new Error('Failed demo link');
+            }
+            setPortalLinkStatus('Demo portal ready.', '#10b981');
+            window.open(data.portal_url, '_blank', 'noopener');
+        } catch (e) {
+            setPortalLinkStatus('Failed to open demo portal.', '#ef4444');
+        } finally {
+            openDemoPortalBtn.disabled = false;
+        }
+    }
+
     if (openScribbleNotesBtn) {
         openScribbleNotesBtn.addEventListener('click', function () {
             setCaseNotesOpen(!caseNotesOpen);
@@ -917,6 +946,12 @@
             } catch (e) {
                 setPortalLinkStatus('Copy failed.', '#ef4444');
             }
+        });
+    }
+
+    if (openDemoPortalBtn) {
+        openDemoPortalBtn.addEventListener('click', async function () {
+            await openDemoPortal();
         });
     }
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Models\Creditor;
+use App\Models\Debt;
 use App\Models\Lead;
 use App\Models\CreditCheckJobLog;
 use App\Models\LeadPortalToken;
@@ -299,6 +300,22 @@ class LeadPortalController extends Controller
         $lead = $portalToken->lead;
         $routeName = $request->route()?->getName();
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
+        if ((bool) ($progress->is_demo_mode ?? false)) {
+            $progress->demo_payload = $this->defaultDemoPayload();
+            $progress->last_completed_step = 'credit_check';
+            $progress->current_step = 'credit_report_debts';
+            $progress->last_seen_at = now();
+            $progress->save();
+
+            $lead->portal_credit_check_completed_at = $lead->portal_credit_check_completed_at ?? now();
+            $lead->save();
+
+            return $this->portalStartCheckResponse($request, $token, [
+                'ok' => true,
+                'message' => 'Demo credit check completed.',
+                'running' => false,
+            ], 200);
+        }
         $previousStep = (string) ($progress->current_step ?? '');
         $attemptsUsed = (int) ($progress->credit_check_attempts ?? 0);
         $missingRequired = $this->missingCreditCheckRequiredFields($lead);
@@ -1051,17 +1068,46 @@ class LeadPortalController extends Controller
         if (request()->query('edit_details') === '1') {
             $progress->current_step = 'details';
         }
+        if (request()->query('go_back') === '1') {
+            $backMap = [
+                'details' => 'welcome',
+                'debts' => 'details',
+                'income' => 'debts',
+                'costs' => 'income',
+                'credit_check' => 'costs',
+                'credit_check_running' => 'costs',
+                'credit_check_questions' => 'costs',
+                'credit_report_debts' => 'costs',
+                'add_missing_debts' => 'credit_report_debts',
+                'iva_results' => 'add_missing_debts',
+                'review' => 'iva_results',
+                'complete_pending' => 'review',
+            ];
+            $current = (string) ($progress->current_step ?? '');
+            if (isset($backMap[$current])) {
+                $progress->current_step = $backMap[$current];
+            }
+        }
         if (blank($progress->current_step)) {
             $progress->current_step = 'welcome';
         }
         $progress->last_seen_at = now();
         $progress->save();
 
-        $creditCheckDebts = $lead->debts()
-            ->with('creditor')
-            ->where('source_expected', 'credit_check')
-            ->orderByDesc('id')
-            ->get();
+        $creditCheckDebts = $lead->debts()->with('creditor')->where('source_expected', 'credit_check')->orderByDesc('id')->get();
+        $isDemoMode = (bool) ($progress->is_demo_mode ?? false);
+        if ($isDemoMode) {
+            $creditCheckDebts = collect($this->defaultDemoPayload()['debts'])->map(function (array $row) {
+                $debt = new Debt([
+                    'balance' => $row['balance'],
+                    'reference' => $row['reference'],
+                    'source_expected' => 'demo_credit_check',
+                ]);
+                $debt->setRelation('creditor', new Creditor(['name' => $row['creditor_name']]));
+
+                return $debt;
+            });
+        }
         $creditCheckCcjCount = $creditCheckDebts->filter(function ($debt): bool {
             $creditorName = (string) ($debt->creditor?->name ?? '');
             $reference = (string) ($debt->reference ?? '');
@@ -1117,7 +1163,23 @@ class LeadPortalController extends Controller
             'portalCreditCheckFailureMessage' => $this->terminalFailureMessageForLog(
                 CreditCheckJobLog::query()->where('lead_id', $lead->id)->latest('id')->first()
             ),
+            'isDemoMode' => $isDemoMode,
         ]);
+    }
+
+    /**
+     * @return array{debts: array<int, array{creditor_name: string, balance: float, reference: string}>}
+     */
+    private function defaultDemoPayload(): array
+    {
+        return [
+            'debts' => [
+                ['creditor_name' => 'Barclaycard', 'balance' => 3842.21, 'reference' => 'DEMO - Credit card arrears'],
+                ['creditor_name' => 'Lloyds Bank Loan', 'balance' => 6298.75, 'reference' => 'DEMO - Personal loan'],
+                ['creditor_name' => 'Very', 'balance' => 1194.40, 'reference' => 'DEMO - Catalog account'],
+                ['creditor_name' => 'County Court Judgment', 'balance' => 2475.00, 'reference' => 'DEMO - CCJ 2024/1138'],
+            ],
+        ];
     }
 
     /**

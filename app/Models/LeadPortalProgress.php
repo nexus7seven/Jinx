@@ -11,6 +11,8 @@ class LeadPortalProgress extends Model
 
     protected $fillable = [
         'lead_id',
+        'is_demo_mode',
+        'demo_payload',
         'current_step',
         'last_completed_step',
         'credit_check_attempts',
@@ -22,6 +24,8 @@ class LeadPortalProgress extends Model
     protected $casts = [
         'lead_id' => 'integer',
         'credit_check_attempts' => 'integer',
+        'is_demo_mode' => 'boolean',
+        'demo_payload' => 'array',
         'started_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'completed_at' => 'datetime',

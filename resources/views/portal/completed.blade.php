@@ -21,10 +21,11 @@
     @endphp
     <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-top:14px;">
         @if(!blank($portalWhatsAppUrl))
-            <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#ffffff; font-size:14px; font-weight:700;">Message us on WhatsApp</a>
+            <a href="{{ $portalWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#16a34a; color:#ffffff; font-size:14px; font-weight:700;">Message us about my results</a>
         @endif
         @if(!blank($portalCallUrl))
-            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#ffffff; font-size:14px; font-weight:700;">Call us</a>
+            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#1d4ed8; color:#ffffff; font-size:14px; font-weight:700;">Talk through my options</a>
+            <a href="{{ $portalCallUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-block; text-decoration:none; padding:10px 14px; border-radius:10px; background:#0f172a; color:#ffffff; font-size:14px; font-weight:700;">Call us</a>
         @endif
     </div>
 </div>
