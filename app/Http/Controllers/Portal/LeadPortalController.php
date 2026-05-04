@@ -866,21 +866,22 @@ class LeadPortalController extends Controller
             return redirect()->route('portal.entry', ['token' => $token]);
         }
 
-        $validator = Validator::make($request->all(), [
-            'debts' => ['nullable', 'array'],
-            'debts.*.creditor_id' => ['nullable'],
-            'debts.*.creditor_name' => ['nullable', 'string', 'max:255'],
-            'debts.*.balance' => ['nullable', 'numeric', 'min:0'],
+        $rows = (array) $request->input('missing_debts', $request->input('debts', []));
+        $validator = Validator::make(['missing_debts' => $rows], [
+            'missing_debts' => ['nullable', 'array'],
+            'missing_debts.*.creditor_id' => ['nullable'],
+            'missing_debts.*.other_name' => ['nullable', 'string', 'max:255'],
+            'missing_debts.*.balance' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $validator->after(function ($validator) use ($request): void {
-            foreach ((array) $request->input('debts', []) as $index => $row) {
+        $validator->after(function ($validator) use ($rows): void {
+            foreach ($rows as $index => $row) {
                 if (! is_array($row) || $this->missingDebtRowIsBlank($row)) {
                     continue;
                 }
 
                 $creditorId = trim((string) ($row['creditor_id'] ?? ''));
-                $creditorName = trim((string) ($row['creditor_name'] ?? ''));
+                $creditorName = trim((string) ($row['other_name'] ?? ($row['creditor_name'] ?? '')));
                 $balance = trim((string) ($row['balance'] ?? ''));
                 $hasCreditor = $creditorId !== '' || $creditorName !== '';
                 $isOther = strtolower($creditorId) === 'other';
@@ -912,13 +913,13 @@ class LeadPortalController extends Controller
         $lead = $portalToken->lead;
         $couldNotMatch = null;
 
-        foreach ((array) $request->input('debts', []) as $row) {
+        foreach ($rows as $row) {
             if (! is_array($row) || $this->missingDebtRowIsBlank($row)) {
                 continue;
             }
 
             $creditorId = trim((string) ($row['creditor_id'] ?? ''));
-            $creditorName = trim((string) ($row['creditor_name'] ?? ''));
+            $creditorName = trim((string) ($row['other_name'] ?? ($row['creditor_name'] ?? '')));
             $balance = trim((string) ($row['balance'] ?? ''));
             $isOther = strtolower($creditorId) === 'other';
 
@@ -1328,6 +1329,7 @@ class LeadPortalController extends Controller
     private function missingDebtRowIsBlank(array $row): bool
     {
         return trim((string) ($row['creditor_id'] ?? '')) === ''
+            && trim((string) ($row['other_name'] ?? '')) === ''
             && trim((string) ($row['creditor_name'] ?? '')) === ''
             && trim((string) ($row['balance'] ?? '')) === '';
     }
