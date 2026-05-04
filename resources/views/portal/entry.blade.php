@@ -607,7 +607,7 @@
             <form method="POST" action="{{ route('portal.missing-debts.save', ['token' => $rawToken]) }}">
                 @csrf
                 @php
-                    $oldRows = old('debts');
+                    $oldRows = old('missing_debts', old('debts'));
                     $initialRows = is_array($oldRows) ? array_values($oldRows) : [];
                 @endphp
 
@@ -635,7 +635,7 @@
                             <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
                                 <div style="position:relative;">
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
-                                    <input type="hidden" name="debts[{{ $index }}][creditor_id]" value="{{ $selectedCreditorId }}" class="missing-debt-creditor-id">
+                                    <input type="hidden" name="missing_debts[{{ $index }}][creditor_id]" value="{{ $selectedCreditorId }}" class="missing-debt-creditor-id">
                                     <input type="text"
                                            value="{{ $selectedCreditorLabel }}"
                                            class="missing-debt-creditor-search"
@@ -646,13 +646,13 @@
                                 </div>
                                 <div>
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
-                                    <input name="debts[{{ $index }}][balance]" type="text" inputmode="decimal"
+                                    <input name="missing_debts[{{ $index }}][balance]" type="text" inputmode="decimal"
                                            value="{{ $row['balance'] ?? '' }}"
                                            style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 </div>
                                 <div class="missing-debt-other-wrap" style="{{ $selectedCreditorId === 'other' ? '' : 'display:none;' }}">
                                     <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
-                                    <input name="debts[{{ $index }}][creditor_name]" type="text"
+                                    <input name="missing_debts[{{ $index }}][other_name]" type="text"
                                            value="{{ $row['creditor_name'] ?? '' }}"
                                            style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                     <div style="margin-top:6px; font-size:12px; color:#64748b;">Can&rsquo;t find it? Choose Other.</div>
@@ -666,19 +666,19 @@
                         <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
                             <div style="position:relative;">
                                 <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
-                                <input type="hidden" name="debts[__INDEX__][creditor_id]" value="" class="missing-debt-creditor-id">
+                                <input type="hidden" name="missing_debts[__INDEX__][creditor_id]" value="" class="missing-debt-creditor-id">
                                 <input type="text" value="" class="missing-debt-creditor-search" placeholder="Start typing creditor name..." autocomplete="off"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
                             </div>
                             <div>
                                 <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
-                                <input name="debts[__INDEX__][balance]" type="text" inputmode="decimal"
+                                <input name="missing_debts[__INDEX__][balance]" type="text" inputmode="decimal"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                             </div>
                             <div class="missing-debt-other-wrap" style="display:none;">
                                 <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
-                                <input name="debts[__INDEX__][creditor_name]" type="text"
+                                <input name="missing_debts[__INDEX__][other_name]" type="text"
                                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
                                 <div style="margin-top:6px; font-size:12px; color:#64748b;">Can&rsquo;t find it? Choose Other.</div>
                             </div>
@@ -694,7 +694,7 @@
             </form>
             @include('portal.partials.help-cta')
             <script>
-                (function () {
+                document.addEventListener('DOMContentLoaded', function () {
                     const container = document.getElementById('missing-debts-rows');
                     const addBtn = document.getElementById('add-missing-debt-row');
                     const template = document.getElementById('missing-debt-row-template');
@@ -753,7 +753,7 @@
                     Array.from(container.querySelectorAll('.missing-debt-row')).forEach(bindRow);
                     addBtn.addEventListener('click', function () {
                         const index = container.querySelectorAll('.missing-debt-row').length;
-                        const html = template.innerHTML.replaceAll('__INDEX__', String(index));
+                        const html = template.innerHTML.split('__INDEX__').join(String(index));
                         const wrapper = document.createElement('div');
                         wrapper.innerHTML = html.trim();
                         const row = wrapper.firstElementChild;
@@ -761,7 +761,7 @@
                         container.appendChild(row);
                         bindRow(row);
                     });
-                })();
+                });
             </script>
         @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
