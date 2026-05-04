@@ -353,10 +353,12 @@ class CreditCheckV3FlowService
             return false;
         }
 
-        $pdfPayload = (array) (($bundle['pdfState'] ?? [])['payload'] ?? []);
-        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
+        $statePayload = (array) (($bundle['state'] ?? [])['payload'] ?? []);
+        $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
+        $reportPayload = (array) (($bundle['reportData'] ?? [])['payload'] ?? []);
+        $hasReportPayload = $reportPayload !== [];
 
-        return in_array($pdfStatus, ['moved_primary', 'moved_fallback'], true);
+        return $listenerFinal && $hasReportPayload;
     }
 
     /**
@@ -395,27 +397,65 @@ class CreditCheckV3FlowService
             ];
         }
 
+        $statePayload = (array) (($state['payload'] ?? []) ?: []);
+        $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
         $pdfPayload = (array) (($pdfStateResponse->json() ?? [])['payload'] ?? []);
         $pdfStatus = (string) ($pdfPayload['status'] ?? '');
-        if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback'], true)) {
+        if (! $listenerFinal) {
             return [
                 'http' => 409,
                 'payload' => [
                     'ok' => false,
-                    'message' => 'Cannot import before PDF is moved.',
+                    'message' => 'Cannot import before listener reaches final success state.',
+                    'listenerFinal' => false,
+                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
+                ],
+            ];
+        }
+
+        if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
+            return [
+                'http' => 409,
+                'payload' => [
+                    'ok' => false,
+                    'message' => 'Cannot import before PDF is saved/moved.',
                     'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
                 ],
             ];
         }
 
         $reportPayload = (array) (($reportDataResponse->json() ?? [])['payload'] ?? []);
-        $debts = is_array($reportPayload['debts'] ?? null) ? $reportPayload['debts'] : [];
-        $ccjs = is_array($reportPayload['county_court_judgments'] ?? null)
-            ? $reportPayload['county_court_judgments']
-            : [];
+        if ($reportPayload === []) {
+            return [
+                'http' => 409,
+                'payload' => [
+                    'ok' => false,
+                    'message' => 'Cannot import before report payload is available.',
+                    'listenerFinal' => true,
+                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
+                ],
+            ];
+        }
 
-        $importedDebts = $this->importDebtsFromReportData($lead, $debts);
-        $importedCcjs = $this->importCountyCourtJudgmentsFromReportData($lead, $ccjs);
+        $debts = $this->extractDebtsRows($reportPayload);
+        $ccjs = $this->extractCcjRows($reportPayload);
+
+        Log::info('credit_check_v3_import_started', [
+            'lead_id' => $lead->id,
+            'job_id' => $jobId,
+            'credit_check_job_log_id' => CreditCheckJobLog::query()->where('lead_id', $lead->id)->where('external_job_id', $jobId)->max('id'),
+            'pdf_status' => $pdfStatus,
+        ]);
+        Log::info('credit_check_v3_report_payload_counts', [
+            'lead_id' => $lead->id,
+            'job_id' => $jobId,
+            'debts_seen' => count($debts),
+            'ccjs_seen' => count($ccjs),
+            'pdf_status' => $pdfStatus,
+        ]);
+
+        $importedDebts = $this->importDebtsFromReportData($lead, $debts, $jobId, $pdfStatus);
+        $importedCcjs = $this->importCountyCourtJudgmentsFromReportData($lead, $ccjs, $jobId, $pdfStatus);
         $totalImported = $importedDebts + $importedCcjs;
 
         Log::info('Credit check v3 report import complete', [
@@ -424,6 +464,16 @@ class CreditCheckV3FlowService
             'debts_imported' => $importedDebts,
             'ccjs_imported' => $importedCcjs,
             'total_imported' => $totalImported,
+            'pdf_status' => $pdfStatus,
+        ]);
+        Log::info('credit_check_v3_import_finished', [
+            'lead_id' => $lead->id,
+            'job_id' => $jobId,
+            'credit_check_job_log_id' => CreditCheckJobLog::query()->where('lead_id', $lead->id)->where('external_job_id', $jobId)->max('id'),
+            'debts_seen' => count($debts),
+            'debts_inserted' => $importedDebts,
+            'ccjs_seen' => count($ccjs),
+            'ccjs_inserted' => $importedCcjs,
             'pdf_status' => $pdfStatus,
         ]);
 
@@ -519,7 +569,7 @@ class CreditCheckV3FlowService
     /**
      * @param array<int, array<string, mixed>> $debts
      */
-    private function importDebtsFromReportData(Lead $lead, array $debts): int
+    private function importDebtsFromReportData(Lead $lead, array $debts, string $jobId, string $pdfStatus): int
     {
         if ($debts === []) {
             return 0;
@@ -532,16 +582,19 @@ class CreditCheckV3FlowService
             $creditorName = trim((string) ($row['creditor'] ?? $row['organisation'] ?? ''));
             $balance = $this->normalizeCurrencyValue($row['balance'] ?? null);
             if ($creditorName === '' || $balance === null || $balance <= 0) {
+                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_creditor_or_balance', 'row' => $row]);
                 continue;
             }
             $creditor = $this->matchCreditorStrict($creditorName);
             if (! $creditor && ! $couldNotMatch) {
+                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'no_could_not_match_creditor_seeded', 'row' => $row]);
                 continue;
             }
             $assignedCreditor = $creditor ?: $couldNotMatch;
             $reference = $creditor ? null : ('Raw creditor: '.$creditorName);
             $dedupeKey = $assignedCreditor->id.'|'.number_format($balance, 2, '.', '').'|'.($reference ?? '');
             if (isset($seen[$dedupeKey])) {
+                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
                 continue;
             }
             $seen[$dedupeKey] = true;
@@ -559,6 +612,7 @@ class CreditCheckV3FlowService
                 })
                 ->exists();
             if ($exists) {
+                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
                 continue;
             }
 
@@ -576,6 +630,7 @@ class CreditCheckV3FlowService
                 'is_complete' => true,
             ]);
             $count++;
+            Log::info('credit_check_v3_debt_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $balance]);
         }
 
         return $count;
@@ -584,9 +639,10 @@ class CreditCheckV3FlowService
     /**
      * @param array<int, array<string, mixed>> $judgments
      */
-    private function importCountyCourtJudgmentsFromReportData(Lead $lead, array $judgments): int
+    private function importCountyCourtJudgmentsFromReportData(Lead $lead, array $judgments, string $jobId, string $pdfStatus): int
     {
         if ($judgments === []) {
+            Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_county_court_judgment_creditor']);
             return 0;
         }
         $ccjCreditor = Creditor::where('name', 'County Court Judgment')->first();
@@ -601,14 +657,17 @@ class CreditCheckV3FlowService
             $judgementDate = trim((string) ($row['judgement_date'] ?? $row['judgment_date'] ?? ''));
             $address = trim((string) ($row['address'] ?? ''));
             if ($amount === null || $amount <= 0) {
+                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_amount', 'row' => $row]);
                 continue;
             }
             $reference = trim(implode(' | ', array_filter([$caseNumber, $judgementDate, $address], fn ($v) => $v !== '')));
             if ($reference === '') {
+                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_reference_fields', 'row' => $row]);
                 continue;
             }
             $dedupeKey = number_format($amount, 2, '.', '').'|'.$reference;
             if (isset($seen[$dedupeKey])) {
+                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
                 continue;
             }
             $seen[$dedupeKey] = true;
@@ -620,6 +679,7 @@ class CreditCheckV3FlowService
                 ->where('reference', $reference)
                 ->exists();
             if ($exists) {
+                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
                 continue;
             }
 
@@ -637,9 +697,66 @@ class CreditCheckV3FlowService
                 'is_complete' => true,
             ]);
             $count++;
+            Log::info('credit_check_v3_ccj_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $amount]);
         }
 
         return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $reportPayload
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractDebtsRows(array $reportPayload): array
+    {
+        $candidates = [
+            $reportPayload['debts'] ?? null,
+            $reportPayload['accounts'] ?? null,
+            $reportPayload['credit_accounts'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_array($candidate) && $candidate !== [] && array_is_list($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $reportPayload
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractCcjRows(array $reportPayload): array
+    {
+        $publicRecords = $reportPayload['public_records'] ?? null;
+        $fromPublicRecords = [];
+        if (is_array($publicRecords) && array_is_list($publicRecords)) {
+            foreach ($publicRecords as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $type = strtolower(trim((string) ($row['type'] ?? $row['record_type'] ?? '')));
+                if (str_contains($type, 'county court') || str_contains($type, 'judgment') || str_contains($type, 'ccj')) {
+                    $fromPublicRecords[] = $row;
+                }
+            }
+        }
+
+        $candidates = [
+            $reportPayload['county_court_judgments'] ?? null,
+            $reportPayload['ccjs'] ?? null,
+            $reportPayload['judgments'] ?? null,
+            $fromPublicRecords,
+        ];
+        foreach ($candidates as $candidate) {
+            if (is_array($candidate) && $candidate !== [] && array_is_list($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return [];
     }
 
     private function normalizeCurrencyValue(mixed $value): ?float
