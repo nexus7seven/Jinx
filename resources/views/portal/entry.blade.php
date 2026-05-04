@@ -620,71 +620,40 @@
                         style="display:inline-block; margin:0 0 18px 0; padding:10px 14px; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; color:#0f172a; font-size:14px; font-weight:700; cursor:pointer;">
                     Add creditor
                 </button>
-
-                <div id="missing-debts-rows"
-                     data-creditors='@json((($creditors ?? collect())->map(fn ($c) => ["id" => (string) $c->id, "name" => $c->name])->values()->all()))'>
-                    @foreach($initialRows as $index => $row)
-                        @php
-                            $selectedCreditorId = (string) ($row['creditor_id'] ?? '');
-                            $selectedCreditor = ($creditors ?? collect())->firstWhere('id', (int) $selectedCreditorId);
-                            $selectedCreditorLabel = $selectedCreditorId === 'other'
-                                ? 'Other'
-                                : ($selectedCreditor?->name ?? '');
-                        @endphp
-                        <div class="missing-debt-row" data-row-index="{{ $index }}" style="border:1px solid #e2e8f0; border-radius:12px; padding:10px; margin-bottom:10px;">
-                            <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
-                                <div style="position:relative;">
-                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
-                                    <input type="hidden" name="missing_debts[{{ $index }}][creditor_id]" value="{{ $selectedCreditorId }}" class="missing-debt-creditor-id">
-                                    <input type="text"
-                                           value="{{ $selectedCreditorLabel }}"
-                                           class="missing-debt-creditor-search"
-                                           placeholder="Start typing creditor name..."
-                                           autocomplete="off"
-                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                    <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
-                                </div>
-                                <div>
-                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
-                                    <input name="missing_debts[{{ $index }}][balance]" type="text" inputmode="decimal"
-                                           value="{{ $row['balance'] ?? '' }}"
-                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                </div>
-                                <div class="missing-debt-other-wrap" style="{{ $selectedCreditorId === 'other' ? '' : 'display:none;' }}">
-                                    <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
-                                    <input name="missing_debts[{{ $index }}][other_name]" type="text"
-                                           value="{{ $row['creditor_name'] ?? '' }}"
-                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                    <div style="margin-top:6px; font-size:12px; color:#64748b;">Can&rsquo;t find it? Choose Other.</div>
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
+                <div style="border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:16px; background:#f8fafc;">
+                    <div style="font-weight:700; margin-bottom:8px;">Debts you&rsquo;ve added</div>
+                    <div id="missing-debts-added-list" style="display:grid; gap:8px;"></div>
+                    <div id="missing-debts-empty" style="font-size:13px; color:#64748b;">No extra debts added yet.</div>
+                    <div id="missing-debts-hidden-inputs"></div>
                 </div>
-                <template id="missing-debt-row-template">
-                    <div class="missing-debt-row" data-row-index="__INDEX__" style="border:1px solid #e2e8f0; border-radius:12px; padding:10px; margin-bottom:10px;">
-                        <div style="display:grid; grid-template-columns:1.5fr .8fr 1.2fr; gap:10px; align-items:start;">
-                            <div style="position:relative;">
-                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
-                                <input type="hidden" name="missing_debts[__INDEX__][creditor_id]" value="" class="missing-debt-creditor-id">
-                                <input type="text" value="" class="missing-debt-creditor-search" placeholder="Start typing creditor name..." autocomplete="off"
-                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                <div class="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
-                            </div>
-                            <div>
-                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
-                                <input name="missing_debts[__INDEX__][balance]" type="text" inputmode="decimal"
-                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                            </div>
-                            <div class="missing-debt-other-wrap" style="display:none;">
-                                <label style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other</label>
-                                <input name="missing_debts[__INDEX__][other_name]" type="text"
-                                       style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#ffffff; color:#0f172a;">
-                                <div style="margin-top:6px; font-size:12px; color:#64748b;">Can&rsquo;t find it? Choose Other.</div>
-                            </div>
+
+                <div id="missing-debt-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="missing-debt-modal-title"
+                     style="display:none; position:fixed; inset:0; z-index:60; background:rgba(15,23,42,.55); padding:16px;">
+                    <div style="max-width:560px; width:100%; margin:6vh auto 0; background:#fff; border-radius:14px; border:1px solid #dbeafe; padding:16px;">
+                        <h3 id="missing-debt-modal-title" style="margin:0 0 8px 0; font-size:22px;">Add missing creditor</h3>
+                        <p style="margin:0 0 10px 0; color:#475569; font-size:14px;">Start typing to search for your creditor.</p>
+                        <p style="margin:0 0 14px 0; color:#64748b; font-size:13px;">Can&rsquo;t find it? Choose Other.</p>
+                        <div style="position:relative; margin-bottom:12px;">
+                            <label for="missing-debt-creditor-search" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Creditor</label>
+                            <input id="missing-debt-creditor-search" type="text" autocomplete="off" placeholder="Start typing creditor name..."
+                                   style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#fff;">
+                            <input id="missing-debt-creditor-id" type="hidden" value="">
+                            <div id="missing-debt-creditor-results" style="display:none; position:absolute; z-index:5; top:74px; left:0; right:0; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; max-height:180px; overflow:auto; box-shadow:0 8px 18px rgba(15,23,42,.08);"></div>
+                        </div>
+                        <div style="margin-bottom:12px;">
+                            <label for="missing-debt-balance" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Balance</label>
+                            <input id="missing-debt-balance" type="text" inputmode="decimal" style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#fff;">
+                        </div>
+                        <div id="missing-debt-other-wrap" style="display:none; margin-bottom:12px;">
+                            <label for="missing-debt-other-name" style="display:block; margin-bottom:6px; font-size:14px; color:#334155;">Other creditor name</label>
+                            <input id="missing-debt-other-name" type="text" style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #cbd5e1; background:#fff;">
+                        </div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button type="button" id="missing-debt-cancel-btn" style="padding:12px 16px; border:1px solid #cbd5e1; border-radius:10px; background:#fff; font-weight:700;">Cancel</button>
+                            <button type="button" id="missing-debt-save-btn" style="padding:12px 16px; border:none; border-radius:10px; background:#1d4ed8; color:#fff; font-weight:700;">Add debt</button>
                         </div>
                     </div>
-                </template>
+                </div>
 
                 <button type="submit"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
@@ -695,16 +664,56 @@
             @include('portal.partials.help-cta')
             <script>
                 document.addEventListener('DOMContentLoaded', function () {
-                    const container = document.getElementById('missing-debts-rows');
                     const addBtn = document.getElementById('add-missing-debt-row');
-                    const template = document.getElementById('missing-debt-row-template');
-                    if (!container || !addBtn || !template) return;
-                    const creditors = JSON.parse(container.dataset.creditors || '[]');
-                    const options = creditors.concat([{id: 'other', name: 'Other'}]);
+                    const modal = document.getElementById('missing-debt-modal');
+                    const saveBtn = document.getElementById('missing-debt-save-btn');
+                    const cancelBtn = document.getElementById('missing-debt-cancel-btn');
+                    const search = document.getElementById('missing-debt-creditor-search');
+                    const creditorIdInput = document.getElementById('missing-debt-creditor-id');
+                    const results = document.getElementById('missing-debt-creditor-results');
+                    const balance = document.getElementById('missing-debt-balance');
+                    const otherWrap = document.getElementById('missing-debt-other-wrap');
+                    const otherName = document.getElementById('missing-debt-other-name');
+                    const list = document.getElementById('missing-debts-added-list');
+                    const empty = document.getElementById('missing-debts-empty');
+                    const hiddenInputs = document.getElementById('missing-debts-hidden-inputs');
+                    if (!addBtn || !modal || !saveBtn || !cancelBtn || !search || !creditorIdInput || !results || !balance || !otherWrap || !otherName || !list || !empty || !hiddenInputs) return;
 
-                    function renderResults(row, query) {
-                        const results = row.querySelector('.missing-debt-creditor-results');
-                        if (!results) return;
+                    const creditors = @json((($creditors ?? collect())->map(fn ($c) => ["id" => (string) $c->id, "name" => $c->name])->values()->all());
+                    const options = creditors.concat([{id: 'other', name: 'Other'}]);
+                    const debts = @json(array_map(function ($row) use ($creditors) {
+                        $creditorId = (string) ($row['creditor_id'] ?? '');
+                        $selectedCreditor = ($creditors ?? collect())->firstWhere('id', (int) $creditorId);
+                        return [
+                            'creditor_id' => $creditorId,
+                            'creditor_name' => $creditorId === 'other' ? 'Other' : ($selectedCreditor?->name ?? ''),
+                            'balance' => (string) ($row['balance'] ?? ''),
+                            'other_name' => (string) ($row['other_name'] ?? ($row['creditor_name'] ?? '')),
+                        ];
+                    }, $initialRows));
+                    let editIndex = null;
+
+                    function closeModal() {
+                        modal.style.display = 'none';
+                        modal.setAttribute('aria-hidden', 'true');
+                    }
+                    function openModal() {
+                        modal.style.display = 'block';
+                        modal.setAttribute('aria-hidden', 'false');
+                        search.focus();
+                    }
+                    function resetModal() {
+                        editIndex = null;
+                        creditorIdInput.value = '';
+                        search.value = '';
+                        balance.value = '';
+                        otherName.value = '';
+                        otherWrap.style.display = 'none';
+                        saveBtn.textContent = 'Add debt';
+                        results.style.display = 'none';
+                        results.innerHTML = '';
+                    }
+                    function renderResults(query) {
                         const q = (query || '').toLowerCase().trim();
                         const matches = q === '' ? options.slice(0, 8) : options.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 8);
                         if (matches.length === 0) {
@@ -716,51 +725,79 @@
                         results.style.display = 'block';
                     }
 
-                    function bindRow(row) {
-                        const search = row.querySelector('.missing-debt-creditor-search');
-                        const hidden = row.querySelector('.missing-debt-creditor-id');
-                        const results = row.querySelector('.missing-debt-creditor-results');
-                        const otherWrap = row.querySelector('.missing-debt-other-wrap');
-                        if (!search || !hidden || !results) return;
-                        const toggleOther = function () {
-                            if (!otherWrap) return;
-                            otherWrap.style.display = String(hidden.value).toLowerCase() === 'other' ? '' : 'none';
-                        };
-                        search.addEventListener('input', function () {
-                            hidden.value = '';
-                            toggleOther();
-                            renderResults(row, search.value);
+                    function renderDebts() {
+                        list.innerHTML = '';
+                        hiddenInputs.innerHTML = '';
+                        debts.forEach(function (debt, index) {
+                            const name = debt.creditor_id === 'other' ? (debt.other_name || 'Other') : debt.creditor_name;
+                            const card = document.createElement('div');
+                            card.style.cssText = 'border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#fff; display:flex; justify-content:space-between; gap:10px; align-items:center;';
+                            card.innerHTML = '<div><div style="font-weight:700; color:#0f172a;">' + name + '</div><div style="font-size:13px; color:#475569;">£' + debt.balance + '</div></div><div style="display:flex; gap:8px;"><button type="button" data-edit="' + index + '" style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">Edit</button><button type="button" data-delete="' + index + '" style="padding:8px 10px; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; background:#fff;">Delete</button></div>';
+                            list.appendChild(card);
+                            [
+                                { name: 'missing_debts[' + index + '][creditor_id]', value: debt.creditor_id },
+                                { name: 'missing_debts[' + index + '][balance]', value: debt.balance },
+                                { name: 'missing_debts[' + index + '][other_name]', value: debt.other_name || '' }
+                            ].forEach(function (field) {
+                                const input = document.createElement('input');
+                                input.type = 'hidden';
+                                input.name = field.name;
+                                input.value = field.value;
+                                hiddenInputs.appendChild(input);
+                            });
                         });
-                        search.addEventListener('focus', function () {
-                            renderResults(row, search.value);
-                        });
-                        results.addEventListener('click', function (event) {
-                            const target = event.target;
-                            if (!(target instanceof HTMLButtonElement)) return;
-                            hidden.value = target.dataset.id || '';
-                            search.value = target.dataset.name || '';
-                            results.style.display = 'none';
-                            toggleOther();
-                        });
-                        document.addEventListener('click', function (event) {
-                            if (!row.contains(event.target)) {
-                                results.style.display = 'none';
-                            }
-                        });
-                        toggleOther();
+                        empty.style.display = debts.length === 0 ? '' : 'none';
                     }
 
-                    Array.from(container.querySelectorAll('.missing-debt-row')).forEach(bindRow);
-                    addBtn.addEventListener('click', function () {
-                        const index = container.querySelectorAll('.missing-debt-row').length;
-                        const html = template.innerHTML.split('__INDEX__').join(String(index));
-                        const wrapper = document.createElement('div');
-                        wrapper.innerHTML = html.trim();
-                        const row = wrapper.firstElementChild;
-                        if (!row) return;
-                        container.appendChild(row);
-                        bindRow(row);
+                    addBtn.addEventListener('click', function () { resetModal(); openModal(); });
+                    cancelBtn.addEventListener('click', function () { closeModal(); });
+                    modal.addEventListener('click', function (event) { if (event.target === modal) closeModal(); });
+                    search.addEventListener('focus', function () { renderResults(search.value); });
+                    search.addEventListener('input', function () { creditorIdInput.value = ''; otherWrap.style.display = 'none'; renderResults(search.value); });
+                    results.addEventListener('click', function (event) {
+                        const target = event.target;
+                        if (!(target instanceof HTMLButtonElement)) return;
+                        creditorIdInput.value = target.dataset.id || '';
+                        search.value = target.dataset.name || '';
+                        results.style.display = 'none';
+                        otherWrap.style.display = creditorIdInput.value === 'other' ? '' : 'none';
                     });
+                    saveBtn.addEventListener('click', function () {
+                        const creditorId = creditorIdInput.value.trim();
+                        const creditorName = search.value.trim();
+                        const amount = balance.value.trim();
+                        const manualName = otherName.value.trim();
+                        if (!creditorId || !amount || (creditorId === 'other' && manualName === '')) return;
+                        const row = { creditor_id: creditorId, creditor_name: creditorName, balance: amount, other_name: manualName };
+                        if (editIndex === null) debts.push(row); else debts[editIndex] = row;
+                        renderDebts();
+                        closeModal();
+                    });
+                    list.addEventListener('click', function (event) {
+                        const target = event.target;
+                        if (!(target instanceof HTMLButtonElement)) return;
+                        if (target.dataset.delete !== undefined) {
+                            debts.splice(parseInt(target.dataset.delete, 10), 1);
+                            renderDebts();
+                        }
+                        if (target.dataset.edit !== undefined) {
+                            const idx = parseInt(target.dataset.edit, 10);
+                            const debt = debts[idx];
+                            if (!debt) return;
+                            editIndex = idx;
+                            creditorIdInput.value = debt.creditor_id;
+                            search.value = debt.creditor_name;
+                            balance.value = debt.balance;
+                            otherName.value = debt.other_name || '';
+                            otherWrap.style.display = debt.creditor_id === 'other' ? '' : 'none';
+                            saveBtn.textContent = 'Save changes';
+                            openModal();
+                        }
+                    });
+                    document.addEventListener('click', function (event) {
+                        if (!modal.contains(event.target) && event.target !== addBtn) results.style.display = 'none';
+                    });
+                    renderDebts();
                 });
             </script>
         @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
@@ -890,21 +927,40 @@
                 @csrf
                 @php
                     $portalWhatsAppUrl = config('services.portal.whatsapp_url');
-                    $reviewWhatsAppMessage = rawurlencode('I’d like help understanding my debts and what my options are');
+                    $reviewHasCcj = ($reviewDebts ?? collect())->contains(function ($debt): bool {
+                        $creditorName = (string) ($debt->creditor?->name ?? '');
+                        $reference = (string) ($debt->reference ?? '');
+                        return stripos($creditorName, 'County Court Judgment') !== false
+                            || stripos($reference, 'County Court Judgment') !== false
+                            || stripos($reference, 'CCJ') !== false;
+                    });
+                    if ($reviewHasCcj) {
+                        $reviewWhatsAppMessage = rawurlencode('I’ve seen I have a CCJ and I need help understanding what to do next');
+                    } elseif ((float) ($reviewDebtTotal ?? 0) >= 5000) {
+                        $reviewWhatsAppMessage = rawurlencode('I’ve just completed my debt summary and want to understand my options');
+                    } else {
+                        $reviewWhatsAppMessage = rawurlencode('I’d like some advice on my debts and what I can do next');
+                    }
                     $reviewWhatsAppUrl = blank($portalWhatsAppUrl) ? null : ($portalWhatsAppUrl.(str_contains($portalWhatsAppUrl, '?') ? '&' : '?').'text='.$reviewWhatsAppMessage);
                 @endphp
+                <div style="border:1px solid #dbeafe; border-radius:14px; padding:14px; margin:0 0 14px 0; background:#eff6ff;">
+                    <div style="font-size:15px; color:#0f172a; font-weight:700; margin-bottom:6px;">You&rsquo;ve now got a clear picture of your situation &mdash; the next step is deciding what to do about it.</div>
+                    <div style="font-size:14px; color:#334155;">This won&rsquo;t affect your credit score and there&rsquo;s no obligation.</div>
+                    @if ($reviewHasCcj)
+                        <div style="font-size:14px; color:#92400e; margin-top:6px; font-weight:700;">Because a CCJ is showing, it&rsquo;s worth speaking to us sooner rather than later so you understand your options.</div>
+                    @endif
+                </div>
                 <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
                     <button type="submit"
-                            style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                        Email my summary
+                            style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; min-width:210px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
+                        Email my full summary
                     </button>
                     @if(!blank($reviewWhatsAppUrl))
-                        <a href="{{ $reviewWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:1px solid #16a34a; border-radius:14px; background:#16a34a; color:#fff; font-size:16px; font-weight:700; text-decoration:none;">WhatsApp us about your debts</a>
+                        <a href="{{ $reviewWhatsAppUrl }}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; min-width:210px; border:1px solid #16a34a; border-radius:14px; background:#16a34a; color:#fff; font-size:16px; font-weight:700; text-decoration:none;">Talk to us about my debts</a>
                     @endif
-                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="display:inline-flex; align-items:center; justify-content:center; padding:14px 20px; min-height:50px; min-width:210px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
                 </div>
             </form>
-            <p style="margin:12px 0 0 0; font-size:14px; color:#334155;">Click below to have your summary emailed to you.</p>
             @include('portal.partials.help-cta')
         @elseif (($progress->current_step ?? 'welcome') === 'complete_pending')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
