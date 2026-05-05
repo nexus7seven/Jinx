@@ -21,7 +21,7 @@ class RemarketingScanCbnaCommand extends Command
         {--lead_id= : Optional single VICIdial lead_id}
         {--json : Output JSON rows instead of line-by-line summary}';
 
-    protected $description = 'Safely scan VICIdial CBNA leads and initialize linear remarketing progress (dry-run by default).';
+    protected $description = 'Safely scan VICIdial CBNA leads, set Lost Contact, and initialize linear remarketing progress when needed (dry-run by default).';
 
     public function handle(): int
     {
@@ -37,12 +37,13 @@ class RemarketingScanCbnaCommand extends Command
             'mode' => $dryRun ? 'dry-run' : 'commit',
             'found_cbna_count' => $candidates->count(),
             'processed' => 0,
-            'created_lead' => 0,
-            'matched_existing_lead' => 0,
-            'remarketing_started' => 0,
-            'remarketing_already_active' => 0,
-            'vicidial_moved' => 0,
-            'vicidial_would_move' => 0,
+            'created_jinx_lead' => 0,
+            'matched_existing_jinx_lead' => 0,
+            'updated_status_to_lost_contact' => 0,
+            'remarketing_started_directly' => 0,
+            'remarketing_deferred_to_lost_contact_trigger' => 0,
+            'vicidial_moved_to_HOLD_list_5555555555' => 0,
+            'vicidial_would_move_to_HOLD_list_5555555555' => 0,
             'errors' => 0,
         ];
 
@@ -51,12 +52,14 @@ class RemarketingScanCbnaCommand extends Command
             $rows[] = $this->processCandidate($candidate, $dryRun, $summary);
         }
 
+        $payload = [
+            'summary' => $summary,
+            'rows' => $rows,
+            'checklist' => $this->testingChecklist(),
+        ];
+
         if ($asJson) {
-            $this->line(json_encode([
-                'summary' => $summary,
-                'rows' => $rows,
-                'checklist' => $this->testingChecklist(),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $this->line(json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
             return self::SUCCESS;
         }
@@ -67,9 +70,12 @@ class RemarketingScanCbnaCommand extends Command
             $this->line(str_repeat('-', 80));
             $this->line('VICIdial lead_id: '.$row['vicidial_lead_id']);
             $this->line('Result: '.$row['state']);
-            $this->line('Lead action: '.$row['lead_action']);
-            $this->line('Remarketing action: '.$row['remarketing_action']);
-            $this->line('VICIdial move action: '.$row['vicidial_move_action']);
+            $this->line('created_jinx_lead: '.($row['created_jinx_lead'] ? 'true' : 'false'));
+            $this->line('matched_existing_jinx_lead: '.($row['matched_existing_jinx_lead'] ? 'true' : 'false'));
+            $this->line('updated_status_to_lost_contact: '.($row['updated_status_to_lost_contact'] ? 'true' : 'false'));
+            $this->line('remarketing_started_directly: '.($row['remarketing_started_directly'] ? 'true' : 'false'));
+            $this->line('remarketing_deferred_to_lost_contact_trigger: '.($row['remarketing_deferred_to_lost_contact_trigger'] ? 'true' : 'false'));
+            $this->line('vicidial_moved_to_HOLD_list_5555555555: '.($row['vicidial_moved_to_HOLD_list_5555555555'] ? 'true' : 'false'));
             if ($row['note'] !== null) {
                 $this->line('Note: '.$row['note']);
             }
@@ -79,15 +85,8 @@ class RemarketingScanCbnaCommand extends Command
         }
 
         $this->newLine();
-        $this->line('Processed: '.$summary['processed']);
-        $this->line('Created lead: '.$summary['created_lead']);
-        $this->line('Matched existing lead: '.$summary['matched_existing_lead']);
-        $this->line('Remarketing started: '.$summary['remarketing_started']);
-        $this->line('Remarketing already active/stopped/completed: '.$summary['remarketing_already_active']);
-        $this->line('VICIdial moved to HOLD/list 5555555555: '.$summary['vicidial_moved']);
-        $this->line('VICIdial would move (dry-run): '.$summary['vicidial_would_move']);
-        if ($summary['errors'] > 0) {
-            $this->warn('Errors: '.$summary['errors']);
+        foreach (array_diff_key($summary, array_flip(['mode', 'found_cbna_count'])) as $key => $value) {
+            $this->line($key.': '.$value);
         }
 
         $this->newLine();
@@ -105,82 +104,69 @@ class RemarketingScanCbnaCommand extends Command
         $row = [
             'vicidial_lead_id' => $vicidialLeadId,
             'state' => 'unknown',
-            'lead_action' => 'none',
-            'remarketing_action' => 'none',
-            'vicidial_move_action' => 'none',
+            'created_jinx_lead' => false,
+            'matched_existing_jinx_lead' => false,
+            'updated_status_to_lost_contact' => false,
+            'remarketing_started_directly' => false,
+            'remarketing_deferred_to_lost_contact_trigger' => false,
+            'vicidial_moved_to_HOLD_list_5555555555' => false,
             'note' => null,
             'error' => null,
         ];
 
         try {
             $phone = $this->normalizeUkTo44Digits((string) ($candidate->phone_number ?? ''));
-            $lead = $this->findExistingLead($vicidialLeadId, $phone);
+            [$lead, $matchedByPhone] = $this->findExistingLead($vicidialLeadId, $phone);
             $hadProgress = $this->hasProgressForVicidialLeadId($vicidialLeadId);
 
             if ($lead === null) {
-                $summary['created_lead']++;
-                $row['lead_action'] = $dryRun ? 'would_create' : 'created';
+                $summary['created_jinx_lead']++;
+                $row['created_jinx_lead'] = true;
             } else {
-                $summary['matched_existing_lead']++;
-                $row['lead_action'] = 'matched_existing#'.$lead->id;
-            }
-
-            if ($hadProgress) {
-                $summary['remarketing_already_active']++;
-                $row['state'] = $dryRun ? 'would_already_progress_but_move' : 'already_progress_but_moved';
-                $row['remarketing_action'] = 'matched_existing_with_progress';
-
-                if ($dryRun) {
-                    $summary['vicidial_would_move']++;
-                    $row['vicidial_move_action'] = 'would_move_to_HOLD_list_5555555555';
-                    return $row;
-                }
-
-                $moved = $this->moveVicidialRow($vicidialLeadId);
-                if ($moved) {
-                    $summary['vicidial_moved']++;
-                    $row['vicidial_move_action'] = 'moved_to_HOLD_list_5555555555';
-                } else {
-                    $row['vicidial_move_action'] = 'not_moved_row_changed_or_missing';
-                }
-
-                return $row;
+                $summary['matched_existing_jinx_lead']++;
+                $row['matched_existing_jinx_lead'] = true;
             }
 
             if ($dryRun) {
-                $summary['remarketing_started']++;
-                $summary['vicidial_would_move']++;
-                $row['state'] = $lead === null ? 'created_and_started' : 'updated_and_started';
-                $row['remarketing_action'] = 'would_start';
-                $row['vicidial_move_action'] = 'would_move_to_HOLD_list_5555555555';
+                $summary['updated_status_to_lost_contact']++;
+                $row['updated_status_to_lost_contact'] = true;
+
+                if (! $hadProgress) {
+                    $summary['remarketing_started_directly']++;
+                    $row['remarketing_started_directly'] = true;
+                }
+
+                $summary['vicidial_would_move_to_HOLD_list_5555555555']++;
+                $row['vicidial_moved_to_HOLD_list_5555555555'] = true;
+                $row['state'] = 'would_apply';
+                $row['note'] = $matchedByPhone ? 'matched_by_phone_would_backfill_vicidial_lead_id_if_safe' : null;
+
                 return $row;
             }
 
             if ($lead === null) {
-                $lead = Lead::query()->create($this->buildLeadPayload($candidate, $vicidialLeadId, false));
-                $row['lead_action'] = 'created#'.$lead->id;
+                $lead = Lead::query()->create($this->buildLeadPayload($candidate, $vicidialLeadId, false, null));
             } else {
-                $lead->update($this->buildLeadPayload($candidate, $vicidialLeadId, true));
-                $row['lead_action'] = 'updated#'.$lead->id;
+                $lead->update($this->buildLeadPayload($candidate, $vicidialLeadId, true, $lead));
             }
 
-            if (! $this->hasProgressForVicidialLeadId($vicidialLeadId)) {
+            $summary['updated_status_to_lost_contact']++;
+            $row['updated_status_to_lost_contact'] = true;
+
+            if (! $hadProgress && ! $this->hasProgressForVicidialLeadId($vicidialLeadId)) {
                 LeadRemarketingProgress::query()->create($this->buildProgressPayload($vicidialLeadId));
+                $summary['remarketing_started_directly']++;
+                $row['remarketing_started_directly'] = true;
             }
 
-            $summary['remarketing_started']++;
             $moved = $this->moveVicidialRow($vicidialLeadId);
             if ($moved) {
-                $summary['vicidial_moved']++;
-                $row['vicidial_move_action'] = 'moved_to_HOLD_list_5555555555';
-            } else {
-                $row['vicidial_move_action'] = 'not_moved_row_changed_or_missing';
+                $summary['vicidial_moved_to_HOLD_list_5555555555']++;
+                $row['vicidial_moved_to_HOLD_list_5555555555'] = true;
             }
 
-            $row['state'] = $row['lead_action'] !== '' && str_starts_with($row['lead_action'], 'created#')
-                ? 'created_and_started'
-                : 'updated_and_started';
-            $row['remarketing_action'] = 'started';
+            $row['state'] = 'applied';
+            $row['note'] = $matchedByPhone ? 'matched_by_phone_backfilled_vicidial_lead_id_if_safe' : null;
 
             return $row;
         } catch (\Throwable $e) {
@@ -220,11 +206,11 @@ class RemarketingScanCbnaCommand extends Command
         return LeadRemarketingProgress::query()->where('lead_id', $vicidialLeadId)->exists();
     }
 
-    private function findExistingLead(int $vicidialLeadId, ?string $phone44Digits): ?Lead
+    private function findExistingLead(int $vicidialLeadId, ?string $phone44Digits): array
     {
         $lead = Lead::query()->where('vicidial_lead_id', $vicidialLeadId)->first();
         if ($lead !== null) {
-            return $lead;
+            return [$lead, false];
         }
 
         if ($phone44Digits !== null) {
@@ -234,34 +220,36 @@ class RemarketingScanCbnaCommand extends Command
                 ->first(fn (Lead $row): bool => $this->normalizeUkTo44Digits((string) $row->phone_number) === $phone44Digits);
 
             if ($byPhone !== null) {
-                return Lead::query()->find($byPhone->id);
+                return [Lead::query()->find($byPhone->id), true];
             }
         }
 
-        return null;
+        return [null, false];
     }
 
-    private function buildLeadPayload(object $candidate, int $vicidialLeadId, bool $updateOnly): array
+    private function buildLeadPayload(object $candidate, int $vicidialLeadId, bool $updateOnly, ?Lead $existingLead): array
     {
-        $payload = [
-            'vicidial_lead_id' => (string) $vicidialLeadId,
-        ];
+        $payload = ['wip_status' => 'Lost Contact'];
+
+        if (! $updateOnly || $existingLead?->vicidial_lead_id === null || $existingLead?->vicidial_lead_id === '') {
+            $payload['vicidial_lead_id'] = (string) $vicidialLeadId;
+        }
 
         $phone44Digits = $this->normalizeUkTo44Digits((string) ($candidate->phone_number ?? ''));
         $firstName = trim((string) ($candidate->first_name ?? ''));
         $lastName = trim((string) ($candidate->last_name ?? ''));
         $email = $this->extractCandidateEmail($candidate);
 
-        if (! $updateOnly || $phone44Digits !== null) {
+        if ($phone44Digits !== null) {
             $payload['phone_number'] = $phone44Digits;
         }
-        if (! $updateOnly || $firstName !== '') {
-            $payload['first_name'] = $firstName !== '' ? $firstName : null;
+        if ($firstName !== '') {
+            $payload['first_name'] = $firstName;
         }
-        if (! $updateOnly || $lastName !== '') {
-            $payload['last_name'] = $lastName !== '' ? $lastName : null;
+        if ($lastName !== '') {
+            $payload['last_name'] = $lastName;
         }
-        if (! $updateOnly || $email !== null) {
+        if ($email !== null) {
             $payload['email'] = $email;
         }
 
@@ -334,11 +322,11 @@ class RemarketingScanCbnaCommand extends Command
     private function testingChecklist(): array
     {
         return [
-            'Run dry-run first (no --commit) and verify found/match/start counts.',
+            'Run dry-run first (no --commit) and verify Lost Contact + move flags.',
             'Run with --lead_id=<id> to validate one lead safely.',
             'Run with --commit and confirm VICIdial row moved to HOLD/list 5555555555.',
             'Run command again for same lead and verify no duplicate active progress is created.',
-            'Run remarketing:linear-execute separately to send due steps.',
+            'Run remarketing:linear-execute separately to process due steps.',
         ];
     }
 }
