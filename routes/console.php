@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 use App\Models\LocalBrowserJob;
 
 Artisan::command('inspire', function () {
@@ -128,3 +129,19 @@ Artisan::command('local-worker:dispatch-transunion-submit-probe {url?}', functio
 
     $this->info('Queued transunion submit probe local job #'.$job->id);
 })->purpose('Create one queued transunion submit probe local worker job');
+
+Schedule::command('remarketing:scan-inbound-call-responses --limit=100')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::command('remarketing:scan-cbna --commit --limit=50')
+    ->when(fn () => env('REMARKETING_CBNA_SCANNER_ENABLED', false))
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/remarketing-cbna-scan.log'));
+
+Schedule::command('remarketing:linear-execute --commit --limit=50')
+    ->when(fn () => env('REMARKETING_LINEAR_EXECUTOR_ENABLED', false))
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/remarketing-linear-execute.log'));
