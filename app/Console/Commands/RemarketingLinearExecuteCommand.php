@@ -1007,53 +1007,16 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         $template = $currentStep->template;
+        $templateMetadata = (array) ($template?->metadata_json ?? []);
+        $templateVariablesJson = (array) ($template?->variables_json ?? []);
+        $provider = strtolower(trim((string) ($template?->provider ?? $plannedDelivery['provider'] ?? 'sendgrid')));
+        $providerTemplateId = trim((string) ($template?->provider_template_id ?? $plannedDelivery['provider_template_id'] ?? ''));
+        $emailSendMode = ($provider === 'sendgrid' && $providerTemplateId !== '') ? 'dynamic_template' : 'body';
         $subjectTemplate = trim((string) ($template?->subject ?? ''));
         $bodyTemplate = trim((string) ($template?->body ?? ''));
-        if (($plannedDelivery['provider'] ?? null) === 'sendgrid'
-            && (($plannedDelivery['provider_template_id'] ?? null) === null)
-            && $bodyTemplate === '') {
-            $error = 'pending_template';
-            $this->createStepLog(
-                progress: $progress,
-                currentStep: $currentStep,
-                payload: [
-                    'medium' => $currentStep->medium,
-                    'status' => 'skipped',
-                    'execution_status' => 'skipped_pending_template',
-                    'due_at' => $dueAt,
-                    'executed_at' => $now->copy(),
-                    'started_at' => $now->copy(),
-                    'completed_at' => null,
-                    'failed_at' => null,
-                    'provider' => 'sendgrid',
-                    'provider_message_id' => null,
-                    'error_message' => $error,
-                    'execution_error' => $error,
-                    'created_task_id' => null,
-                    'context_json' => [
-                        'mode' => 'commit_send_email',
-                        'execution_action' => $executionAction,
-                        'note' => 'email step skipped because provider template is pending',
-                    ],
-                    'metadata_json' => [],
-                ],
-                plannedDelivery: $plannedDelivery,
-                actualDelivery: $actualDelivery
-            );
 
-            return [
-                'committed' => true,
-                'advanced' => false,
-                'email_action' => 'skipped',
-                'email_to' => $emailTo,
-                'provider_message_id' => null,
-                'error_message' => $error,
-                'commit_action' => 'skipped_pending_template_no_advance',
-            ];
-        }
-
-        if ($bodyTemplate === '') {
-            $error = 'Email template body is empty for step.';
+        if ($emailSendMode === 'body' && $bodyTemplate === '') {
+            $error = 'email_template_missing_body_and_provider_template_id';
             $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, $emailTo, $error, $plannedDelivery, $actualDelivery);
 
             return [
@@ -1067,14 +1030,27 @@ class RemarketingLinearExecuteCommand extends Command
             ];
         }
 
-        $templateVariables = $this->resolveTemplateVariables((int) $progress->lead_id, $leadData);
+        $templateVariables = array_merge(
+            $templateVariablesJson,
+            $this->resolveTemplateVariables((int) $progress->lead_id, $leadData, $currentStep, $templateMetadata),
+            $templateMetadata
+        );
         $subject = $subjectTemplate !== ''
             ? $this->renderTemplateBody($subjectTemplate, $templateVariables)
             : (string) ($template?->template_name ?? 'Remarketing update');
-        $body = $this->renderTemplateBody($bodyTemplate, $templateVariables);
+        $body = $bodyTemplate !== '' ? $this->renderTemplateBody($bodyTemplate, $templateVariables) : '';
 
-        $firstName = (string) ($leadData['first_name'] ?? '');
-        $sendResult = $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body);
+        $firstName = (string) ($templateVariables['first_name'] ?? $leadData['first_name'] ?? '');
+        $sendResult = $emailSendMode === 'dynamic_template'
+            ? $this->sendDynamicTemplateEmailViaSendGrid(
+                $emailTo,
+                $firstName,
+                $providerTemplateId,
+                $templateVariables,
+                $subject,
+                (string) ($templateMetadata['from_name'] ?? '')
+            )
+            : $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body, (string) ($templateMetadata['from_name'] ?? ''));
         if (! $sendResult['success']) {
             $this->logFailedEmailStep(
                 $progress,
@@ -1101,6 +1077,7 @@ class RemarketingLinearExecuteCommand extends Command
 
         $providerMessageId = $sendResult['provider_message_id'] ?? null;
         $fromEmail = (string) (config('mail.from.address') ?? env('EMAIL_FROM'));
+        $emailTemplateKey = (string) ($template?->template_key ?? $actualDelivery['actual_template_key'] ?? $plannedDelivery['planned_template_key'] ?? '');
 
         return DB::transaction(function () use (
             $progress,
@@ -1113,7 +1090,11 @@ class RemarketingLinearExecuteCommand extends Command
             $providerMessageId,
             $fromEmail,
             $plannedDelivery,
-            $actualDelivery
+            $actualDelivery,
+            $providerTemplateId,
+            $provider,
+            $emailSendMode,
+            $emailTemplateKey
         ): array {
             $this->createStepLog(
                 progress: $progress,
@@ -1127,7 +1108,8 @@ class RemarketingLinearExecuteCommand extends Command
                     'started_at' => $now->copy(),
                     'completed_at' => $now->copy(),
                     'failed_at' => null,
-                    'provider' => 'sendgrid',
+                    'provider' => $provider !== '' ? $provider : 'sendgrid',
+                    'provider_template_id' => $providerTemplateId !== '' ? $providerTemplateId : null,
                     'provider_message_id' => $providerMessageId,
                     'error_message' => null,
                     'execution_error' => null,
@@ -1137,6 +1119,11 @@ class RemarketingLinearExecuteCommand extends Command
                         'to' => $emailTo,
                         'from' => $fromEmail,
                         'execution_action' => $executionAction,
+                        'email_send_mode' => $emailSendMode,
+                        'email_provider' => $provider !== '' ? $provider : 'sendgrid',
+                        'email_provider_template_id' => $providerTemplateId !== '' ? $providerTemplateId : null,
+                        'email_to' => $emailTo,
+                        'email_template_key' => $emailTemplateKey !== '' ? $emailTemplateKey : null,
                     ],
                     'metadata_json' => [],
                 ],
@@ -1555,11 +1542,11 @@ class RemarketingLinearExecuteCommand extends Command
         return rtrim($cleanBody);
     }
 
-    private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body): array
+    private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body, ?string $fromNameOverride = null): array
     {
         $apiKey = (string) (config('services.sendgrid.api_key') ?? env('SENDGRID_API_KEY'));
         $fromEmail = trim((string) (config('mail.from.address') ?? env('EMAIL_FROM')));
-        $fromName = trim((string) (config('mail.from.name') ?? env('EMAIL_FROM_NAME')));
+        $fromName = trim((string) ($fromNameOverride ?: (config('mail.from.name') ?? env('EMAIL_FROM_NAME'))));
 
         if ($apiKey === '' || $fromEmail === '' || ! filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
             return [
@@ -1606,6 +1593,55 @@ class RemarketingLinearExecuteCommand extends Command
                 'success' => false,
                 'error' => $e->getMessage(),
             ];
+        }
+    }
+
+    private function sendDynamicTemplateEmailViaSendGrid(
+        string $toEmail,
+        string $toName,
+        string $providerTemplateId,
+        array $templateVariables,
+        ?string $subject = null,
+        ?string $fromNameOverride = null
+    ): array {
+        $apiKey = (string) (config('services.sendgrid.api_key') ?? env('SENDGRID_API_KEY'));
+        $fromEmail = trim((string) (config('mail.from.address') ?? env('EMAIL_FROM')));
+        $fromName = trim((string) ($fromNameOverride ?: (config('mail.from.name') ?? env('EMAIL_FROM_NAME'))));
+
+        if ($apiKey === '' || $fromEmail === '' || ! filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'error' => 'Invalid SendGrid/email from configuration.'];
+        }
+        if ($providerTemplateId === '') {
+            return ['success' => false, 'error' => 'Missing provider_template_id for SendGrid dynamic template send.'];
+        }
+
+        $payload = [
+            'personalizations' => [[
+                'to' => [[
+                    'email' => $toEmail,
+                    'name' => $toName !== '' ? $toName : null,
+                ]],
+                'dynamic_template_data' => $templateVariables,
+            ]],
+            'from' => ['email' => $fromEmail, 'name' => $fromName !== '' ? $fromName : null],
+            'template_id' => $providerTemplateId,
+        ];
+        if ($subject !== null && trim($subject) !== '') {
+            $payload['subject'] = $subject;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer '.$apiKey,
+                'Content-Type' => 'application/json',
+            ])->post('https://api.sendgrid.com/v3/mail/send', $payload);
+            if (! in_array($response->status(), [200, 201, 202], true)) {
+                return ['success' => false, 'error' => 'SendGrid error: '.$response->status().' '.$response->body()];
+            }
+
+            return ['success' => true, 'provider_message_id' => $response->header('X-Message-Id')];
+        } catch (Throwable $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
         }
     }
 
@@ -1824,7 +1860,12 @@ class RemarketingLinearExecuteCommand extends Command
         return null;
     }
 
-    private function resolveTemplateVariables(int $jinxLeadId, array $fallback = []): array
+    private function resolveTemplateVariables(
+        int $jinxLeadId,
+        array $fallback = [],
+        ?RemarketingStep $currentStep = null,
+        array $templateMetadata = []
+    ): array
     {
         $leadFirstName = '';
         $leadLastName = '';
@@ -1871,6 +1912,12 @@ class RemarketingLinearExecuteCommand extends Command
             $vicidialLastName = trim((string) ($vicidial->last_name ?? ''));
         }
 
+        $whatsappNumber = trim((string) ($templateMetadata['whatsapp_number'] ?? self::MANUAL_TASK_WHATSAPP_NUMBER));
+        $clickToCallDisplay = trim((string) ($templateMetadata['click_to_call_display'] ?? '+44 161 768 5416'));
+        $clickToCallTel = trim((string) ($templateMetadata['click_to_call_tel'] ?? $whatsappNumber));
+        $journeyLabel = trim((string) ($templateMetadata['journey_label'] ?? $currentStep?->journey_key ?? ''));
+        $flowKey = trim((string) ($templateMetadata['flow_key'] ?? $currentStep?->flow_key ?? ''));
+
         return [
             'first_name' => $leadFirstName !== '' ? $leadFirstName : (string) ($fallback['first_name'] ?? $vicidialFirstName),
             'last_name' => $leadLastName !== '' ? $leadLastName : (string) ($fallback['last_name'] ?? $vicidialLastName),
@@ -1879,6 +1926,11 @@ class RemarketingLinearExecuteCommand extends Command
             'company_name' => self::DEFAULT_COMPANY_NAME,
             'whatsapp_link' => self::WHATSAPP_LINK,
             'portal_link' => self::DEFAULT_PORTAL_LINK,
+            'click_to_call_display' => $clickToCallDisplay,
+            'click_to_call_tel' => $clickToCallTel,
+            'journey_label' => $journeyLabel,
+            'flow_key' => $flowKey,
+            'whatsapp_number' => $whatsappNumber,
         ];
     }
 
