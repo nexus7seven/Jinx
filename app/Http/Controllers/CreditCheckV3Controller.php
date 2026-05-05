@@ -91,6 +91,13 @@ class CreditCheckV3Controller extends Controller
      */
     private function maybePanelAutoImport(Lead $lead, CreditCheckJobLog $log, array $bundle): void
     {
+        Log::info('credit_check_v3_panel_auto_import_check', [
+            'lead_id' => $lead->id,
+            'job_id' => (string) $log->external_job_id,
+            'log_id' => $log->id,
+            'log_status' => $log->status,
+        ]);
+
         if (! $this->creditCheckV3FlowService->shouldAttemptImportFromBundle($log, $bundle)) {
             return;
         }
