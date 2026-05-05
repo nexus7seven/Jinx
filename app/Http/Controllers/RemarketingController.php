@@ -10,6 +10,7 @@ use App\Models\RemarketingTask;
 use App\Services\RemarketingCallbackService;
 use App\Services\RemarketingScheduleWindowService;
 use App\Services\RemarketingTaskService;
+use App\Services\LeadPortalLinkService;
 use App\Services\VicidialDispositionService;
 use App\Support\LeadSourceDisplay;
 use Carbon\Carbon;
@@ -39,6 +40,7 @@ class RemarketingController extends Controller
         private RemarketingTaskService $remarketingTaskService,
         private VicidialDispositionService $vicidialDispositionService,
         private RemarketingScheduleWindowService $scheduleWindowService,
+        private LeadPortalLinkService $leadPortalLinkService,
     ) {
     }
 
@@ -175,12 +177,17 @@ class RemarketingController extends Controller
                     $templateBody = trim((string) ($nextStep->template?->body ?? ''));
 
                     if ($templateBody !== '') {
+                        $portalLink = '#PORTAL_LINK_PENDING#';
+                        if ($lead !== null) {
+                            $portalLink = (string) ($this->leadPortalLinkService->generateForLead($lead)['portal_url'] ?? $portalLink);
+                        }
+
                         $renderedBody = str_replace(
                             ['{{first_name}}', '{{lead_id}}', '{{portal_link}}'],
                             [
                                 (string) ($lead?->first_name ?? ''),
                                 (string) $progress->lead_id,
-                                (string) config('app.url'),
+                                $portalLink,
                             ],
                             $templateBody
                         );
@@ -842,4 +849,4 @@ class RemarketingController extends Controller
         }
     }
 }
-\n
+

@@ -10,6 +10,7 @@ use App\Models\RemarketingStep;
 use App\Models\RemarketingTemplate;
 use App\Models\RemarketingTask;
 use App\Services\RemarketingScheduleWindowService;
+use App\Services\LeadPortalLinkService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Console\Command;
@@ -45,7 +46,8 @@ class RemarketingLinearExecuteCommand extends Command
     public function __construct(
         private readonly RemarketingLinearBrainPreviewCommand $previewCommand,
         private readonly RemarketingScheduleWindowService $scheduleWindowService,
-        private readonly RemarketingTaskService $remarketingTaskService
+        private readonly RemarketingTaskService $remarketingTaskService,
+        private readonly LeadPortalLinkService $leadPortalLinkService
     ) {
         parent::__construct();
     }
@@ -1961,6 +1963,8 @@ class RemarketingLinearExecuteCommand extends Command
         $journeyLabel = trim((string) ($templateMetadata['journey_label'] ?? $currentStep?->journey_key ?? ''));
         $flowKey = trim((string) ($templateMetadata['flow_key'] ?? $currentStep?->flow_key ?? ''));
 
+        $portalContext = $this->resolvePortalLinkContext($jinxLeadId, $vicidialLeadId);
+
         return [
             'first_name' => $leadFirstName !== '' ? $leadFirstName : (string) ($fallback['first_name'] ?? $vicidialFirstName),
             'last_name' => $leadLastName !== '' ? $leadLastName : (string) ($fallback['last_name'] ?? $vicidialLastName),
@@ -1968,13 +1972,50 @@ class RemarketingLinearExecuteCommand extends Command
             'agent_name' => self::DEFAULT_AGENT_NAME,
             'company_name' => self::DEFAULT_COMPANY_NAME,
             'whatsapp_link' => self::WHATSAPP_LINK,
-            'portal_link' => self::DEFAULT_PORTAL_LINK,
+            'portal_link' => $portalContext['portal_link'],
+            'portal_link_generated' => $portalContext['portal_link_generated'],
+            'portal_token_id' => $portalContext['portal_token_id'],
+            'portal_link_error' => $portalContext['portal_link_error'],
+            'resolved_jinx_lead_id' => $portalContext['resolved_jinx_lead_id'],
+            'resolved_vicidial_lead_id' => $portalContext['resolved_vicidial_lead_id'],
             'click_to_call_display' => $clickToCallDisplay,
             'click_to_call_tel' => $clickToCallTel,
             'journey_label' => $journeyLabel,
             'flow_key' => $flowKey,
             'whatsapp_number' => $whatsappNumber,
         ];
+    }
+
+    private function resolvePortalLinkContext(int $jinxLeadId, ?int $vicidialLeadId): array
+    {
+        $lead = Lead::query()->find($jinxLeadId);
+        if (! $lead) {
+            $context = [
+                'portal_link_generated' => false,
+                'portal_link' => self::DEFAULT_PORTAL_LINK,
+                'portal_token_id' => null,
+                'portal_link_error' => 'portal_link_unavailable_lead_not_resolved',
+                'resolved_jinx_lead_id' => null,
+                'resolved_vicidial_lead_id' => $vicidialLeadId,
+            ];
+            Log::warning('[remarketing-linear] portal link unavailable', $context);
+
+            return $context;
+        }
+
+        $generated = $this->leadPortalLinkService->generateForLead($lead);
+        $context = [
+            'portal_link_generated' => true,
+            'portal_link' => (string) ($generated['portal_url'] ?? self::DEFAULT_PORTAL_LINK),
+            'portal_token_id' => $generated['portal_token']->id ?? null,
+            'portal_link_error' => null,
+            'resolved_jinx_lead_id' => (int) $lead->id,
+            'resolved_vicidial_lead_id' => $vicidialLeadId ?? (int) ($lead->vicidial_lead_id ?? 0),
+        ];
+
+        Log::debug('[remarketing-linear] portal link resolved', $context);
+
+        return $context;
     }
 
     private function resolveExecutionAction(string $progressStatus, ?RemarketingStep $nextStep, bool $isDueNow, ?array $actualDelivery = null): string
