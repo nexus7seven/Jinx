@@ -468,8 +468,14 @@ class RemarketingController extends Controller
 
             if ($toStatus === RemarketingTask::STATUS_COMPLETED && $task->task_type === 'call') {
                 $linkedLog = $this->completeLinkedManualStepLog($task);
-                $this->advanceProgressForCompletedManualTask($linkedLog);
-                $this->remarketingStepTwoAfterCallCompleted($task);
+
+                if ($linkedLog) {
+                    // Linear remarketing flow → advance progress only
+                    $this->advanceProgressForCompletedManualTask($linkedLog);
+                } else {
+                    // Legacy flow → run old follow-up logic
+                    $this->remarketingStepTwoAfterCallCompleted($task);
+                }
             }
         }
 
@@ -836,3 +842,4 @@ class RemarketingController extends Controller
         }
     }
 }
+\n
