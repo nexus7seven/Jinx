@@ -271,6 +271,8 @@ class CreditCheckV3FlowService
                 $this->jobLogService->appendRawSnapshot($log, 'panel_poll', $bundle);
                 $this->jobLogService->syncFromListenerBundle($log->fresh(), $bundle);
                 $log->refresh();
+                $this->cacheUsefulReportPayloadIfPresent($log, $bundle);
+                $log->refresh();
 
                 if ($afterSync !== null) {
                     $afterSync($lead, $log, $bundle);
@@ -342,17 +344,72 @@ class CreditCheckV3FlowService
         ];
     }
 
+    /**
+     * @param array<string, mixed> $reportPayload
+     */
+    private function isUsefulReportPayload(array $reportPayload): bool
+    {
+        foreach (['debts', 'accounts', 'credit_accounts', 'county_court_judgments', 'ccjs', 'judgments', 'public_records'] as $key) {
+            if (array_key_exists($key, $reportPayload)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $bundle
+     */
+    private function cacheUsefulReportPayloadIfPresent(CreditCheckJobLog $log, array $bundle): void
+    {
+        $reportPayload = $this->extractListenerPayload((array) ($bundle['reportData'] ?? []));
+        if (! $this->isUsefulReportPayload($reportPayload)) {
+            if ($reportPayload !== []) {
+                Log::info('credit_check_v3_current_report_payload_unusable', [
+                    'lead_id' => $log->lead_id,
+                    'job_id' => $log->external_job_id,
+                    'log_id' => $log->id,
+                    'keys' => array_keys($reportPayload),
+                ]);
+            }
+
+            return;
+        }
+
+        $rj = is_array($log->result_json) ? $log->result_json : [];
+        $rj['cached_report_payload'] = $reportPayload;
+        $rj['last_report_payload'] = $reportPayload;
+        $log->update(['result_json' => $rj]);
+
+        Log::info('credit_check_v3_cached_report_payload', [
+            'lead_id' => $log->lead_id,
+            'job_id' => $log->external_job_id,
+            'log_id' => $log->id,
+            'keys' => array_keys($reportPayload),
+            'debts_count' => count($this->extractDebtsRows($reportPayload)),
+            'ccjs_count' => count($this->extractCcjRows($reportPayload)),
+        ]);
+    }
+
     public function shouldAttemptImportFromBundle(CreditCheckJobLog $log, array $bundle): bool
     {
         $result = is_array($log->result_json) ? $log->result_json : [];
         $stateRoot = (array) ($bundle['state'] ?? []);
         $statePayload = $this->extractListenerPayload($stateRoot);
-        $listenerSuccess = (bool) ($statePayload['success'] ?? false);
-        $listenerFinal = $listenerSuccess || ! empty($statePayload['final']);
-        $listenerStatus = (string) ($statePayload['status'] ?? ($stateRoot['status'] ?? ''));
+        $listenerStatus = strtolower((string) ($statePayload['status'] ?? ($stateRoot['status'] ?? '')));
+        $listenerSuccess = (bool) ($statePayload['success'] ?? $stateRoot['success'] ?? false)
+            || in_array($listenerStatus, ['success', 'completed'], true)
+            || $log->status === CreditCheckJobLog::STATUS_SUCCESS;
+        $listenerFinal = $listenerSuccess
+            || (bool) ($statePayload['final'] ?? $stateRoot['final'] ?? false)
+            || in_array($listenerStatus, ['success', 'completed'], true);
         $reportPayload = $this->extractListenerPayload((array) ($bundle['reportData'] ?? []));
-        $hasReportPayload = $reportPayload !== [];
-        $reportPayloadKeys = array_keys($reportPayload);
+        $reportPayloadIsUseful = $this->isUsefulReportPayload($reportPayload);
+        $cachedReportPayload = is_array($result['cached_report_payload'] ?? null) ? $result['cached_report_payload'] : [];
+        $hasCachedReportPayload = $this->isUsefulReportPayload($cachedReportPayload);
+        $hasReportPayload = $reportPayloadIsUseful || $hasCachedReportPayload;
+        $reportPayloadKeys = array_keys($reportPayloadIsUseful ? $reportPayload : ($hasCachedReportPayload ? $cachedReportPayload : []));
         $pdfPayload = $this->extractListenerPayload((array) ($bundle['pdfState'] ?? []));
         $pdfStatus = (string) ($pdfPayload['status'] ?? '');
 
@@ -370,6 +427,7 @@ class CreditCheckV3FlowService
             'listener_success' => $listenerSuccess,
             'listener_status' => $listenerStatus,
             'has_report_payload' => $hasReportPayload,
+            'report_payload_source' => $reportPayloadIsUseful ? 'current' : ($hasCachedReportPayload ? 'cached' : 'none'),
             'report_payload_keys' => $reportPayloadKeys,
             'pdf_status' => $pdfStatus,
         ];
@@ -455,6 +513,7 @@ class CreditCheckV3FlowService
         $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
         $pdfPayload = $this->extractListenerPayload((array) ($pdfStateResponse->json() ?? []));
         $pdfStatus = (string) ($pdfPayload['status'] ?? '');
+        $rj = $localLog && is_array($localLog->result_json) ? $localLog->result_json : [];
         if (! $listenerFinal) {
             return [
                 'http' => 409,
@@ -465,6 +524,24 @@ class CreditCheckV3FlowService
                     'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
                 ],
             ];
+        }
+
+        if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
+            $cachedPdf = is_array($rj['import_result']['pdf'] ?? null) ? $rj['import_result']['pdf'] : [];
+            $cachedPdfStatus = (string) ($cachedPdf['status'] ?? '');
+            if (in_array($cachedPdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
+                $pdfStatus = $cachedPdfStatus;
+                if (($pdfPayload['savedPath'] ?? null) === null && isset($cachedPdf['savedPath'])) {
+                    $pdfPayload['savedPath'] = $cachedPdf['savedPath'];
+                }
+            } elseif ($localLog && $localLog->status === CreditCheckJobLog::STATUS_SUCCESS) {
+                Log::warning('credit_check_v3_pdf_state_missing_after_success', [
+                    'lead_id' => $lead->id,
+                    'job_id' => $jobId,
+                    'log_id' => $localLog->id,
+                    'pdf_status' => $pdfStatus,
+                ]);
+            }
         }
 
         if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
@@ -479,7 +556,19 @@ class CreditCheckV3FlowService
         }
 
         $reportPayload = $this->extractListenerPayload((array) ($reportDataResponse->json() ?? []));
-        if ($reportPayload === []) {
+        if (! $this->isUsefulReportPayload($reportPayload)) {
+            $cachedReportPayload = is_array($rj['cached_report_payload'] ?? null) ? $rj['cached_report_payload'] : [];
+            if ($this->isUsefulReportPayload($cachedReportPayload)) {
+                $reportPayload = $cachedReportPayload;
+                Log::info('credit_check_v3_using_cached_report_payload', [
+                    'lead_id' => $lead->id,
+                    'job_id' => $jobId,
+                    'log_id' => $localLog?->id,
+                    'keys' => array_keys($reportPayload),
+                ]);
+            }
+        }
+        if (! $this->isUsefulReportPayload($reportPayload)) {
             return [
                 'http' => 409,
                 'payload' => [
