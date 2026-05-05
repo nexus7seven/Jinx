@@ -505,7 +505,7 @@ class RemarketingLinearExecuteCommand extends Command
 
             $isManualCallStep = ($actualDelivery['actual_medium'] ?? null) === 'call'
                 || (bool) ($currentStep->is_manual ?? false)
-                || (bool) $currentStep->requires_manual_completion;
+                || $this->stepRequiresManualCompletion($currentStep, $actualDelivery);
 
             if ($isManualCallStep) {
                 $this->createStepLog(
@@ -542,7 +542,9 @@ class RemarketingLinearExecuteCommand extends Command
                 $progress->update([
                     'current_step_id' => $currentStep->id,
                     'current_step_order' => $currentStep->step_order,
-                    'status' => $currentStep->requires_manual_completion ? 'pending_manual_task' : 'active',
+                    'status' => $this->stepRequiresManualCompletion($currentStep, $actualDelivery)
+                        ? LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK
+                        : LeadRemarketingProgress::STATUS_ACTIVE,
                     'next_step_due_at' => $dueAt,
                 ]);
 
@@ -1282,7 +1284,7 @@ class RemarketingLinearExecuteCommand extends Command
                 actualDelivery: $actualDelivery
             );
 
-            $manualRequired = (bool) $currentStep->requires_manual_completion;
+            $manualRequired = $this->stepRequiresManualCompletion($currentStep, $actualDelivery);
             $updates = [
                 'current_step_id' => $currentStep->id,
                 'current_step_order' => $currentStep->step_order,
@@ -1306,6 +1308,7 @@ class RemarketingLinearExecuteCommand extends Command
                 'whatsapp_action' => 'manual_task_created',
                 'whatsapp_body_preview' => $bodyPreview,
                 'error_message' => null,
+                'advance_state' => $manualRequired ? 'not_advanced_manual_completion_required' : ($advanced ? 'advanced' : 'not_advanced'),
                 'commit_action' => $manualRequired
                     ? ($manualTask !== null ? 'waiting_manual_completion' : 'queued_manual_task')
                     : ($advanced ? 'advanced' : 'queued_manual_task'),
@@ -1363,7 +1366,7 @@ class RemarketingLinearExecuteCommand extends Command
         array $plannedDelivery,
         array $actualDelivery
     ): array {
-        $manualRequired = (bool) $currentStep->requires_manual_completion;
+        $manualRequired = $this->stepRequiresManualCompletion($currentStep, $actualDelivery);
         $autoAdvance = (bool) $currentStep->auto_advance_on_send && ! $manualRequired;
 
         return DB::transaction(function () use ($progress, $currentStep, $allSteps, $executionAction, $dueAt, $now, $plannedDelivery, $actualDelivery, $manualRequired, $autoAdvance): array {
@@ -1414,6 +1417,7 @@ class RemarketingLinearExecuteCommand extends Command
                 return [
                     'committed' => true,
                     'advanced' => false,
+                    'advance_state' => 'not_advanced_manual_completion_required',
                     'commit_action' => $queued['was_created'] ? 'waiting_manual_completion' : 'already_queued_manual_task',
                 ];
             }
@@ -1438,7 +1442,9 @@ class RemarketingLinearExecuteCommand extends Command
             return [
                 'committed' => true,
                 'advanced' => false,
-                'commit_action' => $queued['was_created'] ? 'queued_manual_task' : 'already_queued_manual_task',
+                'commit_action' => $queued['was_created']
+                    ? 'queued_manual_task'
+                    : 'already_queued_manual_task',
             ];
         });
     }
@@ -2169,6 +2175,24 @@ class RemarketingLinearExecuteCommand extends Command
 
         $rawNextDue = $completedAt->copy()->addMinutes((int) $followingStep->delay_minutes);
         $updates['next_step_due_at'] = $this->scheduleWindowService->nextAllowedTime($followingStep, $rawNextDue);
+
+        return true;
+    }
+
+    private function stepRequiresManualCompletion(RemarketingStep $currentStep, array $actualDelivery = []): bool
+    {
+        if ((bool) $currentStep->requires_manual_completion) {
+            return true;
+        }
+
+        $medium = (string) ($actualDelivery['actual_medium'] ?? $currentStep->medium ?? '');
+        if (! in_array($medium, ['call', 'whatsapp'], true)) {
+            return false;
+        }
+
+        if ((bool) $currentStep->auto_advance_on_send) {
+            return false;
+        }
 
         return true;
     }
