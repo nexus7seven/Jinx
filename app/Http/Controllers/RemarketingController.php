@@ -53,7 +53,7 @@ class RemarketingController extends Controller
         $now = Carbon::now(RemarketingScheduleWindowService::TIMEZONE);
 
         $manualCandidates = LeadRemarketingProgress::query()
-            ->whereIn('status', ['active', 'pending_manual_task'])
+            ->whereIn('status', [LeadRemarketingProgress::STATUS_ACTIVE, LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK])
             ->orderBy('id')
             ->get()
             ->map(function (LeadRemarketingProgress $progress) use ($steps, $now) {
@@ -63,9 +63,22 @@ class RemarketingController extends Controller
                     $currentOrder = optional($steps->firstWhere('id', $progress->current_step_id))->step_order;
                 }
 
-                $nextStep = $currentOrder === null
-                    ? $steps->first()
-                    : $steps->first(fn (RemarketingStep $step) => $step->step_order > $currentOrder);
+                $currentStep = $progress->current_step_id !== null
+                    ? $steps->firstWhere('id', $progress->current_step_id)
+                    : null;
+
+                if (! $currentStep instanceof RemarketingStep && $currentOrder !== null) {
+                    $currentStep = $steps->first(fn (RemarketingStep $step) => $step->step_order === $currentOrder);
+                }
+
+                if ($progress->status === LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
+                    // pending_manual_task means the current step is waiting for completion, not the following step.
+                    $nextStep = $currentStep;
+                } else {
+                    $nextStep = $currentOrder === null
+                        ? $steps->first()
+                        : $steps->first(fn (RemarketingStep $step) => $step->step_order > $currentOrder);
+                }
 
                 if (! $nextStep instanceof RemarketingStep) {
                     return null;
@@ -87,7 +100,7 @@ class RemarketingController extends Controller
                 $nextAllowed = $this->scheduleWindowService->nextAllowedTime($nextStep, $rawDue->copy());
                 $dueNow = $now->greaterThanOrEqualTo($nextAllowed);
 
-                if ($progress->status !== 'pending_manual_task' && ! $dueNow) {
+                if ($progress->status !== LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK && ! $dueNow) {
                     return null;
                 }
 
