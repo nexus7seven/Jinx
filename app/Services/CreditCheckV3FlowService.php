@@ -392,340 +392,56 @@ class CreditCheckV3FlowService
         ]);
     }
 
-    public function shouldAttemptImportFromBundle(CreditCheckJobLog $log, array $bundle): bool
-    {
-        $result = is_array($log->result_json) ? $log->result_json : [];
-        $stateRoot = (array) ($bundle['state'] ?? []);
-        $statePayload = $this->extractListenerPayload($stateRoot);
-        $listenerStatus = strtolower((string) ($statePayload['status'] ?? ($stateRoot['status'] ?? '')));
-        $listenerSuccess = (bool) ($statePayload['success'] ?? $stateRoot['success'] ?? false)
-            || in_array($listenerStatus, ['success', 'completed'], true)
-            || $log->status === CreditCheckJobLog::STATUS_SUCCESS;
-        $listenerFinal = $listenerSuccess
-            || (bool) ($statePayload['final'] ?? $stateRoot['final'] ?? false)
-            || in_array($listenerStatus, ['success', 'completed'], true);
-        $reportPayload = $this->extractListenerPayload((array) ($bundle['reportData'] ?? []));
-        $reportPayloadIsUseful = $this->isUsefulReportPayload($reportPayload);
-        $cachedReportPayload = is_array($result['cached_report_payload'] ?? null) ? $result['cached_report_payload'] : [];
-        $hasCachedReportPayload = $this->isUsefulReportPayload($cachedReportPayload);
-        $hasReportPayload = $reportPayloadIsUseful || $hasCachedReportPayload;
-        $reportPayloadKeys = array_keys($reportPayloadIsUseful ? $reportPayload : ($hasCachedReportPayload ? $cachedReportPayload : []));
-        $pdfPayload = $this->extractListenerPayload((array) ($bundle['pdfState'] ?? []));
-        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
-
-        $context = [
-            'lead_id' => $log->lead_id,
-            'job_id' => $log->external_job_id,
-            'external_job_id' => $log->external_job_id,
-            'log_id' => $log->id,
-            'log_status' => $log->status,
-            'is_active' => $log->isActive(),
-            'has_external_job_id' => ! blank($log->external_job_id),
-            'panel_import_done' => ! empty($result['panel_import_done']),
-            'panel_import_failed' => ! empty($result['panel_import_failed']),
-            'listener_final' => $listenerFinal,
-            'listener_success' => $listenerSuccess,
-            'listener_status' => $listenerStatus,
-            'has_report_payload' => $hasReportPayload,
-            'report_payload_source' => $reportPayloadIsUseful ? 'current' : ($hasCachedReportPayload ? 'cached' : 'none'),
-            'report_payload_keys' => $reportPayloadKeys,
-            'pdf_status' => $pdfStatus,
-        ];
-
-        if (blank($log->external_job_id)) {
-            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'missing_external_job_id']);
-
-            return false;
-        }
-
-        if (! empty($result['panel_import_done'])) {
-            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'panel_import_already_done']);
-
-            return false;
-        }
-
-        if (! empty($result['panel_import_failed'])) {
-            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'panel_import_already_failed']);
-
-            return false;
-        }
-
-        if (! $listenerFinal) {
-            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'listener_not_final_or_success']);
-
-            return false;
-        }
-
-        if (! $hasReportPayload) {
-            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'missing_report_payload']);
-
-            return false;
-        }
-
-        Log::info('credit_check_v3_import_gate_passed', $context);
-
-        return true;
-    }
-
     /**
      * @return array{http: int, payload: array<string, mixed>}
      */
-    public function importReportDataForLead(Lead $lead, string $jobId): array
+    public function importFromJobLog(CreditCheckJobLog $log): array
     {
-        try {
-            $base = $this->jobLogService->listenerBase();
-            $stateResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/state');
-            $reportDataResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/report-data');
-            $pdfStateResponse = Http::acceptJson()->get($base.'/jobs/'.$jobId.'/pdf-state');
-        } catch (Throwable) {
-            return [
-                'http' => 500,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Unable to contact local listener.',
-                ],
-            ];
+        $lead = Lead::find($log->lead_id);
+        if (! $lead) {
+            return ['http' => 404, 'payload' => ['ok' => false, 'message' => 'Lead not found.']];
         }
 
-        $state = (array) ($stateResponse->json() ?? []);
-        $activeJob = (array) ($state['activeJob'] ?? []);
-        $meta = (array) ($activeJob['meta'] ?? []);
-        $listenerLeadId = (int) ($activeJob['leadId'] ?? $meta['lead_id'] ?? 0);
-        $localLog = CreditCheckJobLog::query()
-            ->where('lead_id', $lead->id)
-            ->where('external_job_id', $jobId)
-            ->orderByDesc('id')
-            ->first();
-        $allowFallbackLeadMatch = $listenerLeadId <= 0 && $activeJob === [] && $localLog !== null;
-        if (! $allowFallbackLeadMatch && ($listenerLeadId <= 0 || $listenerLeadId !== (int) $lead->id)) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Listener lead mismatch for import.',
-                    'listenerLeadId' => $listenerLeadId,
-                    'leadId' => (int) $lead->id,
-                ],
-            ];
+        if ($log->status !== CreditCheckJobLog::STATUS_SUCCESS) {
+            return ['http' => 409, 'payload' => ['ok' => false, 'message' => 'Job is not in success state.']];
         }
 
-        $statePayload = $this->extractListenerPayload($state);
-        $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
-        $pdfPayload = $this->extractListenerPayload((array) ($pdfStateResponse->json() ?? []));
-        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
-        $rj = $localLog && is_array($localLog->result_json) ? $localLog->result_json : [];
-        if (! $listenerFinal) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Cannot import before listener reaches final success state.',
-                    'listenerFinal' => false,
-                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
-                ],
-            ];
+        $result = is_array($log->result_json) ? $log->result_json : json_decode((string) $log->result_json, true);
+        $result = is_array($result) ? $result : [];
+
+        $reportPayload = [];
+        if (! empty($result['last_report_payload']) && is_array($result['last_report_payload'])) {
+            $reportPayload = $result['last_report_payload'];
+        } elseif (! empty($result['cached_report_payload']) && is_array($result['cached_report_payload'])) {
+            $reportPayload = $result['cached_report_payload'];
         }
 
-        if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
-            $cachedPdf = is_array($rj['import_result']['pdf'] ?? null) ? $rj['import_result']['pdf'] : [];
-            $cachedPdfStatus = (string) ($cachedPdf['status'] ?? '');
-            if (in_array($cachedPdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
-                $pdfStatus = $cachedPdfStatus;
-                if (($pdfPayload['savedPath'] ?? null) === null && isset($cachedPdf['savedPath'])) {
-                    $pdfPayload['savedPath'] = $cachedPdf['savedPath'];
-                }
-            } elseif ($localLog && $localLog->status === CreditCheckJobLog::STATUS_SUCCESS) {
-                Log::warning('credit_check_v3_pdf_state_missing_after_success', [
-                    'lead_id' => $lead->id,
-                    'job_id' => $jobId,
-                    'log_id' => $localLog->id,
-                    'pdf_status' => $pdfStatus,
-                ]);
-            }
+        $debts = is_array($reportPayload['debts'] ?? null) ? $reportPayload['debts'] : [];
+        $ccjs = is_array($reportPayload['county_court_judgments'] ?? null) ? $reportPayload['county_court_judgments'] : [];
+        if ($debts === [] && $ccjs === []) {
+            return ['http' => 422, 'payload' => ['ok' => false, 'message' => 'No importable debts/CCJs payload found.']];
         }
 
-        if (! in_array($pdfStatus, ['moved_primary', 'moved_fallback', 'already_saved'], true)) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Cannot import before PDF is saved/moved.',
-                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
-                ],
-            ];
-        }
+        Log::info('credit_check_v3_db_import_started', ['lead_id' => $lead->id, 'job_id' => $log->external_job_id]);
+        Log::info('credit_check_v3_db_import_counts', ['lead_id' => $lead->id, 'job_id' => $log->external_job_id, 'debts_seen' => count($debts), 'ccjs_seen' => count($ccjs)]);
 
-        $reportPayload = $this->extractListenerPayload((array) ($reportDataResponse->json() ?? []));
-        if (! $this->isUsefulReportPayload($reportPayload)) {
-            $cachedReportPayload = is_array($rj['cached_report_payload'] ?? null) ? $rj['cached_report_payload'] : [];
-            if ($this->isUsefulReportPayload($cachedReportPayload)) {
-                $reportPayload = $cachedReportPayload;
-                Log::info('credit_check_v3_using_cached_report_payload', [
-                    'lead_id' => $lead->id,
-                    'job_id' => $jobId,
-                    'log_id' => $localLog?->id,
-                    'keys' => array_keys($reportPayload),
-                ]);
-            }
-        }
-        if (! $this->isUsefulReportPayload($reportPayload)) {
-            return [
-                'http' => 409,
-                'payload' => [
-                    'ok' => false,
-                    'message' => 'Cannot import before report payload is available.',
-                    'listenerFinal' => true,
-                    'pdfStatus' => $pdfStatus !== '' ? $pdfStatus : 'missing',
-                ],
-            ];
-        }
+        $importedDebts = $this->importDebtsFromReportData($lead, $debts, (string) $log->external_job_id, 'db_import');
+        $importedCcjs = $this->importCountyCourtJudgmentsFromReportData($lead, $ccjs, (string) $log->external_job_id, 'db_import');
 
-        $debts = $this->extractDebtsRows($reportPayload);
-        $ccjs = $this->extractCcjRows($reportPayload);
-
-        Log::info('credit_check_v3_import_started', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-            'credit_check_job_log_id' => CreditCheckJobLog::query()->where('lead_id', $lead->id)->where('external_job_id', $jobId)->max('id'),
-            'pdf_status' => $pdfStatus,
-        ]);
-        Log::info('credit_check_v3_report_payload_counts', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-            'debts_seen' => count($debts),
-            'ccjs_seen' => count($ccjs),
-            'pdf_status' => $pdfStatus,
-        ]);
-
-        $importedDebts = $this->importDebtsFromReportData($lead, $debts, $jobId, $pdfStatus);
-        $importedCcjs = $this->importCountyCourtJudgmentsFromReportData($lead, $ccjs, $jobId, $pdfStatus);
-        $totalImported = $importedDebts + $importedCcjs;
-
-        Log::info('Credit check v3 report import complete', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-            'debts_imported' => $importedDebts,
-            'ccjs_imported' => $importedCcjs,
-            'total_imported' => $totalImported,
-            'pdf_status' => $pdfStatus,
-        ]);
-        Log::info('credit_check_v3_import_finished', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-            'credit_check_job_log_id' => CreditCheckJobLog::query()->where('lead_id', $lead->id)->where('external_job_id', $jobId)->max('id'),
-            'debts_seen' => count($debts),
-            'debts_inserted' => $importedDebts,
-            'ccjs_seen' => count($ccjs),
-            'ccjs_inserted' => $importedCcjs,
-            'pdf_status' => $pdfStatus,
-        ]);
-
-        $completeJson = null;
-        $completeStatus = null;
-        try {
-            Http::acceptJson()->post($base.'/jobs/'.$jobId.'/status', [
-                'step' => 'import_completed',
-                'imported' => [
-                    'debts' => $importedDebts,
-                    'county_court_judgments' => $importedCcjs,
-                    'total' => $totalImported,
-                ],
-                'leadId' => (int) $lead->id,
-            ]);
-            $completeResponse = Http::acceptJson()->post($base.'/jobs/'.$jobId.'/complete');
-            $completeStatus = $completeResponse->status();
-            $completeJson = $completeResponse->json();
-            Log::info('Credit check v3 listener complete attempted', [
-                'lead_id' => $lead->id,
-                'job_id' => $jobId,
-                'status' => $completeStatus,
-                'result' => $completeJson,
-            ]);
-        } catch (Throwable $e) {
-            Log::warning('Credit check v3 listener complete failed', [
-                'lead_id' => $lead->id,
-                'job_id' => $jobId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        $payload = [
-            'ok' => true,
-            'imported' => [
-                'debts' => $importedDebts,
-                'county_court_judgments' => $importedCcjs,
-                'total' => $totalImported,
-            ],
-            'pdf' => [
-                'status' => $pdfStatus,
-                'savedPath' => $pdfPayload['savedPath'] ?? null,
-            ],
-            'listenerComplete' => [
-                'status' => $completeStatus,
-                'result' => $completeJson,
-            ],
-        ];
-
-        $this->updateJobLogAfterImport($lead, $jobId, $pdfPayload, $payload);
-
-        return ['http' => 200, 'payload' => $payload];
-    }
-
-    /**
-     * @param array<string, mixed> $root
-     * @return array<string, mixed>
-     */
-    private function extractListenerPayload(array $root): array
-    {
-        $payload = $root['payload'] ?? null;
-        if (is_array($payload)) {
-            return $payload;
-        }
-
-        $result = $root['result'] ?? null;
-        if (is_array($result) && is_array($result['payload'] ?? null)) {
-            return $result['payload'];
-        }
-
-        return $root;
-    }
-
-    /**
-     * @param  array<string, mixed>  $pdfPayload
-     * @param  array<string, mixed>  $payload
-     */
-    private function updateJobLogAfterImport(Lead $lead, string $jobId, array $pdfPayload, array $payload): void
-    {
-        $log = CreditCheckJobLog::query()
-            ->where('lead_id', $lead->id)
-            ->where('external_job_id', $jobId)
-            ->orderByDesc('id')
-            ->first();
-
-        if (! $log) {
-            return;
-        }
-
-        if ($log->status === CreditCheckJobLog::STATUS_FAILED) {
-            $rj = is_array($log->result_json) ? $log->result_json : [];
-            $rj['import_result'] = $payload;
-            $log->update(['result_json' => $rj]);
-
-            return;
-        }
-
-        $rj = is_array($log->result_json) ? $log->result_json : [];
-        $rj['panel_import_done'] = true;
-        $rj['import_result'] = $payload;
-
-        $savedPath = $pdfPayload['savedPath'] ?? null;
+        $result['panel_import_done'] = true;
         $log->update([
-            'result_json' => $rj,
-            'saved_pdf_path' => is_string($savedPath) ? $savedPath : $log->saved_pdf_path,
-            'status' => CreditCheckJobLog::STATUS_SUCCESS,
-            'ended_at' => $log->ended_at ?? now(),
-            'friendly_status' => 'Completed',
+            'status' => 'success_imported',
+            'result_json' => $result,
         ]);
+
+        Log::info('credit_check_v3_db_import_finished', [
+            'lead_id' => $lead->id,
+            'job_id' => $log->external_job_id,
+            'debts_inserted' => $importedDebts,
+            'ccjs_inserted' => $importedCcjs,
+        ]);
+
+        return ['http' => 200, 'payload' => ['ok' => true, 'imported' => ['debts' => $importedDebts, 'county_court_judgments' => $importedCcjs, 'total' => $importedDebts + $importedCcjs]]];
     }
 
     /**
@@ -744,19 +460,19 @@ class CreditCheckV3FlowService
             $creditorName = trim((string) ($row['creditor'] ?? $row['organisation'] ?? ''));
             $balance = $this->normalizeCurrencyValue($row['balance'] ?? null);
             if ($creditorName === '' || $balance === null || $balance <= 0) {
-                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_creditor_or_balance', 'row' => $row]);
+                Log::info('credit_check_v3_db_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_creditor_or_balance', 'row' => $row]);
                 continue;
             }
             $creditor = $this->matchCreditorStrict($creditorName);
             if (! $creditor && ! $couldNotMatch) {
-                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'no_could_not_match_creditor_seeded', 'row' => $row]);
+                Log::info('credit_check_v3_db_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'no_could_not_match_creditor_seeded', 'row' => $row]);
                 continue;
             }
             $assignedCreditor = $creditor ?: $couldNotMatch;
             $reference = $creditor ? null : ('Raw creditor: '.$creditorName);
             $dedupeKey = $assignedCreditor->id.'|'.number_format($balance, 2, '.', '').'|'.($reference ?? '');
             if (isset($seen[$dedupeKey])) {
-                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
+                Log::info('credit_check_v3_db_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
                 continue;
             }
             $seen[$dedupeKey] = true;
@@ -774,7 +490,7 @@ class CreditCheckV3FlowService
                 })
                 ->exists();
             if ($exists) {
-                Log::info('credit_check_v3_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
+                Log::info('credit_check_v3_db_debt_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
                 continue;
             }
 
@@ -792,7 +508,7 @@ class CreditCheckV3FlowService
                 'is_complete' => true,
             ]);
             $count++;
-            Log::info('credit_check_v3_debt_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $balance]);
+            Log::info('credit_check_v3_db_debt_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $balance]);
         }
 
         return $count;
@@ -804,7 +520,7 @@ class CreditCheckV3FlowService
     private function importCountyCourtJudgmentsFromReportData(Lead $lead, array $judgments, string $jobId, string $pdfStatus): int
     {
         if ($judgments === []) {
-            Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_county_court_judgment_creditor']);
+            Log::info('credit_check_v3_db_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_county_court_judgment_creditor']);
             return 0;
         }
         $ccjCreditor = Creditor::where('name', 'County Court Judgment')->first();
@@ -819,17 +535,17 @@ class CreditCheckV3FlowService
             $judgementDate = trim((string) ($row['judgement_date'] ?? $row['judgment_date'] ?? ''));
             $address = trim((string) ($row['address'] ?? ''));
             if ($amount === null || $amount <= 0) {
-                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_amount', 'row' => $row]);
+                Log::info('credit_check_v3_db_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_amount', 'row' => $row]);
                 continue;
             }
             $reference = trim(implode(' | ', array_filter([$caseNumber, $judgementDate, $address], fn ($v) => $v !== '')));
             if ($reference === '') {
-                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_reference_fields', 'row' => $row]);
+                Log::info('credit_check_v3_db_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'missing_reference_fields', 'row' => $row]);
                 continue;
             }
             $dedupeKey = number_format($amount, 2, '.', '').'|'.$reference;
             if (isset($seen[$dedupeKey])) {
-                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
+                Log::info('credit_check_v3_db_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'duplicate_in_payload', 'row' => $row]);
                 continue;
             }
             $seen[$dedupeKey] = true;
@@ -841,7 +557,7 @@ class CreditCheckV3FlowService
                 ->where('reference', $reference)
                 ->exists();
             if ($exists) {
-                Log::info('credit_check_v3_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
+                Log::info('credit_check_v3_db_ccj_skipped', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'reason' => 'already_exists', 'row' => $row]);
                 continue;
             }
 
@@ -859,7 +575,7 @@ class CreditCheckV3FlowService
                 'is_complete' => true,
             ]);
             $count++;
-            Log::info('credit_check_v3_ccj_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $amount]);
+            Log::info('credit_check_v3_db_ccj_inserted', ['lead_id' => $lead->id, 'job_id' => $jobId, 'pdf_status' => $pdfStatus, 'debt_id' => $debt->id, 'balance' => $amount]);
         }
 
         return $count;
