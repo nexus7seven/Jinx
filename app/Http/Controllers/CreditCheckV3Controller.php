@@ -37,12 +37,7 @@ class CreditCheckV3Controller extends Controller
 
     public function panelPoll(Lead $lead): JsonResponse
     {
-        $result = $this->creditCheckV3FlowService->panelPollForLead(
-            $lead,
-            function (Lead $pollLead, CreditCheckJobLog $log, array $bundle): void {
-                $this->maybePanelAutoImport($pollLead, $log, $bundle);
-            }
-        );
+        $result = $this->creditCheckV3FlowService->panelPollForLead($lead);
 
         return response()->json($result['payload']);
     }
@@ -73,54 +68,24 @@ class CreditCheckV3Controller extends Controller
 
     public function importReportData(Lead $lead, string $jobId): JsonResponse
     {
-        Log::info('credit_check_v3_controller_import_delegating', [
-            'lead_id' => $lead->id,
-            'job_id' => $jobId,
-        ]);
+        $log = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->where('external_job_id', $jobId)
+            ->orderByDesc('id')
+            ->first();
 
-        $result = $this->creditCheckV3FlowService->importReportDataForLead($lead, $jobId);
+        if (! $log) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Credit check job log not found for lead/job.',
+            ], 404);
+        }
+
+        $result = $this->creditCheckV3FlowService->importFromJobLog($log);
 
         return response()->json(
             $result['payload'],
             $result['http'] ?? 500
         );
-    }
-
-    /**
-     * @param  array<string, mixed>  $bundle
-     */
-    private function maybePanelAutoImport(Lead $lead, CreditCheckJobLog $log, array $bundle): void
-    {
-        Log::info('credit_check_v3_panel_auto_import_check', [
-            'lead_id' => $lead->id,
-            'job_id' => (string) $log->external_job_id,
-            'log_id' => $log->id,
-            'log_status' => $log->status,
-        ]);
-
-        if (! $this->creditCheckV3FlowService->shouldAttemptImportFromBundle($log, $bundle)) {
-            return;
-        }
-
-        Log::info('credit_check_v3_controller_import_delegating', [
-            'lead_id' => $lead->id,
-            'job_id' => (string) $log->external_job_id,
-        ]);
-
-        $result = $this->creditCheckV3FlowService->importReportDataForLead($lead, (string) $log->external_job_id);
-        if (! ($result['payload']['ok'] ?? false)) {
-            $log->refresh();
-            $rj = is_array($log->result_json) ? $log->result_json : [];
-            $rj['panel_import_failed'] = true;
-            $rj['panel_import_error'] = $result['payload']['message'] ?? 'Import failed';
-            $log->update([
-                'result_json' => $rj,
-                'error_message' => (string) ($result['payload']['message'] ?? 'Import failed'),
-            ]);
-
-            return;
-        }
-
-        $log->refresh();
     }
 }
