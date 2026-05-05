@@ -344,21 +344,69 @@ class CreditCheckV3FlowService
 
     public function shouldAttemptImportFromBundle(CreditCheckJobLog $log, array $bundle): bool
     {
-        if (! $log->isActive() || blank($log->external_job_id)) {
-            return false;
-        }
-
         $result = is_array($log->result_json) ? $log->result_json : [];
-        if (! empty($result['panel_import_done']) || ! empty($result['panel_import_failed'])) {
+        $stateRoot = (array) ($bundle['state'] ?? []);
+        $statePayload = $this->extractListenerPayload($stateRoot);
+        $listenerSuccess = (bool) ($statePayload['success'] ?? false);
+        $listenerFinal = $listenerSuccess || ! empty($statePayload['final']);
+        $listenerStatus = (string) ($statePayload['status'] ?? ($stateRoot['status'] ?? ''));
+        $reportPayload = $this->extractListenerPayload((array) ($bundle['reportData'] ?? []));
+        $hasReportPayload = $reportPayload !== [];
+        $reportPayloadKeys = array_keys($reportPayload);
+        $pdfPayload = $this->extractListenerPayload((array) ($bundle['pdfState'] ?? []));
+        $pdfStatus = (string) ($pdfPayload['status'] ?? '');
+
+        $context = [
+            'lead_id' => $log->lead_id,
+            'job_id' => $log->external_job_id,
+            'external_job_id' => $log->external_job_id,
+            'log_id' => $log->id,
+            'log_status' => $log->status,
+            'is_active' => $log->isActive(),
+            'has_external_job_id' => ! blank($log->external_job_id),
+            'panel_import_done' => ! empty($result['panel_import_done']),
+            'panel_import_failed' => ! empty($result['panel_import_failed']),
+            'listener_final' => $listenerFinal,
+            'listener_success' => $listenerSuccess,
+            'listener_status' => $listenerStatus,
+            'has_report_payload' => $hasReportPayload,
+            'report_payload_keys' => $reportPayloadKeys,
+            'pdf_status' => $pdfStatus,
+        ];
+
+        if (blank($log->external_job_id)) {
+            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'missing_external_job_id']);
+
             return false;
         }
 
-        $statePayload = (array) (($bundle['state'] ?? [])['payload'] ?? []);
-        $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
-        $reportPayload = (array) (($bundle['reportData'] ?? [])['payload'] ?? []);
-        $hasReportPayload = $reportPayload !== [];
+        if (! empty($result['panel_import_done'])) {
+            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'panel_import_already_done']);
 
-        return $listenerFinal && $hasReportPayload;
+            return false;
+        }
+
+        if (! empty($result['panel_import_failed'])) {
+            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'panel_import_already_failed']);
+
+            return false;
+        }
+
+        if (! $listenerFinal) {
+            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'listener_not_final_or_success']);
+
+            return false;
+        }
+
+        if (! $hasReportPayload) {
+            Log::info('credit_check_v3_import_gate_blocked', $context + ['reason' => 'missing_report_payload']);
+
+            return false;
+        }
+
+        Log::info('credit_check_v3_import_gate_passed', $context);
+
+        return true;
     }
 
     /**
@@ -385,7 +433,13 @@ class CreditCheckV3FlowService
         $activeJob = (array) ($state['activeJob'] ?? []);
         $meta = (array) ($activeJob['meta'] ?? []);
         $listenerLeadId = (int) ($activeJob['leadId'] ?? $meta['lead_id'] ?? 0);
-        if ($listenerLeadId <= 0 || $listenerLeadId !== (int) $lead->id) {
+        $localLog = CreditCheckJobLog::query()
+            ->where('lead_id', $lead->id)
+            ->where('external_job_id', $jobId)
+            ->orderByDesc('id')
+            ->first();
+        $allowFallbackLeadMatch = $listenerLeadId <= 0 && $activeJob === [] && $localLog !== null;
+        if (! $allowFallbackLeadMatch && ($listenerLeadId <= 0 || $listenerLeadId !== (int) $lead->id)) {
             return [
                 'http' => 409,
                 'payload' => [
@@ -397,9 +451,9 @@ class CreditCheckV3FlowService
             ];
         }
 
-        $statePayload = (array) (($state['payload'] ?? []) ?: []);
+        $statePayload = $this->extractListenerPayload($state);
         $listenerFinal = (bool) ($statePayload['success'] ?? false) || ! empty($statePayload['final']);
-        $pdfPayload = (array) (($pdfStateResponse->json() ?? [])['payload'] ?? []);
+        $pdfPayload = $this->extractListenerPayload((array) ($pdfStateResponse->json() ?? []));
         $pdfStatus = (string) ($pdfPayload['status'] ?? '');
         if (! $listenerFinal) {
             return [
@@ -424,7 +478,7 @@ class CreditCheckV3FlowService
             ];
         }
 
-        $reportPayload = (array) (($reportDataResponse->json() ?? [])['payload'] ?? []);
+        $reportPayload = $this->extractListenerPayload((array) ($reportDataResponse->json() ?? []));
         if ($reportPayload === []) {
             return [
                 'http' => 409,
@@ -526,6 +580,25 @@ class CreditCheckV3FlowService
         $this->updateJobLogAfterImport($lead, $jobId, $pdfPayload, $payload);
 
         return ['http' => 200, 'payload' => $payload];
+    }
+
+    /**
+     * @param array<string, mixed> $root
+     * @return array<string, mixed>
+     */
+    private function extractListenerPayload(array $root): array
+    {
+        $payload = $root['payload'] ?? null;
+        if (is_array($payload)) {
+            return $payload;
+        }
+
+        $result = $root['result'] ?? null;
+        if (is_array($result) && is_array($result['payload'] ?? null)) {
+            return $result['payload'];
+        }
+
+        return $root;
     }
 
     /**

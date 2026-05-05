@@ -9,7 +9,7 @@
 <body style="margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 @php
     $runUrl = route('leads.credit-check-v3.run', $lead);
-    $importUrlBase = route('leads.credit-check-v3.import', ['lead' => $lead, 'jobId' => '__JOB_ID__']);
+    $panelPollUrl = route('leads.credit-check-v3.panel-poll', $lead);
 @endphp
 <div style="max-width:920px; margin:0 auto; padding:16px;">
     <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:18px; margin-bottom:16px;">
@@ -50,9 +50,6 @@ let pollTimer = null;
 let lastQuestionsFingerprint = null;
 /** Fingerprint for which question set we already POSTed answers for (stops modal reopening until a new set arrives). */
 let kbaSubmittedFingerprint = null;
-let autoImportInFlight = false;
-let autoImportFinished = false;
-let autoImportFailedMessage = '';
 
 function csrf() {
   const m = document.querySelector('meta[name="csrf-token"]');
@@ -160,69 +157,16 @@ function collectKbaAnswersFromForm() {
 
 async function pollStatus() {
   if (!currentJobId) return;
-  const res = await fetch('/leads/credit-check-v3/jobs/' + encodeURIComponent(currentJobId) + '/status');
+  const res = await fetch('{{ $panelPollUrl }}');
   const json = await res.json();
   jobDump.textContent = JSON.stringify(json, null, 2);
-  const state = json && json.state ? json.state : {};
-  const latest = state.latestStatus && state.latestStatus.data ? state.latestStatus.data : {};
-  const reportData = json && json.reportData && json.reportData.payload ? json.reportData.payload : null;
-  const reportCount = reportData ? (Array.isArray(reportData.debts) ? reportData.debts.length : 0) : 0;
-  const ccjCount = reportData ? (Array.isArray(reportData.county_court_judgments) ? reportData.county_court_judgments.length : 0) : 0;
-  const pdfStatus = json && json.pdfState && json.pdfState.payload ? String(json.pdfState.payload.status || 'pending') : 'pending';
-  let importStatus = 'waiting';
-  if (autoImportInFlight) {
-    importStatus = 'running';
-  } else if (autoImportFinished) {
-    importStatus = 'done';
-  } else if (autoImportFailedMessage) {
-    importStatus = 'failed';
-  }
-  statusLine.textContent = 'Job ' + currentJobId + ' | active=' + Boolean(state.active) + ' queued=' + Boolean(state.queued) + ' step=' + (latest.step || 'n/a') + ' | report=' + reportCount + '/' + ccjCount + ' | pdf=' + pdfStatus + ' | import=' + importStatus;
-
-  const qRoot = json && json.questions ? json.questions : {};
-  const qPayload = qRoot && qRoot.payload ? qRoot.payload : null;
-  const list = qPayload && Array.isArray(qPayload.questions)
-    ? qPayload.questions
-    : (Array.isArray(qRoot.questions) ? qRoot.questions : []);
+  statusLine.textContent = 'Job ' + (json.external_job_id || currentJobId) + ' | running=' + Boolean(json.running) + ' | status=' + (json.friendly_status || json.job_status || 'n/a') + ' | listener=' + (json.listener_status || 'n/a');
+  const list = Array.isArray(json && json.security_questions) ? json.security_questions : [];
 
   if (list.length > 0) {
     openKbaModal(list);
   } else if (ccV3KbaModal.style.display === 'flex') {
     closeKbaModal();
-  }
-
-  const pdfReady = pdfStatus === 'moved_primary' || pdfStatus === 'moved_fallback';
-  const reportReady = reportCount > 0 || ccjCount > 0;
-  if (!autoImportInFlight && !autoImportFinished && !autoImportFailedMessage && pdfReady && reportReady) {
-    autoImportInFlight = true;
-    const importUrl = '{{ $importUrlBase }}'.replace('__JOB_ID__', encodeURIComponent(currentJobId));
-    console.log('[ccv3] Auto import starting', { currentJobId: currentJobId, pdfStatus: pdfStatus, reportCount: reportCount, ccjCount: ccjCount });
-    try {
-      const importRes = await fetch(importUrl, {
-        method: 'POST',
-        headers: {
-          'X-CSRF-TOKEN': csrf(),
-          'Accept': 'application/json',
-        },
-      });
-      const importJson = await importRes.json();
-      jobDump.textContent = JSON.stringify({
-        status: json,
-        autoImport: importJson,
-      }, null, 2);
-      if (!importRes.ok || !importJson.ok) {
-        autoImportFailedMessage = importJson.message || String(importRes.status);
-        console.warn('[ccv3] Auto import failed', importJson);
-      } else {
-        autoImportFinished = true;
-        console.log('[ccv3] Auto import completed', importJson);
-      }
-    } catch (e) {
-      autoImportFailedMessage = 'request_error';
-      console.warn('[ccv3] Auto import request error', e);
-    } finally {
-      autoImportInFlight = false;
-    }
   }
 }
 
@@ -230,9 +174,6 @@ runBtn.addEventListener('click', async function () {
   statusLine.textContent = 'Starting job...';
   lastQuestionsFingerprint = null;
   kbaSubmittedFingerprint = null;
-  autoImportInFlight = false;
-  autoImportFinished = false;
-  autoImportFailedMessage = '';
   const res = await fetch(runBtn.dataset.runUrl, {
     method: 'POST',
     headers: {
