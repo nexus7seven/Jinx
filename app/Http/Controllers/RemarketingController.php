@@ -7,23 +7,23 @@ use App\Models\LeadRemarketingProgress;
 use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingStep;
 use App\Models\RemarketingTask;
-use App\Services\RemarketingScheduleWindowService;
-use App\Support\LeadSourceDisplay;
 use App\Services\RemarketingCallbackService;
+use App\Services\RemarketingScheduleWindowService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDispositionService;
+use App\Support\LeadSourceDisplay;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class RemarketingController extends Controller
 {
     private const FLOW_START_REASON = 'flow_start';
+
     private const DORMANT_FINAL_WHATSAPP_REASON = 'Dormant stage final WhatsApp touch';
 
-    /** VICIdial dispositions that end remarketing (no further timeline steps). */
     private const REMARKETING_TERMINAL_DISPOSITIONS = [
         'AIS',
         'NI',
@@ -50,15 +50,15 @@ class RemarketingController extends Controller
             ->with('template')
             ->get();
 
-        $stepsByOrder = $steps->keyBy('step_order');
         $now = Carbon::now(RemarketingScheduleWindowService::TIMEZONE);
 
         $manualCandidates = LeadRemarketingProgress::query()
             ->whereIn('status', ['active', 'pending_manual_task'])
             ->orderBy('id')
             ->get()
-            ->map(function (LeadRemarketingProgress $progress) use ($steps, $stepsByOrder, $now) {
+            ->map(function (LeadRemarketingProgress $progress) use ($steps, $now) {
                 $currentOrder = $progress->current_step_order;
+
                 if ($currentOrder === null && $progress->current_step_id !== null) {
                     $currentOrder = optional($steps->firstWhere('id', $progress->current_step_id))->step_order;
                 }
@@ -78,6 +78,7 @@ class RemarketingController extends Controller
                 $baseTime = $progress->current_step_order === null
                     ? ($progress->started_at ?? $progress->created_at)
                     : ($progress->last_step_completed_at ?? $progress->updated_at ?? $progress->created_at);
+
                 $baseTime = ($baseTime ?? $now)
                     ->copy()
                     ->setTimezone(RemarketingScheduleWindowService::TIMEZONE);
@@ -114,28 +115,37 @@ class RemarketingController extends Controller
         $activeTasks = $manualCandidates->map(function (array $candidate) use ($leadsByVicidialId, $now) {
             /** @var LeadRemarketingProgress $progress */
             $progress = $candidate['progress'];
+
             /** @var RemarketingStep $nextStep */
             $nextStep = $candidate['next_step'];
+
             /** @var Carbon $dueAt */
             $dueAt = $candidate['due_at'];
-            $isDueNow = (bool) ($candidate['is_due_now'] ?? false);
 
+            $isDueNow = (bool) ($candidate['is_due_now'] ?? false);
             $lead = $leadsByVicidialId->get((int) $progress->lead_id);
+
             $first = trim((string) ($lead?->first_name ?? ''));
             $last = trim((string) ($lead?->last_name ?? ''));
             $leadName = trim($first.' '.$last);
+
             if ($leadName === '') {
                 $leadName = 'Lead #'.$progress->lead_id;
             }
 
             $phone = trim((string) ($lead?->phone_number ?? ''));
-            $waiting = $dueAt ? $dueAt->diffForHumans($now, [
-                'parts' => 2,
-                'short' => true,
-            ]) : 'Waiting';
+
+            $waiting = $dueAt
+                ? $dueAt->diffForHumans($now, [
+                    'parts' => 2,
+                    'short' => true,
+                ])
+                : 'Waiting';
+
             $waiting = str_replace([' ago', 'from now'], '', $waiting);
 
             $whatsappUrl = null;
+
             if ($nextStep->medium === 'whatsapp' && $phone !== '') {
                 $digits = preg_replace('/\D+/', '', $phone) ?? '';
 
@@ -149,8 +159,8 @@ class RemarketingController extends Controller
 
                 if ($digits !== '') {
                     $whatsappUrl = 'https://wa.me/'.$digits;
-
                     $templateBody = trim((string) ($nextStep->template?->body ?? ''));
+
                     if ($templateBody !== '') {
                         $renderedBody = str_replace(
                             ['{{first_name}}', '{{lead_id}}', '{{portal_link}}'],
@@ -161,13 +171,13 @@ class RemarketingController extends Controller
                             ],
                             $templateBody
                         );
+
                         $whatsappUrl .= '?text='.urlencode($renderedBody);
                     }
                 }
             }
 
             return [
-                // preserve card contract keys
                 'id' => 'linear-progress-'.$progress->id,
                 'lead_id' => $progress->lead_id,
                 'lead_name' => $leadName,
@@ -193,20 +203,27 @@ class RemarketingController extends Controller
             ->map(function (RemarketingTask $task): array {
                 $messageBody = null;
                 $whatsappUrl = $task->whatsapp_url;
+
                 if ($task->task_type === 'whatsapp') {
                     $whatsappUrl = $whatsappUrl ?: 'https://whatsapp.clearmycredit.co.uk';
                     $messageBody = trim((string) ($task->message_body ?? ''));
+
                     if ($messageBody === '') {
                         $renderedFromMetadata = trim((string) data_get($task->metadata_json, 'rendered_body', ''));
+
                         if ($renderedFromMetadata !== '') {
                             $messageBody = $renderedFromMetadata;
                         }
                     }
+
                     if ($messageBody === '') {
                         $query = parse_url((string) $whatsappUrl, PHP_URL_QUERY);
+
                         if (is_string($query) && $query !== '') {
                             parse_str($query, $queryParams);
+
                             $rawText = $queryParams['text'] ?? null;
+
                             if (is_string($rawText) && trim($rawText) !== '') {
                                 $messageBody = urldecode($rawText);
                             }
@@ -251,9 +268,11 @@ class RemarketingController extends Controller
             ->get()
             ->map(function (LeadRemarketingStepLog $log) use ($leadsByVicidialId) {
                 $lead = $leadsByVicidialId->get((int) $log->lead_id);
+
                 $first = trim((string) ($lead?->first_name ?? ''));
                 $last = trim((string) ($lead?->last_name ?? ''));
                 $leadName = trim($first.' '.$last);
+
                 if ($leadName === '') {
                     $leadName = 'Lead #'.$log->lead_id;
                 }
@@ -341,12 +360,15 @@ class RemarketingController extends Controller
 
         if ($task) {
             $task->status = RemarketingTask::STATUS_COMPLETED;
+
             if (Schema::hasColumn('remarketing_tasks', 'completed_at')) {
                 $task->completed_at = $task->completed_at ?? now();
             }
+
             $task->save();
 
             $linkedLog = $this->completeLinkedManualStepLog($task);
+
             $this->advanceProgressForCompletedManualTask($linkedLog);
 
             if ($task->task_type === 'call') {
@@ -371,6 +393,7 @@ class RemarketingController extends Controller
         ]);
 
         $task = RemarketingTask::query()->find($validated['task_id']);
+
         if (! $task || $task->status !== RemarketingTask::STATUS_PENDING || $task->task_type !== 'call') {
             return redirect()
                 ->route('remarketing.index')
@@ -382,11 +405,13 @@ class RemarketingController extends Controller
                 ->route('remarketing.index')
                 ->with('error', 'Task is missing lead_id.');
         }
+
         if (! $task->campaign_id) {
             return redirect()
                 ->route('remarketing.index')
                 ->with('error', 'Task is missing campaign_id.');
         }
+
         if (! $task->phone || trim((string) $task->phone) === '') {
             return redirect()
                 ->route('remarketing.index')
@@ -417,6 +442,7 @@ class RemarketingController extends Controller
         if ($isOk) {
             $fromStatus = (string) $task->status;
             $toStatus = $popupConfirmed ? RemarketingTask::STATUS_COMPLETED : RemarketingTask::STATUS_STARTED;
+
             $task->status = $toStatus;
             $task->save();
 
@@ -475,14 +501,11 @@ class RemarketingController extends Controller
                 ];
             }
 
-            $nextStep = null;
-            if ($progress->current_step_order === null) {
-                $nextStep = $steps->first();
-            } else {
-                $nextStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
-            }
+            $manualStep = $progress->current_step_order === null
+                ? $steps->first()
+                : $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
 
-            if (! $nextStep) {
+            if (! $manualStep) {
                 $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
                 $progress->save();
 
@@ -492,7 +515,7 @@ class RemarketingController extends Controller
                 ];
             }
 
-            if (! in_array($nextStep->medium, ['call', 'whatsapp'], true)) {
+            if (! in_array($manualStep->medium, ['call', 'whatsapp'], true)) {
                 return [
                     'ok' => false,
                     'message' => 'Only call or WhatsApp steps can be completed manually.',
@@ -503,8 +526,8 @@ class RemarketingController extends Controller
                 ? ($progress->started_at ?? $progress->created_at)
                 : ($progress->last_step_completed_at ?? $progress->updated_at ?? $progress->created_at);
 
-            $rawDue = $baseTime->copy()->addMinutes((int) $nextStep->delay_minutes);
-            $nextAllowed = $this->scheduleWindowService->nextAllowedTime($nextStep, $rawDue);
+            $rawDue = $baseTime->copy()->addMinutes((int) $manualStep->delay_minutes);
+            $nextAllowed = $this->scheduleWindowService->nextAllowedTime($manualStep, $rawDue);
             $dueNow = now()->greaterThanOrEqualTo($nextAllowed);
 
             if (! $dueNow && $progress->status !== LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
@@ -518,11 +541,12 @@ class RemarketingController extends Controller
 
             LeadRemarketingStepLog::query()->create([
                 'lead_id' => $leadId,
-                'remarketing_step_id' => $nextStep->id,
-                'step_order' => $nextStep->step_order,
-                'medium' => $nextStep->medium,
-                'template_id' => $nextStep->template_id,
+                'remarketing_step_id' => $manualStep->id,
+                'step_order' => $manualStep->step_order,
+                'medium' => $manualStep->medium,
+                'template_id' => $manualStep->template_id,
                 'status' => 'completed',
+                'execution_status' => 'completed_manual_task',
                 'due_at' => $nextAllowed,
                 'started_at' => $now,
                 'completed_at' => $now,
@@ -532,15 +556,16 @@ class RemarketingController extends Controller
                 ],
             ]);
 
-            $progress->current_step_id = $nextStep->id;
-            $progress->current_step_order = $nextStep->step_order;
+            $progress->current_step_id = $manualStep->id;
+            $progress->current_step_order = $manualStep->step_order;
             $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
             $progress->last_step_completed_at = $now;
 
-            $followingStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $nextStep->step_order);
+            $followingStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $manualStep->step_order);
+
             if ($followingStep) {
                 $nextRaw = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
-                $progress->next_step_due_at = app(RemarketingScheduleWindowService::class)->nextAllowedTime($followingStep, $nextRaw);
+                $progress->next_step_due_at = $this->scheduleWindowService->nextAllowedTime($followingStep, $nextRaw);
             } else {
                 $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
                 $progress->next_step_due_at = null;
@@ -569,6 +594,7 @@ class RemarketingController extends Controller
         }
 
         $completedAt = $log->completed_at ?? now();
+
         $log->status = 'completed';
         $log->execution_status = 'completed_manual_task';
         $log->completed_at = $completedAt;
@@ -603,38 +629,77 @@ class RemarketingController extends Controller
             return;
         }
 
-        $currentStep = null;
+        $completedStep = null;
+
         if ($log->remarketing_step_id !== null) {
-            $currentStep = RemarketingStep::query()->find((int) $log->remarketing_step_id);
+            $completedStep = RemarketingStep::query()->find((int) $log->remarketing_step_id);
         }
-        if (! $currentStep && $progress->current_step_id !== null) {
-            $currentStep = RemarketingStep::query()->find((int) $progress->current_step_id);
+
+        if (! $completedStep && $progress->current_step_id !== null) {
+            $completedStep = RemarketingStep::query()->find((int) $progress->current_step_id);
+        }
+
+        if (! $completedStep) {
+            Log::warning('Manual remarketing task completion missing step metadata', [
+                'lead_id' => $log->lead_id,
+                'step_log_id' => $log->id,
+                'task_id' => $log->created_task_id,
+            ]);
+
+            return;
+        }
+
+        $hasAlreadyRecordedCompletion = $progress->current_step_order !== null
+            && (int) $progress->current_step_order > (int) $completedStep->step_order;
+
+        $sameStepAlreadyActive = $progress->current_step_order !== null
+            && (int) $progress->current_step_order === (int) $completedStep->step_order
+            && $progress->status === LeadRemarketingProgress::STATUS_ACTIVE;
+
+        if ($hasAlreadyRecordedCompletion || $sameStepAlreadyActive) {
+            Log::info('Manual remarketing task completion skipped idempotent progress update', [
+                'lead_id' => $log->lead_id,
+                'step_log_id' => $log->id,
+                'task_id' => $log->created_task_id,
+                'progress_step_order' => $progress->current_step_order,
+                'completed_step_order' => $completedStep->step_order,
+                'progress_status' => $progress->status,
+            ]);
+
+            return;
         }
 
         $stepsQuery = RemarketingStep::query()
             ->where('is_active', true)
             ->orderBy('step_order');
 
-        if ($currentStep && str_starts_with((string) $currentStep->step_key, 'cbna_')) {
+        if (str_starts_with((string) $completedStep->step_key, 'cbna_')) {
             $stepsQuery->where('step_key', 'like', 'cbna_%');
         }
 
         $nextStep = $stepsQuery
-            ->where('step_order', '>', (int) ($log->step_order ?? $progress->current_step_order ?? 0))
+            ->where('step_order', '>', (int) $completedStep->step_order)
             ->first();
 
-        $now = now();
+        $now = $log->completed_at ?? now();
+
+        $progress->current_step_id = $completedStep->id;
+        $progress->current_step_order = $completedStep->step_order;
+        $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
+        $progress->last_step_completed_at = $now;
 
         if (! $nextStep) {
             $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
             $progress->next_step_due_at = null;
-            $progress->last_step_completed_at = $now;
+
             if (Schema::hasColumn('lead_remarketing_progress', 'stopped_at')) {
                 $progress->stopped_at = $progress->stopped_at ?? $now;
             }
+
             if (Schema::hasColumn('lead_remarketing_progress', 'stop_reason')) {
                 $progress->stop_reason = 'journey_completed';
             }
+
             $progress->save();
 
             Log::info('Manual remarketing task completion finished journey', [
@@ -646,29 +711,26 @@ class RemarketingController extends Controller
             return;
         }
 
-        $progress->current_step_id = $nextStep->id;
-        $progress->current_step_order = $nextStep->step_order;
-        $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
-        $progress->last_step_completed_at = $now;
         $progress->next_step_due_at = $this->scheduleWindowService->nextAllowedTime(
             $nextStep,
             $now->copy()->addMinutes((int) $nextStep->delay_minutes)
         );
+
         $progress->save();
 
         Log::info('Manual remarketing task completion advanced progress', [
             'lead_id' => $log->lead_id,
             'step_log_id' => $log->id,
             'task_id' => $log->created_task_id,
+            'completed_step_id' => $completedStep->id,
+            'completed_step_key' => $completedStep->step_key,
+            'completed_step_order' => $completedStep->step_order,
             'next_step_id' => $nextStep->id,
             'next_step_key' => $nextStep->step_key,
             'next_step_order' => $nextStep->step_order,
         ]);
     }
 
-    /**
-     * Step 2: after a remarketing CALL task is completed, branch on latest VICIdial disposition.
-     */
     private function remarketingStepTwoAfterCallCompleted(RemarketingTask $task): void
     {
         if ($task->task_type !== 'call') {
@@ -676,6 +738,7 @@ class RemarketingController extends Controller
         }
 
         $vicidialLeadId = $task->lead_id;
+
         if ($vicidialLeadId === null || (int) $vicidialLeadId <= 0) {
             return;
         }
@@ -693,6 +756,7 @@ class RemarketingController extends Controller
         }
 
         $latest = $this->vicidialDispositionService->getLatestStatusForLead($lead->fresh());
+
         if ($latest === null) {
             return;
         }
@@ -746,6 +810,4 @@ class RemarketingController extends Controller
             );
         }
     }
-
 }
-
