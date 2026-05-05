@@ -467,6 +467,8 @@ class RemarketingController extends Controller
             ]);
 
             if ($toStatus === RemarketingTask::STATUS_COMPLETED && $task->task_type === 'call') {
+                $linkedLog = $this->completeLinkedManualStepLog($task);
+                $this->advanceProgressForCompletedManualTask($linkedLog);
                 $this->remarketingStepTwoAfterCallCompleted($task);
             }
         }
@@ -514,9 +516,23 @@ class RemarketingController extends Controller
                 ];
             }
 
-            $manualStep = $progress->current_step_order === null
-                ? $steps->first()
-                : $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
+            if ($progress->status === LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
+                $manualStep = null;
+
+                if ($progress->current_step_id !== null) {
+                    $manualStep = $steps->firstWhere('id', (int) $progress->current_step_id);
+                }
+
+                if (! $manualStep && $progress->current_step_order !== null) {
+                    $manualStep = $steps->first(
+                        fn (RemarketingStep $step) => (int) $step->step_order === (int) $progress->current_step_order
+                    );
+                }
+            } else {
+                $manualStep = $progress->current_step_order === null
+                    ? $steps->first()
+                    : $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
+            }
 
             if (! $manualStep) {
                 $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
@@ -646,10 +662,6 @@ class RemarketingController extends Controller
 
         if ($log->remarketing_step_id !== null) {
             $completedStep = RemarketingStep::query()->find((int) $log->remarketing_step_id);
-        }
-
-        if (! $completedStep && $progress->current_step_id !== null) {
-            $completedStep = RemarketingStep::query()->find((int) $progress->current_step_id);
         }
 
         if (! $completedStep) {
