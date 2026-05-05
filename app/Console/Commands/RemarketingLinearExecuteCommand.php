@@ -704,6 +704,33 @@ class RemarketingLinearExecuteCommand extends Command
         $templateVariables = $this->resolveTemplateVariables((int) $progress->lead_id, $leadData);
         $messageBody = $this->renderTemplateBody($templateBody, $templateVariables);
 
+        $portalGuardError = $this->resolvePortalLinkGuardError($templateBody, $messageBody, $templateVariables, true);
+        if ($portalGuardError !== null) {
+            $this->logFailedSmsStep(
+                progress: $progress,
+                currentStep: $currentStep,
+                executionAction: $executionAction,
+                dueAt: $dueAt,
+                now: $now,
+                to: $normalizedPhone,
+                error: $portalGuardError,
+                plannedDelivery: $plannedDelivery,
+                actualDelivery: $actualDelivery,
+                rawPhone: $rawPhone ?? null,
+                normalizedPhone: $normalizedPhone ?? null
+            );
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'sms_action' => 'failed',
+                'sms_to' => $normalizedPhone,
+                'provider_message_id' => null,
+                'error_message' => $portalGuardError,
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
+
         $sendResult = $this->sendSmsViaTwilio($normalizedPhone, $messageBody);
         if (! $sendResult['success']) {
             $this->logFailedSmsStep(
@@ -972,6 +999,47 @@ class RemarketingLinearExecuteCommand extends Command
         return $value;
     }
 
+
+    private function resolvePortalLinkGuardError(string $templateBody, string $renderedBody, array $variables, bool $commitMode): ?string
+    {
+        $usesPortalLink = str_contains($templateBody, '{{portal_link}}');
+        if (! $usesPortalLink) {
+            return null;
+        }
+
+        if (! $commitMode) {
+            return null;
+        }
+
+        if (! (bool) ($variables['portal_link_generated'] ?? false)) {
+            return (string) ($variables['portal_link_error'] ?? 'portal_link_generation_failed');
+        }
+
+        if (str_contains($renderedBody, self::DEFAULT_PORTAL_LINK)) {
+            return 'portal_link_generation_failed';
+        }
+
+        return null;
+    }
+
+    private function resolveEmailPortalLinkGuardError(string $emailSendMode, string $bodyTemplate, string $renderedBody, array $variables): ?string
+    {
+        if ($emailSendMode === 'body') {
+            return $this->resolvePortalLinkGuardError($bodyTemplate, $renderedBody, $variables, true);
+        }
+
+        if (! (bool) ($variables['portal_link_generated'] ?? false)) {
+            return (string) ($variables['portal_link_error'] ?? 'portal_link_generation_failed');
+        }
+
+        $portalLink = (string) ($variables['portal_link'] ?? '');
+        if ($portalLink === '' || $portalLink === self::DEFAULT_PORTAL_LINK) {
+            return 'portal_link_generation_failed';
+        }
+
+        return null;
+    }
+
     private function commitEmailStepDecision(
         LeadRemarketingProgress $progress,
         RemarketingStep $currentStep,
@@ -1066,6 +1134,21 @@ class RemarketingLinearExecuteCommand extends Command
             ? $this->renderTemplateBody($subjectTemplate, $templateVariables)
             : (string) ($template?->template_name ?? 'Remarketing update');
         $body = $bodyTemplate !== '' ? $this->renderTemplateBody($bodyTemplate, $templateVariables) : '';
+
+        $portalGuardError = $this->resolveEmailPortalLinkGuardError($emailSendMode, $bodyTemplate, $body, $templateVariables);
+        if ($portalGuardError !== null) {
+            $this->logFailedEmailStep($progress, $currentStep, $executionAction, $dueAt, $now, $emailTo, $portalGuardError, $plannedDelivery, $actualDelivery);
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'email_action' => 'failed',
+                'email_to' => $emailTo,
+                'provider_message_id' => null,
+                'error_message' => $portalGuardError,
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
 
         $firstName = (string) ($templateVariables['first_name'] ?? $leadData['first_name'] ?? '');
         $sendResult = $emailSendMode === 'dynamic_template'
@@ -1228,6 +1311,17 @@ class RemarketingLinearExecuteCommand extends Command
 
         $variables = $this->resolveTemplateVariables((int) $progress->lead_id);
         $renderedBody = $templateBody !== '' ? $this->renderTemplateBody($templateBody, $variables) : '';
+        $portalGuardError = $this->resolvePortalLinkGuardError($templateBody, $renderedBody, $variables, true);
+        if ($portalGuardError !== null) {
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'whatsapp_action' => 'failed',
+                'whatsapp_body_preview' => null,
+                'error_message' => $portalGuardError,
+                'commit_action' => 'failed_logged_no_advance',
+            ];
+        }
         $bodyPreview = $renderedBody !== '' ? mb_substr($renderedBody, 0, 120) : null;
 
         return DB::transaction(function () use (
@@ -1906,7 +2000,7 @@ class RemarketingLinearExecuteCommand extends Command
     }
 
     private function resolveTemplateVariables(
-        int $jinxLeadId,
+        int $vicidialLeadId,
         array $fallback = [],
         ?RemarketingStep $currentStep = null,
         array $templateMetadata = []
@@ -1914,7 +2008,7 @@ class RemarketingLinearExecuteCommand extends Command
     {
         $leadFirstName = '';
         $leadLastName = '';
-        $vicidialLeadId = null;
+        $resolvedJinxLeadId = null;
 
         if (Schema::hasTable('leads')) {
             $select = ['id'];
@@ -1928,11 +2022,11 @@ class RemarketingLinearExecuteCommand extends Command
                 $select[] = 'vicidial_lead_id';
             }
 
-            $lead = DB::table('leads')->select($select)->where('id', $jinxLeadId)->first();
+            $lead = DB::table('leads')->select($select)->where('vicidial_lead_id', $vicidialLeadId)->first();
             if ($lead !== null) {
                 $leadFirstName = trim((string) ($lead->first_name ?? ''));
                 $leadLastName = trim((string) ($lead->last_name ?? ''));
-                $vicidialLeadId = isset($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
+                $resolvedJinxLeadId = isset($lead->id) ? (int) $lead->id : null;
             }
         }
 
@@ -1963,12 +2057,12 @@ class RemarketingLinearExecuteCommand extends Command
         $journeyLabel = trim((string) ($templateMetadata['journey_label'] ?? $currentStep?->journey_key ?? ''));
         $flowKey = trim((string) ($templateMetadata['flow_key'] ?? $currentStep?->flow_key ?? ''));
 
-        $portalContext = $this->resolvePortalLinkContext($jinxLeadId, $vicidialLeadId);
+        $portalContext = $this->resolvePortalLinkContext($resolvedJinxLeadId, $vicidialLeadId);
 
         return [
             'first_name' => $leadFirstName !== '' ? $leadFirstName : (string) ($fallback['first_name'] ?? $vicidialFirstName),
             'last_name' => $leadLastName !== '' ? $leadLastName : (string) ($fallback['last_name'] ?? $vicidialLastName),
-            'lead_id' => $jinxLeadId,
+            'lead_id' => $vicidialLeadId,
             'agent_name' => self::DEFAULT_AGENT_NAME,
             'company_name' => self::DEFAULT_COMPANY_NAME,
             'whatsapp_link' => self::WHATSAPP_LINK,
@@ -1986,9 +2080,9 @@ class RemarketingLinearExecuteCommand extends Command
         ];
     }
 
-    private function resolvePortalLinkContext(int $jinxLeadId, ?int $vicidialLeadId): array
+    private function resolvePortalLinkContext(?int $jinxLeadId, ?int $vicidialLeadId): array
     {
-        $lead = Lead::query()->find($jinxLeadId);
+        $lead = $jinxLeadId !== null ? Lead::query()->find($jinxLeadId) : null;
         if (! $lead) {
             $context = [
                 'portal_link_generated' => false,
@@ -2004,14 +2098,23 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         $generated = $this->leadPortalLinkService->generateForLead($lead);
+        $portalUrl = trim((string) ($generated['portal_url'] ?? ''));
+        $portalGenerated = $portalUrl !== '';
+
         $context = [
-            'portal_link_generated' => true,
-            'portal_link' => (string) ($generated['portal_url'] ?? self::DEFAULT_PORTAL_LINK),
+            'portal_link_generated' => $portalGenerated,
+            'portal_link' => $portalGenerated ? $portalUrl : self::DEFAULT_PORTAL_LINK,
             'portal_token_id' => $generated['portal_token']->id ?? null,
-            'portal_link_error' => null,
+            'portal_link_error' => $portalGenerated ? null : 'portal_link_generation_failed',
             'resolved_jinx_lead_id' => (int) $lead->id,
             'resolved_vicidial_lead_id' => $vicidialLeadId ?? (int) ($lead->vicidial_lead_id ?? 0),
         ];
+
+        if (! $portalGenerated) {
+            Log::warning('[remarketing-linear] portal link generation failed', $context);
+
+            return $context;
+        }
 
         Log::debug('[remarketing-linear] portal link resolved', $context);
 
