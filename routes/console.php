@@ -134,14 +134,16 @@ Schedule::command('remarketing:scan-inbound-call-responses --limit=100')
     ->everyMinute()
     ->withoutOverlapping();
 
-Schedule::command('remarketing:scan-cbna --commit --limit=50')
-    ->when(fn () => env('REMARKETING_CBNA_SCANNER_ENABLED', false))
-    ->everyMinute()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/remarketing-cbna-scan.log'));
+if (config('remarketing.cbna_scanner_enabled')) {
+    Schedule::command('remarketing:scan-cbna --commit --limit=50')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->appendOutputTo(storage_path('logs/remarketing-cbna-scan.log'));
+}
 
-Schedule::command('remarketing:linear-execute --commit --limit=50')
-    ->when(fn () => env('REMARKETING_LINEAR_EXECUTOR_ENABLED', false))
-    ->everyMinute()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/remarketing-linear-execute.log'));
+if (config('remarketing.linear_executor_enabled')) {
+    Schedule::command('remarketing:linear-execute --commit --limit=50')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->appendOutputTo(storage_path('logs/remarketing-linear-execute.log'));
+}
