@@ -9,9 +9,18 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('remarketing:scan-inbound-call-responses --limit=100')
-            ->everyMinute()
-            ->withoutOverlapping()
-            ->runInBackground();
+        if (env('REMARKETING_CBNA_SCANNER_ENABLED', false)) {
+            $schedule->command('remarketing:scan-cbna --commit --limit=50')
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->appendOutputTo(storage_path('logs/remarketing-cbna-scan.log'));
+        }
+
+        if (env('REMARKETING_LINEAR_EXECUTOR_ENABLED', false)) {
+            $schedule->command('remarketing:linear-execute --commit --limit=50')
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->appendOutputTo(storage_path('logs/remarketing-linear-execute.log'));
+        }
     }
 }
