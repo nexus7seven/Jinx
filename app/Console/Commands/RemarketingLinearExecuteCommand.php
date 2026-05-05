@@ -659,6 +659,11 @@ class RemarketingLinearExecuteCommand extends Command
         $this->line('SMS raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)'));
         $this->line('SMS normalized phone: '.($normalizedPhone ?? '(invalid)'));
         $this->line('SMS phone source: '.$phoneSource);
+        $this->line('resolved_jinx_lead_id: '.($phoneData['resolved_jinx_lead_id'] !== null ? (string) $phoneData['resolved_jinx_lead_id'] : '(none)'));
+        $this->line('resolved_vicidial_lead_id: '.($phoneData['resolved_vicidial_lead_id'] !== null ? (string) $phoneData['resolved_vicidial_lead_id'] : '(none)'));
+        $this->line('raw_lead_phone_number: '.(($phoneData['raw_lead_phone_number'] ?? '') !== '' ? $phoneData['raw_lead_phone_number'] : '(empty)'));
+        $this->line('raw_lead_alt_phone: '.(($phoneData['raw_lead_alt_phone'] ?? '') !== '' ? $phoneData['raw_lead_alt_phone'] : '(empty)'));
+        $this->line('sms_phone_source: '.$phoneSource);
 
         if ($normalizedPhone === null) {
             $error = 'Missing or invalid phone number for lead. Raw phone: '.($rawPhone !== '' ? $rawPhone : '(empty)');
@@ -1717,41 +1722,37 @@ class RemarketingLinearExecuteCommand extends Command
         );
     }
 
-    private function resolveSmsPhoneData(int $jinxLeadId): array
+    private function resolveSmsPhoneData(int $vicidialLeadId): array
     {
         $rawPhone = null;
         $phoneSource = 'none';
-        $vicidialLeadId = null;
+        $resolvedJinxLeadId = null;
+        $rawLeadPhoneNumber = '';
+        $rawLeadAltPhone = '';
 
-        if (Schema::hasTable('leads') && Schema::hasColumn('leads', 'id')) {
-            $leadSelect = ['id'];
+        if (Schema::hasTable('leads') && Schema::hasColumn('leads', 'vicidial_lead_id')) {
+            $leadSelect = ['id', 'vicidial_lead_id'];
             if (Schema::hasColumn('leads', 'phone_number')) {
                 $leadSelect[] = 'phone_number';
             }
             if (Schema::hasColumn('leads', 'phone')) {
                 $leadSelect[] = 'phone';
             }
-            if (Schema::hasColumn('leads', 'vicidial_lead_id')) {
-                $leadSelect[] = 'vicidial_lead_id';
-            }
-
             $leadRow = DB::table('leads')
                 ->select($leadSelect)
-                ->where('id', $jinxLeadId)
+                ->where('vicidial_lead_id', $vicidialLeadId)
                 ->first();
 
             if ($leadRow !== null) {
+                $resolvedJinxLeadId = isset($leadRow->id) ? (int) $leadRow->id : null;
                 $rawLeadPhoneNumber = trim((string) ($leadRow->phone_number ?? ''));
-                $rawLeadPhone = trim((string) ($leadRow->phone ?? ''));
-                $vicidialLeadId = isset($leadRow->vicidial_lead_id) && $leadRow->vicidial_lead_id !== null
-                    ? (int) $leadRow->vicidial_lead_id
-                    : null;
+                $rawLeadAltPhone = trim((string) ($leadRow->phone ?? ''));
 
                 if ($rawLeadPhoneNumber !== '') {
                     $rawPhone = $rawLeadPhoneNumber;
                     $phoneSource = 'leads.phone_number';
-                } elseif ($rawLeadPhone !== '') {
-                    $rawPhone = $rawLeadPhone;
+                } elseif ($rawLeadAltPhone !== '') {
+                    $rawPhone = $rawLeadAltPhone;
                     $phoneSource = 'leads.phone';
                 }
             }
@@ -1770,7 +1771,10 @@ class RemarketingLinearExecuteCommand extends Command
             'raw_phone' => $rawPhone,
             'normalized_phone' => $this->normalizeUkPhone((string) ($rawPhone ?? '')),
             'phone_source' => $phoneSource,
-            'jinx_lead_id' => $jinxLeadId,
+            'resolved_jinx_lead_id' => $resolvedJinxLeadId,
+            'resolved_vicidial_lead_id' => $vicidialLeadId,
+            'raw_lead_phone_number' => $rawLeadPhoneNumber,
+            'raw_lead_alt_phone' => $rawLeadAltPhone,
             'vicidial_lead_id' => $vicidialLeadId,
         ];
     }

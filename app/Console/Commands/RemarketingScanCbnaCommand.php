@@ -112,12 +112,16 @@ class RemarketingScanCbnaCommand extends Command
             'vicidial_moved_to_HOLD_list_5555555555' => false,
             'note' => null,
             'error' => null,
+            'source_phone' => trim((string) ($candidate->phone_number ?? '')) ?: null,
+            'stored_phone' => null,
         ];
 
         try {
-            $phone = $this->normalizeUkTo44Digits((string) ($candidate->phone_number ?? ''));
-            [$lead, $matchedByPhone] = $this->findExistingLead($vicidialLeadId, $phone);
+            $sourcePhone = trim((string) ($candidate->phone_number ?? ''));
+            $normalizedPhone = $this->normalizeUkTo44Digits($sourcePhone);
+            [$lead, $matchedByPhone] = $this->findExistingLead($vicidialLeadId, $normalizedPhone);
             $hadProgress = $this->hasProgressForVicidialLeadId($vicidialLeadId);
+            $row['stored_phone'] = trim((string) ($lead?->phone_number ?? '')) ?: null;
 
             if ($lead === null) {
                 $summary['created_jinx_lead']++;
@@ -149,6 +153,7 @@ class RemarketingScanCbnaCommand extends Command
             } else {
                 $lead->update($this->buildLeadPayload($candidate, $vicidialLeadId, true, $lead));
             }
+            $row['stored_phone'] = trim((string) ($lead->fresh()?->phone_number ?? $lead->phone_number ?? '')) ?: null;
 
             $summary['updated_status_to_lost_contact']++;
             $row['updated_status_to_lost_contact'] = true;
@@ -235,13 +240,13 @@ class RemarketingScanCbnaCommand extends Command
             $payload['vicidial_lead_id'] = (string) $vicidialLeadId;
         }
 
-        $phone44Digits = $this->normalizeUkTo44Digits((string) ($candidate->phone_number ?? ''));
+        $sourcePhone = trim((string) ($candidate->phone_number ?? ''));
         $firstName = trim((string) ($candidate->first_name ?? ''));
         $lastName = trim((string) ($candidate->last_name ?? ''));
         $email = $this->extractCandidateEmail($candidate);
 
-        if ($phone44Digits !== null) {
-            $payload['phone_number'] = $phone44Digits;
+        if ($sourcePhone !== '') {
+            $payload['phone_number'] = $sourcePhone;
         }
         if ($firstName !== '') {
             $payload['first_name'] = $firstName;
