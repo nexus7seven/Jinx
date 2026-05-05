@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
+use App\Services\RemarketingTaskService;
 
 class RemarketingLinearExecuteCommand extends Command
 {
@@ -43,7 +44,8 @@ class RemarketingLinearExecuteCommand extends Command
 
     public function __construct(
         private readonly RemarketingLinearBrainPreviewCommand $previewCommand,
-        private readonly RemarketingScheduleWindowService $scheduleWindowService
+        private readonly RemarketingScheduleWindowService $scheduleWindowService,
+        private readonly RemarketingTaskService $remarketingTaskService
     ) {
         parent::__construct();
     }
@@ -359,7 +361,24 @@ class RemarketingLinearExecuteCommand extends Command
                         }
                     }
                 } else {
-                    $commitAction = 'skipped_live_non_sms_step';
+                    $commitResult = $this->commitManualOrCallTaskDecision(
+                        progress: $progress,
+                        currentStep: $stepToExecute,
+                        allSteps: $journeyScopedSteps,
+                        executionAction: $executionAction,
+                        dueAt: $dueAt,
+                        now: $now,
+                        plannedDelivery: $plannedDelivery ?? [],
+                        actualDelivery: $actualDelivery ?? []
+                    );
+
+                    $commitAction = $commitResult['commit_action'];
+                    if ($commitResult['committed']) {
+                        $summary['committed']++;
+                    }
+                    if ($commitResult['advanced']) {
+                        $summary['advanced']++;
+                    }
                 }
             }
 
@@ -1270,6 +1289,131 @@ class RemarketingLinearExecuteCommand extends Command
                 'commit_action' => $advanced ? 'manual_task_created_and_advanced' : 'manual_task_created_waiting',
             ];
         });
+    }
+
+    private function commitManualOrCallTaskDecision(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        string $executionAction,
+        ?Carbon $dueAt,
+        Carbon $now,
+        array $plannedDelivery,
+        array $actualDelivery
+    ): array {
+        $manualRequired = (bool) $currentStep->requires_manual_completion;
+        $autoAdvance = (bool) $currentStep->auto_advance_on_send && ! $manualRequired;
+
+        return DB::transaction(function () use ($progress, $currentStep, $allSteps, $executionAction, $dueAt, $now, $plannedDelivery, $actualDelivery, $manualRequired, $autoAdvance): array {
+            $queued = $this->queueManualTaskForStep($progress, $currentStep, $actualDelivery);
+
+            if (! $this->hasExistingManualQueueLog($progress, $currentStep)) {
+                $this->createStepLog(
+                    progress: $progress,
+                    currentStep: $currentStep,
+                    payload: [
+                        'medium' => $currentStep->medium,
+                        'status' => 'queued_task',
+                        'execution_status' => $queued['was_created'] ? 'manual_task_created' : 'manual_task_exists',
+                        'due_at' => $dueAt,
+                        'executed_at' => $now->copy(),
+                        'started_at' => $now->copy(),
+                        'completed_at' => null,
+                        'failed_at' => null,
+                        'provider_message_id' => null,
+                        'error_message' => null,
+                        'execution_error' => null,
+                        'created_task_id' => $queued['task']?->id,
+                        'context_json' => [
+                            'mode' => 'commit_manual_task_queue',
+                            'execution_action' => $executionAction,
+                            'manual_required' => $manualRequired,
+                        ],
+                        'metadata_json' => [
+                            'manual_task_type' => $queued['task_type'],
+                            'manual_task_was_created' => $queued['was_created'],
+                        ],
+                    ],
+                    plannedDelivery: $plannedDelivery,
+                    actualDelivery: $actualDelivery
+                );
+            }
+
+            $updates = [
+                'current_step_id' => $currentStep->id,
+                'current_step_order' => $currentStep->step_order,
+            ];
+
+            if ($manualRequired) {
+                $updates['status'] = LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK;
+                $updates['next_step_due_at'] = $dueAt;
+                $progress->update($updates);
+
+                return [
+                    'committed' => true,
+                    'advanced' => false,
+                    'commit_action' => $queued['was_created'] ? 'waiting_manual_completion' : 'already_queued_manual_task',
+                ];
+            }
+
+            if ($autoAdvance) {
+                $updates['last_step_completed_at'] = $now->copy();
+                $updates['status'] = 'active';
+                $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+                $progress->update($updates);
+
+                return [
+                    'committed' => true,
+                    'advanced' => $advanced,
+                    'commit_action' => $advanced ? 'advanced_after_task_queue' : 'queued_manual_task',
+                ];
+            }
+
+            $updates['status'] = 'active';
+            $updates['next_step_due_at'] = $dueAt;
+            $progress->update($updates);
+
+            return [
+                'committed' => true,
+                'advanced' => false,
+                'commit_action' => $queued['was_created'] ? 'queued_manual_task' : 'already_queued_manual_task',
+            ];
+        });
+    }
+
+    private function queueManualTaskForStep(LeadRemarketingProgress $progress, RemarketingStep $currentStep, array $actualDelivery): array
+    {
+        $lead = Lead::query()->find((int) $progress->lead_id)
+            ?? Lead::query()->where('vicidial_lead_id', (int) $progress->lead_id)->first();
+
+        if ($lead === null) {
+            return ['task' => null, 'was_created' => false, 'task_type' => 'unknown'];
+        }
+
+        $taskType = (($actualDelivery['actual_medium'] ?? $currentStep->medium) === 'whatsapp') ? 'whatsapp' : 'call';
+        $reasonKey = $taskType === 'whatsapp' ? 'whatsapp_follow_up' : 'no_answer';
+        $reason = trim((string) ($currentStep->step_name ?? $currentStep->step_key ?? $this->remarketingTaskService->resolveReason($reasonKey)));
+
+        $result = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
+            $lead,
+            $taskType,
+            $reasonKey,
+            [
+                'reason' => $reason,
+                'stage' => trim((string) ($currentStep->stage ?? 'fresh')) ?: 'fresh',
+            ]
+        );
+
+        return ['task' => $result['task'], 'was_created' => $result['was_created'], 'task_type' => $taskType];
+    }
+
+    private function hasExistingManualQueueLog(LeadRemarketingProgress $progress, RemarketingStep $currentStep): bool
+    {
+        return LeadRemarketingStepLog::query()
+            ->where('lead_id', (int) $progress->lead_id)
+            ->where('remarketing_step_id', $currentStep->id)
+            ->whereIn('execution_status', ['manual_task_created', 'manual_task_exists'])
+            ->exists();
     }
 
     private function upsertPendingWhatsAppTask(
