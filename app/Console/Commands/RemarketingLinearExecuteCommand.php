@@ -37,10 +37,10 @@ class RemarketingLinearExecuteCommand extends Command
         {--commit : Commit planner decisions to linear progress/log tables}
         {--only-log : Commit mode guard to ensure no external actions are used}
         {--ignore-send-window : Bypass send window checks for testing}
-        {--send-sms : Send SMS only for explicit single-lead commit mode}
-        {--send-email : Send email only for explicit single-lead commit mode}';
+        {--send-sms : Deprecated. SMS is sent automatically in --commit mode}
+        {--send-email : Deprecated. Email is sent automatically in --commit mode}';
 
-    protected $description = 'Read-only dry-run execution planner for linear remarketing.';
+    protected $description = 'Execute due linear remarketing steps (dry-run by default; use --commit for live actions).';
 
     public function __construct(
         private readonly RemarketingLinearBrainPreviewCommand $previewCommand,
@@ -59,39 +59,18 @@ class RemarketingLinearExecuteCommand extends Command
         $ignoreSendWindow = (bool) $this->option('ignore-send-window');
         $leadId = $this->option('lead_id');
 
-        if ($sendSms && ! $commit) {
-            $this->error('Use --commit with --send-sms.');
+        if (($sendSms || $sendEmail) && ! $commit) {
+            $this->error('Use --commit with --send-sms/--send-email.');
             return self::FAILURE;
         }
 
-        if ($sendSms && ($leadId === null || $leadId === '')) {
-            $this->error('SMS sending requires --lead_id for now.');
+        if (($sendSms || $sendEmail) && $onlyLog) {
+            $this->error('Choose either --only-log or deprecated --send-sms/--send-email flags, not both.');
             return self::FAILURE;
         }
 
-        if ($sendSms && $onlyLog) {
-            $this->error('Choose either --only-log or --send-sms, not both.');
-            return self::FAILURE;
-        }
-
-        if ($sendEmail && ! $commit) {
-            $this->error('Use --commit with --send-email.');
-            return self::FAILURE;
-        }
-
-        if ($sendEmail && ($leadId === null || $leadId === '')) {
-            $this->error('Email sending requires --lead_id for now.');
-            return self::FAILURE;
-        }
-
-        if ($sendEmail && $onlyLog) {
-            $this->error('Choose either --only-log or --send-email, not both.');
-            return self::FAILURE;
-        }
-
-        if ($sendEmail && $sendSms) {
-            $this->error('Choose only one send medium at a time.');
-            return self::FAILURE;
+        if ($commit && ($sendSms || $sendEmail)) {
+            $this->warn('--send-sms/--send-email are deprecated and are no-ops in --commit mode. Live execution now auto-sends SMS/email when due.');
         }
 
         $steps = RemarketingStep::query()
@@ -324,41 +303,35 @@ class RemarketingLinearExecuteCommand extends Command
                     if ($sendResult['advanced']) {
                         $summary['advanced']++;
                     }
-                } elseif ($sendEmail) {
-                    if ($executionAction !== 'would_send_email') {
-                        $commitAction = 'skipped_non_email_step';
-                        $emailAction = 'skipped';
-                        $errorMessage = 'execution_action is not would_send_email';
-                    } else {
-                        $sendResult = $this->commitEmailStepDecision(
-                            progress: $progress,
-                            currentStep: $stepToExecute,
-                            allSteps: $journeyScopedSteps,
-                            executionAction: $executionAction,
-                            dueAt: $dueAt,
-                            now: $now,
-                            plannedDelivery: $plannedDelivery ?? [],
-                            actualDelivery: $actualDelivery ?? []
-                        );
+                } elseif ($executionAction === 'would_send_email') {
+                    $sendResult = $this->commitEmailStepDecision(
+                        progress: $progress,
+                        currentStep: $stepToExecute,
+                        allSteps: $journeyScopedSteps,
+                        executionAction: $executionAction,
+                        dueAt: $dueAt,
+                        now: $now,
+                        plannedDelivery: $plannedDelivery ?? [],
+                        actualDelivery: $actualDelivery ?? []
+                    );
 
-                        $commitAction = $sendResult['commit_action'];
-                        $emailAction = $sendResult['email_action'];
-                        $emailTo = $sendResult['email_to'];
-                        $providerMessageId = $sendResult['provider_message_id'];
-                        $errorMessage = $sendResult['error_message'];
+                    $commitAction = $sendResult['commit_action'];
+                    $emailAction = $sendResult['email_action'];
+                    $emailTo = $sendResult['email_to'];
+                    $providerMessageId = $sendResult['provider_message_id'];
+                    $errorMessage = $sendResult['error_message'];
 
-                        if ($sendResult['committed']) {
-                            $summary['committed']++;
-                        }
-                        if ($sendResult['advanced']) {
-                            $summary['advanced']++;
-                        }
-                        if ($emailAction === 'sent') {
-                            $summary['email_sent']++;
-                        }
-                        if ($emailAction === 'failed') {
-                            $summary['email_failed']++;
-                        }
+                    if ($sendResult['committed']) {
+                        $summary['committed']++;
+                    }
+                    if ($sendResult['advanced']) {
+                        $summary['advanced']++;
+                    }
+                    if ($emailAction === 'sent') {
+                        $summary['email_sent']++;
+                    }
+                    if ($emailAction === 'failed') {
+                        $summary['email_failed']++;
                     }
                 } else {
                     $commitResult = $this->commitManualOrCallTaskDecision(
@@ -635,6 +608,10 @@ class RemarketingLinearExecuteCommand extends Command
         array $plannedDelivery,
         array $actualDelivery
     ): array {
+        if ($this->hasSuccessfulStepLog($progress, $currentStep)) {
+            return $this->markAlreadySentOrLoggedAndAdvance($progress, $currentStep, $allSteps, $now, 'sms');
+        }
+
         if (($actualDelivery['actual_medium'] ?? null) !== 'sms') {
             return [
                 'committed' => false,
@@ -981,6 +958,10 @@ class RemarketingLinearExecuteCommand extends Command
         array $plannedDelivery,
         array $actualDelivery
     ): array {
+        if ($this->hasSuccessfulStepLog($progress, $currentStep)) {
+            return $this->markAlreadySentOrLoggedAndAdvance($progress, $currentStep, $allSteps, $now, 'email');
+        }
+
         if (($actualDelivery['actual_medium'] ?? null) !== 'email') {
             return [
                 'committed' => false,
@@ -1092,6 +1073,7 @@ class RemarketingLinearExecuteCommand extends Command
             : (string) ($template?->template_name ?? 'Remarketing update');
         $body = $this->renderTemplateBody($bodyTemplate, $templateVariables);
 
+        $firstName = (string) ($leadData['first_name'] ?? '');
         $sendResult = $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body);
         if (! $sendResult['success']) {
             $this->logFailedEmailStep(
@@ -1276,14 +1258,23 @@ class RemarketingLinearExecuteCommand extends Command
                 actualDelivery: $actualDelivery
             );
 
+            $manualRequired = (bool) $currentStep->requires_manual_completion;
             $updates = [
                 'current_step_id' => $currentStep->id,
                 'current_step_order' => $currentStep->step_order,
-                'last_step_completed_at' => $now->copy(),
-                'status' => 'active',
             ];
-            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
-            $progress->update($updates);
+
+            $advanced = false;
+            if ($manualRequired) {
+                $updates['status'] = LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK;
+                $updates['next_step_due_at'] = $dueAt;
+                $progress->update($updates);
+            } else {
+                $updates['last_step_completed_at'] = $now->copy();
+                $updates['status'] = 'active';
+                $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+                $progress->update($updates);
+            }
 
             return [
                 'committed' => true,
@@ -1291,8 +1282,50 @@ class RemarketingLinearExecuteCommand extends Command
                 'whatsapp_action' => 'manual_task_created',
                 'whatsapp_body_preview' => $bodyPreview,
                 'error_message' => null,
-                'commit_action' => $advanced ? 'manual_task_created_and_advanced' : 'manual_task_created_waiting',
+                'commit_action' => $manualRequired
+                    ? ($manualTask !== null ? 'waiting_manual_completion' : 'queued_manual_task')
+                    : ($advanced ? 'advanced' : 'queued_manual_task'),
             ];
+        });
+    }
+
+    private function hasSuccessfulStepLog(LeadRemarketingProgress $progress, RemarketingStep $currentStep): bool
+    {
+        return LeadRemarketingStepLog::query()
+            ->where('lead_id', (int) $progress->lead_id)
+            ->where('remarketing_step_id', $currentStep->id)
+            ->whereIn('execution_status', ['sent', 'logged', 'completed'])
+            ->exists();
+    }
+
+    private function markAlreadySentOrLoggedAndAdvance(
+        LeadRemarketingProgress $progress,
+        RemarketingStep $currentStep,
+        $allSteps,
+        Carbon $now,
+        string $channel
+    ): array {
+        return DB::transaction(function () use ($progress, $currentStep, $allSteps, $now, $channel): array {
+            $updates = [
+                'current_step_id' => $currentStep->id,
+                'current_step_order' => $currentStep->step_order,
+                'last_step_completed_at' => $progress->last_step_completed_at ?? $now->copy(),
+                'status' => 'active',
+            ];
+            $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+            $progress->update($updates);
+
+            $result = [
+                'committed' => true,
+                'advanced' => $advanced,
+                $channel.'_action' => 'already_sent_or_logged',
+                'provider_message_id' => null,
+                'error_message' => null,
+                'commit_action' => $advanced ? 'advanced' : 'already_sent_or_logged',
+            ];
+            $result[$channel === 'sms' ? 'sms_to' : 'email_to'] = null;
+
+            return $result;
         });
     }
 
