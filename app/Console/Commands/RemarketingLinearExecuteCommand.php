@@ -938,6 +938,8 @@ class RemarketingLinearExecuteCommand extends Command
             '{{company_name}}' => (string) ($variables['company_name'] ?? self::DEFAULT_COMPANY_NAME),
             '{{whatsapp_link}}' => (string) ($variables['whatsapp_link'] ?? self::WHATSAPP_LINK),
             '{{portal_link}}' => (string) ($variables['portal_link'] ?? self::DEFAULT_PORTAL_LINK),
+            '{{click_to_call_display}}' => (string) ($variables['click_to_call_display'] ?? ''),
+            '{{click_to_call_tel}}' => (string) ($variables['click_to_call_tel'] ?? ''),
         ];
 
         $rendered = str_replace(array_keys($replacements), array_values($replacements), $templateBody);
@@ -946,6 +948,24 @@ class RemarketingLinearExecuteCommand extends Command
         }
 
         return $rendered;
+    }
+
+    private function renderTemplateValue(mixed $value, array $variables): mixed
+    {
+        if (is_string($value)) {
+            return $this->renderTemplateBody($value, $variables);
+        }
+
+        if (is_array($value)) {
+            $rendered = [];
+            foreach ($value as $key => $childValue) {
+                $rendered[$key] = $this->renderTemplateValue($childValue, $variables);
+            }
+
+            return $rendered;
+        }
+
+        return $value;
     }
 
     private function commitEmailStepDecision(
@@ -1035,6 +1055,9 @@ class RemarketingLinearExecuteCommand extends Command
             $this->resolveTemplateVariables((int) $progress->lead_id, $leadData, $currentStep, $templateMetadata),
             $templateMetadata
         );
+        $renderedTemplateMetadata = $this->renderTemplateValue($templateMetadata, $templateVariables);
+        $templateVariables = array_merge($templateVariables, (array) $renderedTemplateMetadata);
+
         $subject = $subjectTemplate !== ''
             ? $this->renderTemplateBody($subjectTemplate, $templateVariables)
             : (string) ($template?->template_name ?? 'Remarketing update');
@@ -1048,9 +1071,17 @@ class RemarketingLinearExecuteCommand extends Command
                 $providerTemplateId,
                 $templateVariables,
                 $subject,
-                (string) ($templateMetadata['from_name'] ?? '')
+                (string) ($renderedTemplateMetadata['from_name'] ?? '')
             )
-            : $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body, (string) ($templateMetadata['from_name'] ?? ''));
+            : $this->sendEmailViaSendGrid($emailTo, $firstName, $subject, $body, (string) ($renderedTemplateMetadata['from_name'] ?? ''));
+
+        Log::debug('[remarketing-linear] rendered email context', [
+            'lead_id' => (int) $progress->lead_id,
+            'step_id' => (int) $currentStep->id,
+            'agent_name' => (string) ($templateVariables['agent_name'] ?? self::DEFAULT_AGENT_NAME),
+            'email_from_name' => (string) ($renderedTemplateMetadata['from_name'] ?? ''),
+            'rendered_metadata_json' => $renderedTemplateMetadata,
+        ]);
         if (! $sendResult['success']) {
             $this->logFailedEmailStep(
                 $progress,
@@ -1094,7 +1125,9 @@ class RemarketingLinearExecuteCommand extends Command
             $providerTemplateId,
             $provider,
             $emailSendMode,
-            $emailTemplateKey
+            $emailTemplateKey,
+            $templateVariables,
+            $renderedTemplateMetadata
         ): array {
             $this->createStepLog(
                 progress: $progress,
@@ -1124,8 +1157,12 @@ class RemarketingLinearExecuteCommand extends Command
                         'email_provider_template_id' => $providerTemplateId !== '' ? $providerTemplateId : null,
                         'email_to' => $emailTo,
                         'email_template_key' => $emailTemplateKey !== '' ? $emailTemplateKey : null,
+                        'agent_name' => (string) ($templateVariables['agent_name'] ?? self::DEFAULT_AGENT_NAME),
+                        'email_from_name' => (string) ($renderedTemplateMetadata['from_name'] ?? null),
                     ],
-                    'metadata_json' => [],
+                    'metadata_json' => [
+                        'rendered_metadata_json' => $renderedTemplateMetadata,
+                    ],
                 ],
                 plannedDelivery: $plannedDelivery,
                 actualDelivery: $actualDelivery
