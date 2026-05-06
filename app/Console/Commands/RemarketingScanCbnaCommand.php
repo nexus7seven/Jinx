@@ -260,7 +260,7 @@ class RemarketingScanCbnaCommand extends Command
         if ($lastName !== '') {
             $payload['last_name'] = $lastName;
         }
-        if ($email !== null) {
+        if ($email !== null && (! $updateOnly || blank($existingLead?->email))) {
             $payload['email'] = $email;
         }
 
@@ -327,7 +327,7 @@ class RemarketingScanCbnaCommand extends Command
     {
         $raw = trim((string) ($candidate->email ?? $candidate->email_address ?? ''));
 
-        return filter_var($raw, FILTER_VALIDATE_EMAIL) ? $raw : null;
+        return $raw !== '' ? $raw : null;
     }
 
     private function testingChecklist(): array
