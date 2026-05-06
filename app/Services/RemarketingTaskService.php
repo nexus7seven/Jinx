@@ -240,7 +240,7 @@ class RemarketingTaskService
             'lead_id' => is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null,
             'lead_name' => $fullName !== '' ? $fullName : ('Lead #' . $lead->id),
             'phone' => (string) ($lead->phone_number ?? ''),
-            'campaign_id' => null,
+            'campaign_id' => 'MAIN',
             'reason' => '',
             'stage' => 'fresh',
             'time_waiting_text' => null,

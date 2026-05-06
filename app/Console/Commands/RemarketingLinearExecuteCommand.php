@@ -1372,6 +1372,7 @@ class RemarketingLinearExecuteCommand extends Command
                         'fallback_used' => (bool) ($actualDelivery['fallback_used'] ?? false),
                         'fallback_reason' => $actualDelivery['fallback_reason'] ?? null,
                         'template_key' => $templateKey !== '' ? $templateKey : null,
+                        'manual_task_campaign_id' => 'MAIN',
                         'manual_task_id' => $manualTask?->id,
                         'note' => 'outbound_whatsapp_manual_task',
                     ],
@@ -1489,10 +1490,12 @@ class RemarketingLinearExecuteCommand extends Command
                             'mode' => 'commit_manual_task_queue',
                             'execution_action' => $executionAction,
                             'manual_required' => $manualRequired,
+                            'manual_task_campaign_id' => $queued['campaign_id'] ?? 'MAIN',
                         ],
                         'metadata_json' => [
                             'manual_task_type' => $queued['task_type'],
                             'manual_task_was_created' => $queued['was_created'],
+                            'manual_task_campaign_id' => $queued['campaign_id'] ?? 'MAIN',
                         ],
                     ],
                     plannedDelivery: $plannedDelivery,
@@ -1568,7 +1571,15 @@ class RemarketingLinearExecuteCommand extends Command
             ]
         );
 
-        return ['task' => $result['task'], 'was_created' => $result['was_created'], 'task_type' => $taskType];
+        Log::debug('[remarketing-linear] manual task queued', [
+            'lead_id' => (int) $progress->lead_id,
+            'task_type' => $taskType,
+            'manual_task_id' => $result['task']?->id,
+            'manual_task_was_created' => $result['was_created'],
+            'manual_task_campaign_id' => 'MAIN',
+        ]);
+
+        return ['task' => $result['task'], 'was_created' => $result['was_created'], 'task_type' => $taskType, 'campaign_id' => 'MAIN'];
     }
 
     private function hasExistingManualQueueLog(LeadRemarketingProgress $progress, RemarketingStep $currentStep): bool
@@ -1633,6 +1644,7 @@ class RemarketingLinearExecuteCommand extends Command
                 'stage' => $stage,
                 'whatsapp_url' => $whatsAppUrl,
                 'time_waiting_text' => '0h',
+                'campaign_id' => 'MAIN',
             ];
             if ($supportsMessageBody) {
                 $updatePayload['message_body'] = $cleanBody !== '' ? $cleanBody : null;
@@ -1641,9 +1653,16 @@ class RemarketingLinearExecuteCommand extends Command
                 $updatePayload['metadata_json'] = array_merge((array) ($existing->metadata_json ?? []), [
                     'rendered_body' => $cleanBody !== '' ? $cleanBody : null,
                     'template_key' => $templateKey !== '' ? $templateKey : null,
+                    'manual_task_campaign_id' => 'MAIN',
                 ]);
             }
             $existing->update($updatePayload);
+
+            Log::debug('[remarketing-linear] manual whatsapp task upserted', [
+                'lead_id' => (int) $progress->lead_id,
+                'manual_task_id' => $existing->id,
+                'manual_task_campaign_id' => 'MAIN',
+            ]);
 
             return $existing->fresh();
         }
@@ -1652,7 +1671,7 @@ class RemarketingLinearExecuteCommand extends Command
             'lead_id' => $taskLeadId,
             'lead_name' => $leadName,
             'phone' => $rawPhone !== '' ? $rawPhone : '-',
-            'campaign_id' => null,
+            'campaign_id' => 'MAIN',
             'task_type' => 'whatsapp',
             'reason' => $reason,
             'stage' => $stage,
@@ -1667,10 +1686,19 @@ class RemarketingLinearExecuteCommand extends Command
             $createPayload['metadata_json'] = [
                 'rendered_body' => $cleanBody !== '' ? $cleanBody : null,
                 'template_key' => $templateKey !== '' ? $templateKey : null,
+                'manual_task_campaign_id' => 'MAIN',
             ];
         }
 
-        return RemarketingTask::query()->create($createPayload);
+        $createdTask = RemarketingTask::query()->create($createPayload);
+
+        Log::debug('[remarketing-linear] manual whatsapp task upserted', [
+            'lead_id' => (int) $progress->lead_id,
+            'manual_task_id' => $createdTask->id,
+            'manual_task_campaign_id' => 'MAIN',
+        ]);
+
+        return $createdTask;
     }
 
     private function sanitizeManualWhatsAppBody(string $renderedBody): string
