@@ -302,9 +302,24 @@ class RemarketingController extends Controller
                 $last = trim((string) ($lead?->last_name ?? ''));
                 $leadName = trim($first.' '.$last);
                 $phone = trim((string) ($lead?->phone_number ?? ''));
-                $stepOrder = $log->step_order ?? $log->remarketingStep?->step_order;
-                $stepKey = trim((string) ($log->remarketingStep?->step_key ?? $log->actual_template_key ?? $log->planned_template_key ?? ''));
-                $stepName = trim((string) ($log->remarketingStep?->step_name ?? ''));
+                $metadata = is_array($log->metadata_json) ? $log->metadata_json : [];
+                $stepOrder = $log->step_order
+                    ?? $log->remarketingStep?->step_order
+                    ?? (isset($metadata['step_order']) ? (int) $metadata['step_order'] : null);
+                $stepKey = trim((string) (
+                    $log->remarketingStep?->step_key
+                    ?? $metadata['step_key']
+                    ?? $metadata['journey_step_key']
+                    ?? $log->actual_template_key
+                    ?? $log->planned_template_key
+                    ?? ''
+                ));
+                $stepName = trim((string) (
+                    $log->remarketingStep?->step_name
+                    ?? $metadata['step_name']
+                    ?? $metadata['journey_step_name']
+                    ?? ''
+                ));
 
                 if ($leadName === '') {
                     $leadName = 'Lead #'.$log->lead_id;
@@ -345,6 +360,13 @@ class RemarketingController extends Controller
                 ];
             })
             ->all();
+
+
+        Log::info('Remarketing Recent Activity payload', [
+            'count' => count($recentActivity),
+            'sample' => array_slice($recentActivity, 0, 5),
+            'keys' => ! empty($recentActivity) ? array_keys($recentActivity[0]) : [],
+        ]);
 
         return view('remarketing.index', [
             'activeTasks' => $activeTasks,

@@ -267,6 +267,7 @@
 
     <section class="rm-section" aria-labelledby="rm-activity-heading">
         <h2 id="rm-activity-heading" class="rm-section__title">Recent activity</h2>
+        <div class="rm-activity-secondary" style="margin-bottom:6px;">remarketing-ui-v2</div>
         <p class="rm-header__sub" style="margin-bottom:8px;">Auto-refreshes every 30s when idle.</p>
         @if (!empty($recentActivity))
             <ul class="rm-activity-list">
