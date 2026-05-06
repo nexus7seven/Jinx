@@ -181,8 +181,12 @@ class RemarketingLinearExecuteCommand extends Command
             }
 
             $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
-            if ($lead !== null && (string) $lead->wip_status === Lead::WIP_STATUS_DEAD) {
-                if (in_array((string) $progress->status, [LeadRemarketingProgress::STATUS_ACTIVE, LeadRemarketingProgress::STATUS_WAITING], true)) {
+
+            if ($lead !== null && (string) $lead->wip_status === 'DEAD') {
+                if (in_array((string) $progress->status, [
+                    LeadRemarketingProgress::STATUS_ACTIVE,
+                    LeadRemarketingProgress::STATUS_WAITING,
+                ], true)) {
                     $progress->status = LeadRemarketingProgress::STATUS_STOPPED;
                     $progress->stopped_at = $progress->stopped_at ?? $now->copy();
                     $progress->stop_reason = $progress->stop_reason ?: 'lead_marked_dead';
