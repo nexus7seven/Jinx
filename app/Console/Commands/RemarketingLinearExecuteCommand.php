@@ -1671,7 +1671,10 @@ class RemarketingLinearExecuteCommand extends Command
             $stage = 'fresh';
         }
         $cleanBody = $this->sanitizeManualWhatsAppBody($renderedBody);
-        $whatsAppUrl = 'https://wa.me/'.self::MANUAL_TASK_WHATSAPP_NUMBER;
+        $recipientPhone = $this->normalizeManualTaskWhatsAppRecipient($rawPhone)
+            ?? $this->normalizeManualTaskWhatsAppRecipient((string) ($lead?->phone_number ?? ''))
+            ?? self::MANUAL_TASK_WHATSAPP_NUMBER;
+        $whatsAppUrl = 'https://wa.me/'.$recipientPhone;
         if (trim($cleanBody) !== '') {
             $whatsAppUrl .= '?text='.rawurlencode($cleanBody);
         }
@@ -1755,6 +1758,34 @@ class RemarketingLinearExecuteCommand extends Command
         $cleanBody = str_replace(["\u{1F44D}", "\u{FFFD}"], '', $cleanBody);
 
         return rtrim($cleanBody);
+    }
+
+    private function normalizeManualTaskWhatsAppRecipient(string $phone): ?string
+    {
+        $digits = preg_replace('/\D+/', '', trim($phone));
+        if (! is_string($digits) || $digits === '') {
+            return null;
+        }
+
+        if (str_starts_with($digits, '00')) {
+            $digits = substr($digits, 2);
+        }
+
+        if (str_starts_with($digits, '44')) {
+            return strlen($digits) >= 10 ? $digits : null;
+        }
+
+        if (str_starts_with($digits, '0')) {
+            $digits = '44'.substr($digits, 1);
+
+            return strlen($digits) >= 10 ? $digits : null;
+        }
+
+        if (str_starts_with($digits, '7') && strlen($digits) === 10) {
+            return '44'.$digits;
+        }
+
+        return null;
     }
 
     private function sendEmailViaSendGrid(string $toEmail, string $toName, string $subject, string $body, ?string $fromNameOverride = null): array
