@@ -93,6 +93,8 @@
         </div>
     </div>
     <div class="rm-card__meta">
+        <span class="rm-meta-k">Lead</span> <span class="rm-meta-v">#{{ $task['lead_id'] }}</span>
+        <span class="rm-meta-dot" aria-hidden="true">·</span>
         <span class="rm-meta-k">Phone</span> <span class="rm-meta-v">{{ $task['phone'] }}</span>
         <span class="rm-meta-dot" aria-hidden="true">·</span>
         <span class="rm-meta-k">Reason</span> <span class="rm-meta-v">{{ $task['reason'] }}</span>
