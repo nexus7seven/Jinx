@@ -181,6 +181,50 @@ class RemarketingLinearExecuteCommand extends Command
             }
 
             $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
+            if ($lead !== null && (string) $lead->wip_status === Lead::WIP_STATUS_DEAD) {
+                if (in_array((string) $progress->status, [LeadRemarketingProgress::STATUS_ACTIVE, LeadRemarketingProgress::STATUS_WAITING], true)) {
+                    $progress->status = LeadRemarketingProgress::STATUS_STOPPED;
+                    $progress->stopped_at = $progress->stopped_at ?? $now->copy();
+                    $progress->stop_reason = $progress->stop_reason ?: 'lead_marked_dead';
+                    $progress->next_step_due_at = null;
+                    $progress->save();
+                }
+
+                $rows[] = [
+                    'lead_id' => (int) $progress->lead_id,
+                    'progress_status' => LeadRemarketingProgress::STATUS_STOPPED,
+                    'next_step_order' => null,
+                    'next_step_key' => null,
+                    'journey_scope' => $journeyScope,
+                    'medium' => null,
+                    'planned_medium' => null,
+                    'actual_medium' => null,
+                    'planned_template_key' => null,
+                    'actual_template_key' => null,
+                    'fallback_used' => false,
+                    'fallback_reason' => null,
+                    'due_at' => null,
+                    'next_allowed_time' => null,
+                    'is_due_now' => false,
+                    'is_allowed_now' => false,
+                    'execution_action' => 'skip_dead_lead',
+                    'pause_reason' => 'lead_marked_dead',
+                    'sms_action' => 'skipped',
+                    'sms_to' => null,
+                    'email_action' => 'skipped',
+                    'email_to' => null,
+                    'whatsapp_action' => 'skipped',
+                    'whatsapp_body_preview' => null,
+                    'provider_message_id' => null,
+                    'error_message' => null,
+                    'commit_action' => 'stopped_due_to_dead_lead',
+                ];
+
+                $summary['skipped']++;
+
+                continue;
+            }
+
             $plannedDelivery = $stepToExecute !== null ? $this->resolvePlannedDelivery($stepToExecute) : null;
             $actualDelivery = $stepToExecute !== null
                 ? $this->resolveActualDelivery($stepToExecute, $progress, $lead)
