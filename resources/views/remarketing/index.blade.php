@@ -203,19 +203,17 @@
         overflow: hidden;
     }
     .rm-activity-list li {
-        padding: 8px 12px;
+        padding: 9px 12px;
         font-size: 12px;
         color: #94a3b8;
         border-bottom: 1px solid rgba(51, 65, 85, 0.35);
-        line-height: 1.4;
+        line-height: 1.45;
     }
     .rm-activity-list li:last-child {
         border-bottom: none;
     }
-    .rm-activity-list .rm-activity-name {
-        color: #cbd5e1;
-        font-weight: 500;
-    }
+    .rm-activity-list .rm-activity-primary { color: #cbd5e1; font-weight: 500; }
+    .rm-activity-list .rm-activity-secondary { color: #64748b; }
     .rm-activity-list .rm-activity-time {
         color: #64748b;
         font-size: 11px;
@@ -269,13 +267,30 @@
 
     <section class="rm-section" aria-labelledby="rm-activity-heading">
         <h2 id="rm-activity-heading" class="rm-section__title">Recent activity</h2>
+        <p class="rm-header__sub" style="margin-bottom:8px;">Auto-refreshes every 30s when idle.</p>
         @if (!empty($recentActivity))
             <ul class="rm-activity-list">
                 @foreach($recentActivity as $activity)
                     <li>
-                        <span class="rm-activity-name">{{ $activity['lead_name'] }}</span>
+                        <span class="rm-activity-primary">Lead #{{ $activity['lead_id'] }}</span>
+                        @if (!empty($activity['lead_name']) && $activity['lead_name'] !== ('Lead #'.$activity['lead_id']))
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-activity-primary">{{ $activity['lead_name'] }}</span>
+                        @endif
+                        @if (!empty($activity['phone']))
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-activity-secondary">{{ $activity['phone'] }}</span>
+                        @endif
+                        @if (!empty($activity['step_order']) || !empty($activity['step_key']) || !empty($activity['step_name']))
+                            <span class="rm-meta-dot" aria-hidden="true">·</span>
+                            <span class="rm-activity-secondary">
+                                @if (!empty($activity['step_order']))Step {{ $activity['step_order'] }}@endif
+                                @if (!empty($activity['step_key'])){{ !empty($activity['step_order']) ? ': ' : '' }}{{ $activity['step_key'] }}@endif
+                                @if (!empty($activity['step_name'])){{ (!empty($activity['step_order']) || !empty($activity['step_key'])) ? ' — ' : '' }}{{ $activity['step_name'] }}@endif
+                            </span>
+                        @endif
                         <span class="rm-meta-dot" aria-hidden="true">·</span>
-                        {{ $activity['activity'] }}
+                        <span>{{ $activity['activity'] }}</span>
                         <span class="rm-activity-time">{{ $activity['time'] }}</span>
                     </li>
                 @endforeach
@@ -286,3 +301,34 @@
     </section>
 </div>
 @endsection
+
+
+@push('scripts')
+<script>
+(() => {
+    const refreshMs = 30000;
+    const idleThresholdMs = 30000;
+    let lastActivityAt = Date.now();
+
+    const markActivity = () => { lastActivityAt = Date.now(); };
+
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'input', 'focusin'].forEach((eventName) => {
+        window.addEventListener(eventName, markActivity, { passive: true });
+    });
+
+    setInterval(() => {
+        const activeElement = document.activeElement;
+        const isFocusedInForm = activeElement && (
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.tagName === 'SELECT' ||
+            activeElement.isContentEditable
+        );
+
+        if (Date.now() - lastActivityAt >= idleThresholdMs && !isFocusedInForm) {
+            window.location.reload();
+        }
+    }, refreshMs);
+})();
+</script>
+@endpush

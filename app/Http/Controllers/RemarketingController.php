@@ -116,9 +116,22 @@ class RemarketingController extends Controller
             ->filter()
             ->values();
 
-        $vicidialIds = $manualCandidates->pluck('progress.lead_id')
+        $manualVicidialIds = $manualCandidates->pluck('progress.lead_id')
             ->filter()
-            ->map(fn ($id) => (int) $id)
+            ->map(fn ($id) => (int) $id);
+
+        $recentActivityLogs = LeadRemarketingStepLog::query()
+            ->with('remarketingStep')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get();
+
+        $activityVicidialIds = $recentActivityLogs->pluck('lead_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id);
+
+        $vicidialIds = $manualVicidialIds
+            ->concat($activityVicidialIds)
             ->unique()
             ->values();
 
@@ -281,48 +294,53 @@ class RemarketingController extends Controller
             ->values()
             ->all();
 
-        $recentActivity = LeadRemarketingStepLog::query()
-            ->with(['remarketingStep', 'template'])
-            ->orderByDesc('id')
-            ->limit(50)
-            ->get()
+        $recentActivity = $recentActivityLogs
             ->map(function (LeadRemarketingStepLog $log) use ($leadsByVicidialId) {
                 $lead = $leadsByVicidialId->get((int) $log->lead_id);
 
                 $first = trim((string) ($lead?->first_name ?? ''));
                 $last = trim((string) ($lead?->last_name ?? ''));
                 $leadName = trim($first.' '.$last);
+                $phone = trim((string) ($lead?->phone_number ?? ''));
+                $stepOrder = $log->step_order ?? $log->remarketingStep?->step_order;
+                $stepKey = trim((string) ($log->remarketingStep?->step_key ?? $log->actual_template_key ?? $log->planned_template_key ?? ''));
+                $stepName = trim((string) ($log->remarketingStep?->step_name ?? ''));
 
                 if ($leadName === '') {
                     $leadName = 'Lead #'.$log->lead_id;
                 }
 
-                $medium = strtolower((string) ($log->medium ?? ''));
-                $status = strtolower((string) ($log->status ?? ''));
+                $medium = strtolower((string) ($log->actual_medium ?? $log->medium ?? $log->planned_medium ?? ''));
+                $status = strtolower((string) ($log->execution_status ?? $log->status ?? ''));
 
                 if ($medium === 'sms' && $status === 'sent') {
-                    $activity = 'sms sent';
+                    $activity = 'SMS sent';
                 } elseif ($medium === 'email' && $status === 'sent') {
-                    $activity = 'email sent';
+                    $activity = 'Email sent';
                 } elseif ($medium === 'sms' && $status === 'failed') {
-                    $activity = 'sms failed';
+                    $activity = 'SMS failed';
                 } elseif ($medium === 'email' && $status === 'failed') {
-                    $activity = 'email failed';
-                } elseif ($medium === 'call' && $status === 'queued_task') {
-                    $activity = 'call queued';
-                } elseif ($medium === 'whatsapp' && $status === 'queued_task') {
-                    $activity = 'whatsapp queued';
+                    $activity = 'Email failed';
+                } elseif ($medium === 'call' && in_array($status, ['queued_task', 'queued'], true)) {
+                    $activity = 'Call queued';
+                } elseif ($medium === 'whatsapp' && in_array($status, ['queued_task', 'queued'], true)) {
+                    $activity = 'WhatsApp queued';
                 } elseif ($medium === 'whatsapp' && $status === 'completed') {
                     $activity = 'WhatsApp completed';
                 } elseif ($status === 'completed') {
-                    $activity = 'step completed';
+                    $activity = 'Step completed';
                 } else {
-                    $activity = trim(($medium !== '' ? $medium.' ' : '').$status);
+                    $activity = trim((($medium !== '' ? strtoupper($medium).' ' : '')).str_replace('_', ' ', $status));
                 }
 
                 return [
+                    'lead_id' => (int) $log->lead_id,
                     'lead_name' => $leadName,
-                    'activity' => $activity,
+                    'phone' => $phone,
+                    'step_order' => $stepOrder !== null ? (int) $stepOrder : null,
+                    'step_key' => $stepKey,
+                    'step_name' => $stepName,
+                    'activity' => $activity !== '' ? $activity : 'Updated',
                     'time' => optional($log->created_at)->diffForHumans() ?? 'Just now',
                 ];
             })
