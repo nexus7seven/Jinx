@@ -414,6 +414,16 @@ class WipController extends Controller
                 $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
 
                 if ($vicidialLeadId !== null) {
+                    LeadRemarketingProgress::query()
+                        ->where('lead_id', $vicidialLeadId)
+                        ->whereIn('status', [LeadRemarketingProgress::STATUS_ACTIVE, LeadRemarketingProgress::STATUS_WAITING])
+                        ->update([
+                            'status' => LeadRemarketingProgress::STATUS_STOPPED,
+                            'stopped_at' => now(),
+                            'stop_reason' => 'lead_marked_dead',
+                            'next_step_due_at' => null,
+                        ]);
+
                     RemarketingTask::query()
                         ->where('lead_id', $vicidialLeadId)
                         ->where('status', RemarketingTask::STATUS_PENDING)
