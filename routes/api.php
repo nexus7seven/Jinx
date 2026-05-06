@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Models\Lead;
 use App\Http\Controllers\LocalWorkerJobController;
 use App\Http\Controllers\WhatsAppDetectorEventApiController;
+use App\Http\Controllers\InternalDeckardRemarketingAlertsController;
 
 Route::post('/vicidial/create-or-open-case', function (Request $request) {
 
@@ -76,3 +77,4 @@ Route::prefix('local-worker')
         Route::get('/jobs/{job}/temp-email', [LocalWorkerJobController::class, 'tempEmail']);
         Route::get('/jobs/{job}/latest-code', [LocalWorkerJobController::class, 'latestCode']);
     });
+Route::get('/internal/deckard/remarketing-alerts', InternalDeckardRemarketingAlertsController::class);
