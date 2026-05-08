@@ -10,6 +10,7 @@ use App\Models\RemarketingTask;
 use App\Services\RemarketingCallbackService;
 use App\Services\RemarketingScheduleWindowService;
 use App\Services\RemarketingTaskService;
+use App\Services\RemarketingProgressionService;
 use App\Services\LeadPortalLinkService;
 use App\Services\VicidialDispositionService;
 use App\Support\LeadSourceDisplay;
@@ -41,6 +42,7 @@ class RemarketingController extends Controller
         private VicidialDispositionService $vicidialDispositionService,
         private RemarketingScheduleWindowService $scheduleWindowService,
         private LeadPortalLinkService $leadPortalLinkService,
+        private RemarketingProgressionService $remarketingProgressionService,
     ) {
     }
 
@@ -544,124 +546,16 @@ class RemarketingController extends Controller
 
     public function completeLinearManualStep(Request $request, int $leadId)
     {
-        $result = DB::transaction(function () use ($leadId) {
-            $progress = LeadRemarketingProgress::query()
-                ->where('lead_id', $leadId)
-                ->lockForUpdate()
-                ->first();
+        $result = $this->remarketingProgressionService->completeManualStepForLead(
+            leadId: $leadId,
+            expectedStepKey: null,
+            metadata: [
+                'mode' => 'manual_ui_complete',
+                'note' => 'completed from remarketing screen',
+            ]
+        );
 
-            if (! $progress) {
-                return [
-                    'ok' => false,
-                    'message' => 'Remarketing progress not found for this lead.',
-                ];
-            }
-
-            $steps = RemarketingStep::query()
-                ->where('is_active', true)
-                ->orderBy('step_order')
-                ->get();
-
-            if ($steps->isEmpty()) {
-                return [
-                    'ok' => false,
-                    'message' => 'No active remarketing steps are configured.',
-                ];
-            }
-
-            if ($progress->status === LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
-                $manualStep = null;
-
-                if ($progress->current_step_id !== null) {
-                    $manualStep = $steps->firstWhere('id', (int) $progress->current_step_id);
-                }
-
-                if (! $manualStep && $progress->current_step_order !== null) {
-                    $manualStep = $steps->first(
-                        fn (RemarketingStep $step) => (int) $step->step_order === (int) $progress->current_step_order
-                    );
-                }
-            } else {
-                $manualStep = $progress->current_step_order === null
-                    ? $steps->first()
-                    : $steps->first(fn (RemarketingStep $step) => $step->step_order > $progress->current_step_order);
-            }
-
-            if (! $manualStep) {
-                $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
-                $progress->save();
-
-                return [
-                    'ok' => true,
-                    'message' => 'Remarketing flow already completed.',
-                ];
-            }
-
-            if (! in_array($manualStep->medium, ['call', 'whatsapp'], true)) {
-                return [
-                    'ok' => false,
-                    'message' => 'Only call or WhatsApp steps can be completed manually.',
-                ];
-            }
-
-            $baseTime = $progress->current_step_order === null
-                ? ($progress->started_at ?? $progress->created_at)
-                : ($progress->last_step_completed_at ?? $progress->updated_at ?? $progress->created_at);
-
-            $rawDue = $baseTime->copy()->addMinutes((int) $manualStep->delay_minutes);
-            $nextAllowed = $this->scheduleWindowService->nextAllowedTime($manualStep, $rawDue);
-            $dueNow = now()->greaterThanOrEqualTo($nextAllowed);
-
-            if (! $dueNow && $progress->status !== LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK) {
-                return [
-                    'ok' => false,
-                    'message' => 'This manual step is not due yet.',
-                ];
-            }
-
-            $now = now();
-
-            LeadRemarketingStepLog::query()->create([
-                'lead_id' => $leadId,
-                'remarketing_step_id' => $manualStep->id,
-                'step_order' => $manualStep->step_order,
-                'medium' => $manualStep->medium,
-                'template_id' => $manualStep->template_id,
-                'status' => 'completed',
-                'execution_status' => 'completed_manual_task',
-                'due_at' => $nextAllowed,
-                'started_at' => $now,
-                'completed_at' => $now,
-                'context_json' => [
-                    'mode' => 'manual_ui_complete',
-                    'note' => 'completed from remarketing screen',
-                ],
-            ]);
-
-            $progress->current_step_id = $manualStep->id;
-            $progress->current_step_order = $manualStep->step_order;
-            $progress->status = LeadRemarketingProgress::STATUS_ACTIVE;
-            $progress->last_step_completed_at = $now;
-
-            $followingStep = $steps->first(fn (RemarketingStep $step) => $step->step_order > $manualStep->step_order);
-
-            if ($followingStep) {
-                $nextRaw = $now->copy()->addMinutes((int) $followingStep->delay_minutes);
-                $progress->next_step_due_at = $this->scheduleWindowService->nextAllowedTime($followingStep, $nextRaw);
-            } else {
-                $progress->status = LeadRemarketingProgress::STATUS_COMPLETED;
-                $progress->next_step_due_at = null;
-            }
-
-            $progress->save();
-
-            return [
-                'ok' => true,
-                'message' => 'Manual step completed.',
-            ];
-        });
-
-        return redirect()->back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+        return redirect()->back()->with(($result['ok'] ?? false) ? 'success' : 'error', (string) ($result['message'] ?? 'Manual completion failed.'));
     }
 
     private function completeLinkedManualStepLog(RemarketingTask $task): ?LeadRemarketingStepLog
