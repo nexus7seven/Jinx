@@ -150,7 +150,7 @@ if (config('remarketing.linear_executor_enabled')) {
 
 if (config('remarketing.call_hopper.enabled')) {
     Schedule::command('remarketing:prepare-call-hopper --commit --window=morning --limit=50')
-        ->dailyAt('09:55')
+        ->dailyAt('09:00')
         ->withoutOverlapping()
         ->appendOutputTo(storage_path('logs/remarketing-call-hopper.log'));
 
@@ -159,7 +159,7 @@ if (config('remarketing.call_hopper.enabled')) {
         ->withoutOverlapping()
         ->appendOutputTo(storage_path('logs/remarketing-call-hopper.log'));
 
-    Schedule::command('remarketing:reconcile-call-outcomes --commit --limit=100 --since-minutes=240')
+    Schedule::command('remarketing:reconcile-call-outcomes --commit --limit=100 --window=auto')
         ->everyFiveMinutes()
         ->withoutOverlapping()
         ->appendOutputTo(storage_path('logs/remarketing-call-reconcile.log'));
