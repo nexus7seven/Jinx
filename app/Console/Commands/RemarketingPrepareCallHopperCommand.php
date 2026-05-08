@@ -12,13 +12,13 @@ use Illuminate\Support\Facades\Log;
 class RemarketingPrepareCallHopperCommand extends Command
 {
     protected $signature = 'remarketing:prepare-call-hopper
-        {--commit : Persist VICIdial status changes (default dry-run)}
+        {--commit : Persist VICIdial changes (default dry-run)}
         {--limit=50 : Max progress rows to inspect}
         {--window=auto : morning|evening|auto}
         {--json : Output JSON payload}
         {--lead_id= : Optional VICIdial lead_id filter}';
 
-    protected $description = 'Prepare due remarketing call steps for VICIdial by moving HOLD -> NEW within configured call windows.';
+    protected $description = 'Prepare due remarketing call steps for VICIdial remarketing call windows.';
 
     public function handle(): int
     {
@@ -28,21 +28,18 @@ class RemarketingPrepareCallHopperCommand extends Command
         }
 
         $commit = (bool) $this->option('commit');
-        $window = (string) $this->option('window');
         $limit = max(1, (int) $this->option('limit'));
         $leadId = $this->option('lead_id');
         $asJson = (bool) $this->option('json');
-
-        $now = now();
-        $windowLabel = $this->resolveWindowLabel($window, $now);
-        $inWindow = $windowLabel !== null;
+        $windowLabel = $this->resolveWindowLabel((string) $this->option('window'), now());
+        $connection = config('services.vicidial.db_connection', 'asterisk');
 
         $query = LeadRemarketingProgress::query()
             ->with('currentStep')
             ->whereIn('status', ['active', 'pending_manual_task'])
             ->whereNull('stopped_at')
             ->whereNotNull('next_step_due_at')
-            ->where('next_step_due_at', '<=', $now)
+            ->where('next_step_due_at', '<=', now())
             ->orderBy('next_step_due_at')
             ->limit($limit);
 
@@ -51,73 +48,84 @@ class RemarketingPrepareCallHopperCommand extends Command
         }
 
         $rows = [];
+        $leadIdsToPrepare = [];
+
         foreach ($query->get() as $progress) {
             $step = $progress->currentStep;
             if (! $step instanceof RemarketingStep || ! $this->isCallStep($step)) {
                 continue;
             }
-
-            $vicidial = DB::connection(config('services.vicidial.db_connection', 'asterisk'))
-                ->table('vicidial_list')
-                ->where('lead_id', (int) $progress->lead_id)
-                ->first(['lead_id', 'status', 'list_id', 'campaign_id']);
-
-            $skip = null;
-            $wouldUpdate = false;
-            if (! $inWindow) {
-                $skip = 'outside_call_window';
-            } elseif (! $vicidial) {
-                $skip = 'vicidial_row_missing';
-            } elseif ((string) $vicidial->list_id !== (string) config('remarketing.call_hopper.holding_list_id')) {
-                $skip = 'wrong_list';
-            } elseif (strtoupper((string) $vicidial->status) !== strtoupper((string) config('remarketing.call_hopper.hold_status'))) {
-                $skip = 'status_not_hold';
-            } else {
-                $wouldUpdate = true;
-            }
-
-            if ($wouldUpdate && $commit) {
-                DB::connection(config('services.vicidial.db_connection', 'asterisk'))
-                    ->table('vicidial_list')
-                    ->where('lead_id', (int) $progress->lead_id)
-                    ->where('status', (string) config('remarketing.call_hopper.hold_status'))
-                    ->update(['status' => (string) config('remarketing.call_hopper.ready_status')]);
-
-                Log::info('[remarketing-call-hopper] moved lead to ready status', [
-                    'lead_id' => (int) $progress->lead_id,
-                    'from_status' => (string) config('remarketing.call_hopper.hold_status'),
-                    'to_status' => (string) config('remarketing.call_hopper.ready_status'),
-                    'step_key' => $step->step_key,
-                    'step_order' => $step->step_order,
-                    'window' => $windowLabel,
-                ]);
-            }
-
+            $leadIdsToPrepare[] = (int) $progress->lead_id;
             $rows[] = [
                 'lead_id' => (int) $progress->lead_id,
-                'vicidial_lead_id' => (int) $progress->lead_id,
-                'current_progress_status' => (string) $progress->status,
                 'step_key' => (string) $step->step_key,
                 'step_order' => (int) $step->step_order,
-                'call_window_label' => $windowLabel,
-                'current_vicidial_status' => $vicidial ? (string) $vicidial->status : null,
-                'proposed_vicidial_status' => (string) config('remarketing.call_hopper.ready_status'),
-                'would_update' => $wouldUpdate,
-                'updated' => $wouldUpdate && $commit,
-                'skip_reason' => $skip,
+                'progress_status' => (string) $progress->status,
             ];
         }
 
-        $payload = ['mode' => $commit ? 'commit' : 'dry-run', 'rows' => $rows];
-        if ($asJson) {
-            $this->line(json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        } else {
-            foreach ($rows as $row) {
-                $this->line(json_encode($row, JSON_UNESCAPED_SLASHES));
+        $leadIdsToPrepare = array_values(array_unique($leadIdsToPrepare));
+
+        $deactivatedLists = [];
+        $activatedLists = [];
+        $leadUpdates = 0;
+
+        if ($commit && $leadIdsToPrepare !== []) {
+            if (config('remarketing.call_hopper.disable_other_lists', true)) {
+                $deactivatedLists = DB::connection($connection)->table('vicidial_lists')->where('active', 'Y')->pluck('list_id')->map(fn ($id) => (string) $id)->all();
+                DB::connection($connection)->table('vicidial_lists')->where('active', 'Y')->update(['active' => 'N']);
             }
+
+            DB::connection($connection)
+                ->table('vicidial_lists')
+                ->where('list_id', (string) config('remarketing.call_hopper.holding_list_id'))
+                ->update(['active' => 'Y']);
+            $activatedLists[] = (string) config('remarketing.call_hopper.holding_list_id');
+
+            $updateData = ['status' => (string) config('remarketing.call_hopper.ready_status')];
+            if (config('remarketing.call_hopper.reset_dial_flag', true)) {
+                $updateData['called_since_last_reset'] = 'N';
+            }
+
+            $leadUpdates = DB::connection($connection)
+                ->table('vicidial_list')
+                ->whereIn('lead_id', $leadIdsToPrepare)
+                ->where('list_id', (string) config('remarketing.call_hopper.holding_list_id'))
+                ->update($updateData);
+        } elseif ($leadIdsToPrepare !== []) {
+            if (config('remarketing.call_hopper.disable_other_lists', true)) {
+                $deactivatedLists = DB::connection($connection)->table('vicidial_lists')->where('active', 'Y')->pluck('list_id')->map(fn ($id) => (string) $id)->all();
+            }
+            $activatedLists[] = (string) config('remarketing.call_hopper.holding_list_id');
         }
 
+        $hopperAction = $this->handleHopperReset($commit);
+
+        $payload = [
+            'mode' => $commit ? 'commit' : 'dry-run',
+            'window' => $windowLabel,
+            'lead_count' => count($leadIdsToPrepare),
+            'lead_updates' => $leadUpdates,
+            'deactivate_lists' => $deactivatedLists,
+            'activate_list' => $activatedLists,
+            'hopper_reset' => $hopperAction,
+            'rows' => $rows,
+        ];
+
+        $this->line($asJson ? json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : json_encode($payload));
+
         return self::SUCCESS;
+    }
+
+    private function handleHopperReset(bool $commit): array
+    {
+        if (! config('remarketing.call_hopper.reset_hopper_enabled', false)) {
+            return ['implemented' => false, 'action' => 'disabled_by_config'];
+        }
+
+        Log::warning('[remarketing-call-hopper] TODO: safe VICIdial hopper reset method not implemented');
+
+        return ['implemented' => false, 'action' => $commit ? 'todo_commit_logged' : 'todo_dry_run_logged'];
     }
 
     private function isCallStep(RemarketingStep $step): bool
@@ -125,33 +133,15 @@ class RemarketingPrepareCallHopperCommand extends Command
         return strtolower((string) $step->medium) === 'call' || strtolower((string) $step->primary_medium) === 'call';
     }
 
-    private function resolveWindowLabel(string $window, Carbon $now): ?string
+    private function resolveWindowLabel(string $window, Carbon $now): string
     {
-        if ($window === 'morning') {
-            return $this->inWindow($now, config('remarketing.call_hopper.morning_start'), config('remarketing.call_hopper.morning_end')) ? 'morning' : null;
-        }
-        if ($window === 'evening') {
-            return $this->inWindow($now, config('remarketing.call_hopper.evening_start'), config('remarketing.call_hopper.evening_end')) ? 'evening' : null;
+        if ($window === 'morning' || $window === 'evening') {
+            return $window;
         }
 
-        if ($this->inWindow($now, config('remarketing.call_hopper.morning_start'), config('remarketing.call_hopper.morning_end'))) {
-            return 'morning';
-        }
-        if ($this->inWindow($now, config('remarketing.call_hopper.evening_start'), config('remarketing.call_hopper.evening_end'))) {
-            return 'evening';
-        }
+        $morningStart = Carbon::createFromFormat('H:i', (string) config('remarketing.call_hopper.morning_start', '09:00'), $now->timezone)->setDateFrom($now);
+        $eveningStart = Carbon::createFromFormat('H:i', (string) config('remarketing.call_hopper.evening_start', '17:45'), $now->timezone)->setDateFrom($now);
 
-        return null;
-    }
-
-    private function inWindow(Carbon $now, ?string $start, ?string $end): bool
-    {
-        if (! $start || ! $end) {
-            return false;
-        }
-        $s = Carbon::createFromFormat('H:i', $start, $now->timezone)->setDateFrom($now);
-        $e = Carbon::createFromFormat('H:i', $end, $now->timezone)->setDateFrom($now);
-
-        return $now->betweenIncluded($s, $e);
+        return $now->lt($eveningStart) && $now->gte($morningStart) ? 'morning' : 'evening';
     }
 }

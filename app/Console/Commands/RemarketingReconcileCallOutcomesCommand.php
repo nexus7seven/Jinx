@@ -5,10 +5,11 @@ namespace App\Console\Commands;
 use App\Models\Lead;
 use App\Models\LeadRemarketingProgress;
 use App\Models\RemarketingStep;
+use App\Services\RemarketingProgressionService;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Services\RemarketingProgressionService;
 
 class RemarketingReconcileCallOutcomesCommand extends Command
 {
@@ -22,18 +23,19 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         {--limit=100 : Max progress rows to inspect}
         {--json : Output JSON payload}
         {--lead_id= : Optional VICIdial lead_id filter}
-        {--since-minutes=240 : Lookback window for latest dial statuses}';
+        {--window=auto : morning|evening|auto}';
 
-    protected $description = 'Reconcile VICIdial call outcomes back into the remarketing linear progress flow.';
+    protected $description = 'Reconcile VICIdial call outcomes back into remarketing linear progress flow for today windows only.';
 
     public function handle(): int
     {
         $commit = (bool) $this->option('commit');
         $limit = max(1, (int) $this->option('limit'));
-        $sinceMinutes = max(1, (int) $this->option('since-minutes'));
         $leadId = $this->option('lead_id');
         $asJson = (bool) $this->option('json');
         $connection = config('services.vicidial.db_connection', 'asterisk');
+
+        [$windowLabel, $start, $end] = $this->resolveWindow((string) $this->option('window'));
 
         $query = LeadRemarketingProgress::query()
             ->with('currentStep')
@@ -54,14 +56,17 @@ class RemarketingReconcileCallOutcomesCommand extends Command
 
             $latestLog = DB::connection($connection)->table('vicidial_log')
                 ->where('lead_id', (int) $progress->lead_id)
-                ->where('call_date', '>=', now()->subMinutes($sinceMinutes))
+                ->where('list_id', (string) config('remarketing.call_hopper.holding_list_id'))
+                ->where('call_date', '>=', $start)
+                ->where('call_date', '<', $end)
                 ->orderByDesc('call_date')
-                ->first(['status', 'call_date']);
-            $listStatus = DB::connection($connection)->table('vicidial_list')
-                ->where('lead_id', (int) $progress->lead_id)
-                ->value('status');
+                ->first(['status', 'call_date', 'list_id']);
 
-            $status = strtoupper(trim((string) ($latestLog->status ?? $listStatus ?? '')));
+            if (! $latestLog) {
+                continue;
+            }
+
+            $status = strtoupper(trim((string) ($latestLog->status ?? '')));
             if ($status === '' || in_array($status, ['HOLD', 'NEW'], true)) {
                 continue;
             }
@@ -69,7 +74,7 @@ class RemarketingReconcileCallOutcomesCommand extends Command
             $action = $this->actionForStatus($status);
             $updated = false;
             if ($action !== null && $commit) {
-                $updated = $this->applyAction($progress, $status, $action, $connection, ['call_date' => $latestLog?->call_date]);
+                $updated = $this->applyAction($progress, $status, $action, $connection, ['call_date' => $latestLog->call_date, 'window' => $windowLabel]);
             }
 
             $rows[] = [
@@ -79,16 +84,38 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                 'progress_status' => $progress->status,
                 'latest_disposition' => $status,
                 'action' => $action,
+                'window' => $windowLabel,
+                'window_start' => $start->toDateTimeString(),
+                'window_end' => $end->toDateTimeString(),
                 'would_update' => $action !== null,
                 'updated' => $updated,
-                'call_date' => $latestLog?->call_date,
+                'call_date' => $latestLog->call_date,
             ];
         }
 
-        $payload = ['mode' => $commit ? 'commit' : 'dry-run', 'rows' => $rows];
+        $payload = ['mode' => $commit ? 'commit' : 'dry-run', 'window' => $windowLabel, 'rows' => $rows];
         $this->line($asJson ? json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : json_encode($payload));
 
         return self::SUCCESS;
+    }
+
+    private function resolveWindow(string $window): array
+    {
+        $now = now();
+        $morningStart = Carbon::createFromFormat('H:i', (string) config('remarketing.call_hopper.morning_start', '09:00'), $now->timezone)->setDateFrom($now);
+        $eveningStart = Carbon::createFromFormat('H:i', (string) config('remarketing.call_hopper.evening_start', '17:45'), $now->timezone)->setDateFrom($now);
+        $tomorrow = $now->copy()->endOfDay()->addSecond();
+
+        if ($window === 'morning') {
+            return ['morning', $morningStart, $eveningStart];
+        }
+        if ($window === 'evening') {
+            return ['evening', $eveningStart, $tomorrow];
+        }
+
+        return $now->lt($eveningStart)
+            ? ['morning', $morningStart, $eveningStart]
+            : ['evening', $eveningStart, $tomorrow];
     }
 
     private function isCallStep(RemarketingStep $step): bool { return strtolower((string) $step->medium) === 'call' || strtolower((string) $step->primary_medium) === 'call'; }
@@ -124,6 +151,7 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                         'call_outcome' => $status,
                         'command' => 'remarketing:reconcile-call-outcomes',
                         'call_date' => $meta['call_date'] ?? null,
+                        'window' => $meta['window'] ?? null,
                         'reconciled_at' => now()->toIso8601String(),
                     ]
                 );
