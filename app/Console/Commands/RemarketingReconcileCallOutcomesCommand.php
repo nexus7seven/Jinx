@@ -48,11 +48,13 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         }
 
         $rows = [];
+        $manualCallStepLeadIds = [];
         foreach ($query->get() as $progress) {
             $step = $progress->currentStep;
             if (! $step instanceof RemarketingStep || ! $this->isCallStep($step)) {
                 continue;
             }
+            $manualCallStepLeadIds[] = (int) $progress->lead_id;
 
             $latestLog = DB::connection($connection)->table('vicidial_log')
                 ->where('lead_id', (int) $progress->lead_id)
@@ -90,6 +92,55 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                 'would_update' => $action !== null,
                 'updated' => $updated,
                 'call_date' => $latestLog->call_date,
+            ];
+        }
+
+        $holdingListId = (string) config('remarketing.call_hopper.holding_list_id');
+        $holdStatus = (string) config('remarketing.call_hopper.hold_status');
+        $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
+
+        $manualCallStepLeadIds = array_values(array_unique($manualCallStepLeadIds));
+        $parkOnlyQuery = DB::connection($connection)->table('vicidial_list')
+            ->where('list_id', $holdingListId)
+            ->whereIn('status', $finalOutcomes)
+            ->where('status', '!=', $holdStatus)
+            ->where('modify_date', '>=', $start)
+            ->where('modify_date', '<', $end)
+            ->orderByDesc('modify_date');
+
+        if ($leadId !== null && $leadId !== '') {
+            $parkOnlyQuery->where('lead_id', (int) $leadId);
+        }
+
+        if (! empty($manualCallStepLeadIds)) {
+            $parkOnlyQuery->whereNotIn('lead_id', $manualCallStepLeadIds);
+        }
+
+        foreach ($parkOnlyQuery->limit($limit)->get(['lead_id', 'status', 'modify_date', 'list_id']) as $vicidialLead) {
+            $parkUpdated = false;
+            if ($commit) {
+                $parkUpdated = DB::connection($connection)->table('vicidial_list')
+                    ->where('lead_id', (int) $vicidialLead->lead_id)
+                    ->where('list_id', (string) $vicidialLead->list_id)
+                    ->where('status', (string) $vicidialLead->status)
+                    ->update(['status' => $holdStatus]) > 0;
+            }
+
+            $rows[] = [
+                'lead_id' => (int) $vicidialLead->lead_id,
+                'step_key' => null,
+                'step_order' => null,
+                'progress_status' => null,
+                'latest_disposition' => strtoupper(trim((string) $vicidialLead->status)),
+                'action' => 'park_only_no_manual_call_step',
+                'window' => $windowLabel,
+                'window_start' => $start->toDateTimeString(),
+                'window_end' => $end->toDateTimeString(),
+                'would_update' => true,
+                'updated' => $parkUpdated,
+                'call_date' => null,
+                'modify_date' => $vicidialLead->modify_date,
+                'list_id' => (string) $vicidialLead->list_id,
             ];
         }
 
