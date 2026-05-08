@@ -99,21 +99,28 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         $holdStatus = (string) config('remarketing.call_hopper.hold_status');
         $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
 
-        $manualCallStepLeadIds = array_values(array_unique($manualCallStepLeadIds));
         $parkOnlyQuery = DB::connection($connection)->table('vicidial_list')
             ->where('list_id', $holdingListId)
             ->whereIn('status', $finalOutcomes)
             ->where('status', '!=', $holdStatus)
             ->where('modify_date', '>=', $start)
             ->where('modify_date', '<', $end)
+            ->whereNotExists(function ($subQuery) {
+                $subQuery->selectRaw('1')
+                    ->from('lead_remarketing_progress as lrp')
+                    ->join('remarketing_steps as rs', 'rs.id', '=', 'lrp.current_step_id')
+                    ->whereColumn('lrp.lead_id', 'vicidial_list.lead_id')
+                    ->whereIn('lrp.status', ['active', 'pending_manual_task'])
+                    ->whereNull('lrp.stopped_at')
+                    ->where(function ($stepQuery) {
+                        $stepQuery->whereRaw('LOWER(COALESCE(rs.medium, "")) = ?', ['call'])
+                            ->orWhereRaw('LOWER(COALESCE(rs.primary_medium, "")) = ?', ['call']);
+                    });
+            })
             ->orderByDesc('modify_date');
 
         if ($leadId !== null && $leadId !== '') {
             $parkOnlyQuery->where('lead_id', (int) $leadId);
-        }
-
-        if (! empty($manualCallStepLeadIds)) {
-            $parkOnlyQuery->whereNotIn('lead_id', $manualCallStepLeadIds);
         }
 
         foreach ($parkOnlyQuery->limit($limit)->get(['lead_id', 'status', 'modify_date', 'list_id']) as $vicidialLead) {
@@ -145,6 +152,66 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         }
 
         $payload = ['mode' => $commit ? 'commit' : 'dry-run', 'window' => $windowLabel, 'rows' => $rows];
+        if ($asJson && $leadId !== null && $leadId !== '') {
+            $vicidialRow = DB::connection($connection)->table('vicidial_list')
+                ->where('lead_id', (int) $leadId)
+                ->first(['lead_id', 'list_id', 'status', 'modify_date', 'called_since_last_reset', 'last_local_call_time']);
+
+            $manualCallStepActive = DB::table('lead_remarketing_progress as lrp')
+                ->join('remarketing_steps as rs', 'rs.id', '=', 'lrp.current_step_id')
+                ->where('lrp.lead_id', (int) $leadId)
+                ->whereIn('lrp.status', ['active', 'pending_manual_task'])
+                ->whereNull('lrp.stopped_at')
+                ->where(function ($stepQuery) {
+                    $stepQuery->whereRaw('LOWER(COALESCE(rs.medium, "")) = ?', ['call'])
+                        ->orWhereRaw('LOWER(COALESCE(rs.primary_medium, "")) = ?', ['call']);
+                })
+                ->exists();
+
+            $statusNormalized = strtoupper(trim((string) ($vicidialRow->status ?? '')));
+            $statusAllowed = $vicidialRow ? in_array($statusNormalized, $finalOutcomes, true) && $statusNormalized !== strtoupper(trim($holdStatus)) : false;
+            $listMatch = $vicidialRow ? (string) $vicidialRow->list_id === $holdingListId : false;
+            $windowMatch = $vicidialRow
+                ? Carbon::parse((string) $vicidialRow->modify_date)->gte($start) && Carbon::parse((string) $vicidialRow->modify_date)->lt($end)
+                : false;
+            $matchedQuery = $statusAllowed && $listMatch && $windowMatch && ! $manualCallStepActive;
+
+            $excludedReason = null;
+            if (! $vicidialRow) {
+                $excludedReason = 'vicidial_row_not_found';
+            } elseif (! $statusAllowed) {
+                $excludedReason = 'status_not_allowed_or_already_hold';
+            } elseif (! $listMatch) {
+                $excludedReason = 'holding_list_mismatch';
+            } elseif (! $windowMatch) {
+                $excludedReason = 'outside_selected_window';
+            } elseif ($manualCallStepActive) {
+                $excludedReason = 'active_manual_call_step_progress_exists';
+            }
+
+            $payload['debug'] = [
+                'lead_id' => (int) $leadId,
+                'holding_list_id' => $holdingListId,
+                'window_start' => $start->toDateTimeString(),
+                'window_end' => $end->toDateTimeString(),
+                'vicidial_list' => $vicidialRow ? [
+                    'lead_id' => (int) $vicidialRow->lead_id,
+                    'list_id' => (string) $vicidialRow->list_id,
+                    'status' => $statusNormalized,
+                    'modify_date' => (string) $vicidialRow->modify_date,
+                    'called_since_last_reset' => (string) ($vicidialRow->called_since_last_reset ?? ''),
+                    'last_local_call_time' => (string) ($vicidialRow->last_local_call_time ?? ''),
+                ] : null,
+                'parking_checks' => [
+                    'status_allowed' => $statusAllowed,
+                    'list_match' => $listMatch,
+                    'window_match' => $windowMatch,
+                    'manual_call_step_active' => $manualCallStepActive,
+                    'matched_query' => $matchedQuery,
+                    'excluded_reason' => $excludedReason,
+                ],
+            ];
+        }
         $this->line($asJson ? json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : json_encode($payload));
 
         return self::SUCCESS;
