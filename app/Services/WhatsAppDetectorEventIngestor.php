@@ -29,6 +29,7 @@ class WhatsAppDetectorEventIngestor
      *   skipped_existing: int,
      *   unmatched: int,
      *   ambiguous: int,
+     *   matched_active_linear_progress: int,
      *   matched_after_flow_start: int,
      *   matched_not_after_flow_start: int,
      *   matched_no_flow_start: int,
@@ -50,6 +51,7 @@ class WhatsAppDetectorEventIngestor
             'skipped_existing' => 0,
             'unmatched' => 0,
             'ambiguous' => 0,
+            'matched_active_linear_progress' => 0,
             'matched_after_flow_start' => 0,
             'matched_not_after_flow_start' => 0,
             'matched_no_flow_start' => 0,
@@ -190,7 +192,12 @@ class WhatsAppDetectorEventIngestor
             $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
             $matchedLeadId = $resolution['matchedLeadId'];
 
-            if ($resolution['resolutionStatus'] === 'ambiguous_active_progress' || $resolution['resolutionStatus'] === 'ambiguous_phone') {
+            if ($resolution['resolutionStatus'] === 'ambiguous_active_progress') {
+                $matchStatus = 'ambiguous_active_linear_progress';
+                if ($stats !== null) {
+                    $stats['ambiguous']++;
+                }
+            } elseif ($resolution['resolutionStatus'] === 'ambiguous_phone') {
                 $matchStatus = 'ambiguous';
                 if ($stats !== null) {
                     $stats['ambiguous']++;
@@ -198,6 +205,7 @@ class WhatsAppDetectorEventIngestor
             } elseif ($matchedLeadId !== null) {
                 if ($resolution['resolvedByActiveProgress'] && $stats !== null) {
                     $stats['resolved_by_active_linear_progress']++;
+                    $stats['matched_active_linear_progress']++;
                 }
             } else {
                 $matchStatus = 'unmatched';
@@ -210,7 +218,9 @@ class WhatsAppDetectorEventIngestor
         $flowStartedAt = null;
         if ($matchedLeadId !== null) {
             $flowStartedAt = $prefetchedFlowStartedAt;
-            if ($flowStartedAt === null) {
+            if ($resolution['resolvedByActiveProgress']) {
+                $matchStatus = 'matched_active_linear_progress';
+            } elseif ($flowStartedAt === null) {
                 $matchStatus = 'matched_no_flow_start';
                 if ($stats !== null) {
                     $stats['matched_no_flow_start']++;
@@ -270,7 +280,7 @@ class WhatsAppDetectorEventIngestor
             ];
             $this->maybeCreateRemarketingResponseEvent($detectorEvent, $responseStats);
 
-            if ($matchStatus === 'matched_after_flow_start' && $matchedLeadId !== null && $isAfter === true) {
+            if (in_array($matchStatus, ['matched_after_flow_start', 'matched_active_linear_progress'], true) && $matchedLeadId !== null && ($isAfter === true || $matchStatus === 'matched_active_linear_progress')) {
                 try {
                     $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
 
@@ -305,12 +315,12 @@ class WhatsAppDetectorEventIngestor
                     if ($lead !== null) {
                         $this->appendNotesToEvent(
                             $eventId,
-                            'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply after flow_start.'
+                            'Closed pending remarketing tasks and set lead to Re-engaged due to WhatsApp reply during active remarketing progress.'
                         );
                     } else {
                         $this->appendNotesToEvent(
                             $eventId,
-                            'Closed pending remarketing tasks due to WhatsApp reply after flow_start. No Jinx lead matched vicidial_lead_id.'
+                            'Closed pending remarketing tasks due to WhatsApp reply during active remarketing progress. No Jinx lead matched vicidial_lead_id.'
                         );
                     }
                 } catch (Throwable $e) {
@@ -378,18 +388,18 @@ class WhatsAppDetectorEventIngestor
             return;
         }
 
-        if ($matchStatus !== 'matched_after_flow_start') {
+        if (! in_array($matchStatus, ['matched_after_flow_start', 'matched_active_linear_progress'], true)) {
             $stats['response_events_skipped']++;
             Log::info('Remarketing response event skipped (whatsapp)', [
                 'detector_event_id' => $event->event_id,
                 'lead_id' => (int) $leadId,
-                'reason' => 'match_status_not_after_flow_start',
+                'reason' => 'match_status_not_supported_for_response_event',
                 'match_status' => $matchStatus,
             ]);
             return;
         }
 
-        if ($isAfter !== true) {
+        if ($matchStatus === 'matched_after_flow_start' && $isAfter !== true) {
             $stats['response_events_skipped']++;
             Log::info('Remarketing response event skipped (whatsapp)', [
                 'detector_event_id' => $event->event_id,
@@ -698,7 +708,7 @@ class WhatsAppDetectorEventIngestor
         $timestampsByLead = [];
         foreach ($activeProgressRows as $row) {
             $leadId = (int) $row->lead_id;
-            $rawTimestamp = $row->created_at ?? ($hasStartedAt ? $row->started_at : null);
+            $rawTimestamp = ($hasStartedAt ? $row->started_at : null) ?? $row->created_at;
             $timestampsByLead[$leadId] = $this->parseProgressTimestamp($rawTimestamp);
         }
 
@@ -726,7 +736,7 @@ class WhatsAppDetectorEventIngestor
                 'matchedLeadId' => $leadId,
                 'resolvedFlowStartedAt' => $timestampsByLead[$leadId] ?? null,
                 'resolutionStatus' => 'resolved_active_progress',
-                'resolutionNote' => 'resolved_by_active_linear_progress',
+                'resolutionNote' => 'Resolved by active lead_remarketing_progress',
                 'resolvedByActiveProgress' => true,
             ];
         }
