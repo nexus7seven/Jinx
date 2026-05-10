@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class WhatsAppDetectorEventIngestor
@@ -32,7 +33,7 @@ class WhatsAppDetectorEventIngestor
      *   matched_not_after_flow_start: int,
      *   matched_no_flow_start: int,
      *   invalid_payload: int,
-     *   resolved_by_latest_flow_start: int,
+     *   resolved_by_active_linear_progress: int,
      *   response_events_created: int,
      *   response_events_duplicate: int,
      *   response_events_skipped: int,
@@ -53,7 +54,7 @@ class WhatsAppDetectorEventIngestor
             'matched_not_after_flow_start' => 0,
             'matched_no_flow_start' => 0,
             'invalid_payload' => 0,
-            'resolved_by_latest_flow_start' => 0,
+            'resolved_by_active_linear_progress' => 0,
             'response_events_created' => 0,
             'response_events_duplicate' => 0,
             'response_events_skipped' => 0,
@@ -183,31 +184,32 @@ class WhatsAppDetectorEventIngestor
             if ($stats !== null) {
                 $stats['unmatched']++;
             }
-        } elseif (count($leadIds) > 1) {
-            $resolution = $this->resolveLeadIdFromCandidatesByLatestFlowStart($leadIds);
-            if ($resolution['resolutionStatus'] === 'resolved') {
-                $matchStatus = 'matched';
-                $matchedLeadId = $resolution['matchedLeadId'];
-                $matchNotes = $resolution['resolutionNote'];
-                $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
-                if ($stats !== null) {
-                    $stats['resolved_by_latest_flow_start']++;
-                }
-            } else {
+        } else {
+            $resolution = $this->resolveLeadFromLinearProgress($leadIds);
+            $matchNotes = $resolution['resolutionNote'];
+            $prefetchedFlowStartedAt = $resolution['resolvedFlowStartedAt'];
+            $matchedLeadId = $resolution['matchedLeadId'];
+
+            if ($resolution['resolutionStatus'] === 'ambiguous_active_progress' || $resolution['resolutionStatus'] === 'ambiguous_phone') {
                 $matchStatus = 'ambiguous';
-                $matchNotes = $resolution['resolutionNote'];
                 if ($stats !== null) {
                     $stats['ambiguous']++;
                 }
+            } elseif ($matchedLeadId !== null) {
+                if ($resolution['resolvedByActiveProgress'] && $stats !== null) {
+                    $stats['resolved_by_active_linear_progress']++;
+                }
+            } else {
+                $matchStatus = 'unmatched';
+                if ($stats !== null) {
+                    $stats['unmatched']++;
+                }
             }
-        } else {
-            $matchStatus = 'matched';
-            $matchedLeadId = $leadIds[0];
         }
 
         $flowStartedAt = null;
         if ($matchedLeadId !== null) {
-            $flowStartedAt = $prefetchedFlowStartedAt ?? $this->latestFlowStartedAt((int) $matchedLeadId);
+            $flowStartedAt = $prefetchedFlowStartedAt;
             if ($flowStartedAt === null) {
                 $matchStatus = 'matched_no_flow_start';
                 if ($stats !== null) {
@@ -220,10 +222,12 @@ class WhatsAppDetectorEventIngestor
 
         if ($matchedLeadId !== null && $flowStartedAt !== null) {
             if ($isAfter === true) {
+                $matchStatus = 'matched_after_flow_start';
                 if ($stats !== null) {
                     $stats['matched_after_flow_start']++;
                 }
             } elseif ($isAfter === false) {
+                $matchStatus = 'matched_not_after_flow_start';
                 if ($stats !== null) {
                     $stats['matched_not_after_flow_start']++;
                 }
@@ -266,7 +270,7 @@ class WhatsAppDetectorEventIngestor
             ];
             $this->maybeCreateRemarketingResponseEvent($detectorEvent, $responseStats);
 
-            if ($matchStatus === 'matched' && $matchedLeadId !== null && $isAfter === true) {
+            if ($matchStatus === 'matched_after_flow_start' && $matchedLeadId !== null && $isAfter === true) {
                 try {
                     $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
 
@@ -374,12 +378,12 @@ class WhatsAppDetectorEventIngestor
             return;
         }
 
-        if ($matchStatus !== '' && $matchStatus !== 'matched') {
+        if ($matchStatus !== 'matched_after_flow_start') {
             $stats['response_events_skipped']++;
             Log::info('Remarketing response event skipped (whatsapp)', [
                 'detector_event_id' => $event->event_id,
                 'lead_id' => (int) $leadId,
-                'reason' => 'match_status_not_matched',
+                'reason' => 'match_status_not_after_flow_start',
                 'match_status' => $matchStatus,
             ]);
             return;
@@ -666,97 +670,101 @@ class WhatsAppDetectorEventIngestor
         return "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({$c},''),' ',''),'-',''),'+',''),'(',''),')',''),'.','')";
     }
 
-    private function latestFlowStartedAt(int $vicidialLeadId): ?Carbon
+    private function resolveLeadFromLinearProgress(array $leadIds): array
     {
-        $table = (string) config('whatsapp_detector.remarketing_tasks_table');
-        $timeCol = (string) config('whatsapp_detector.remarketing_task_time_column');
-        if ($table === '' || $timeCol === '') {
-            return null;
+        if ($leadIds === []) {
+            return [
+                'matchedLeadId' => null,
+                'resolvedFlowStartedAt' => null,
+                'resolutionStatus' => 'none',
+                'resolutionNote' => null,
+                'resolvedByActiveProgress' => false,
+            ];
         }
 
-        $raw = DB::connection('mysql')->table($table)
-            ->where('lead_id', $vicidialLeadId)
-            ->where('task_type', 'flow_started')
-            ->where('reason', 'flow_start')
-            ->orderByDesc($timeCol)
-            ->value($timeCol);
+        $progressTable = (new LeadRemarketingProgress())->getTable();
+        $hasStartedAt = Schema::connection('mysql')->hasColumn($progressTable, 'started_at');
 
+        $query = LeadRemarketingProgress::query()
+            ->whereIn('lead_id', $leadIds)
+            ->where('progress_status', 'active');
+        if ($hasStartedAt) {
+            $query->select(['lead_id', 'created_at', 'started_at']);
+        } else {
+            $query->select(['lead_id', 'created_at']);
+        }
+        $activeProgressRows = $query->get();
+
+        $timestampsByLead = [];
+        foreach ($activeProgressRows as $row) {
+            $leadId = (int) $row->lead_id;
+            $rawTimestamp = $row->created_at ?? ($hasStartedAt ? $row->started_at : null);
+            $timestampsByLead[$leadId] = $this->parseProgressTimestamp($rawTimestamp);
+        }
+
+        $activeLeadIds = array_values(array_unique(array_map(
+            fn ($row) => (int) $row->lead_id,
+            $activeProgressRows->all()
+        )));
+        sort($activeLeadIds);
+        $idsStr = implode(',', $leadIds);
+
+        if (count($activeLeadIds) > 1) {
+            return [
+                'matchedLeadId' => null,
+                'resolvedFlowStartedAt' => null,
+                'resolutionStatus' => 'ambiguous_active_progress',
+                'resolutionNote' => "ambiguous_active_linear_progress Multiple leads matched phone ({$idsStr}) with active lead_remarketing_progress.",
+                'resolvedByActiveProgress' => false,
+            ];
+        }
+
+        if (count($activeLeadIds) === 1) {
+            $leadId = $activeLeadIds[0];
+
+            return [
+                'matchedLeadId' => $leadId,
+                'resolvedFlowStartedAt' => $timestampsByLead[$leadId] ?? null,
+                'resolutionStatus' => 'resolved_active_progress',
+                'resolutionNote' => 'resolved_by_active_linear_progress',
+                'resolvedByActiveProgress' => true,
+            ];
+        }
+
+        if (count($leadIds) === 1) {
+            return [
+                'matchedLeadId' => (int) $leadIds[0],
+                'resolvedFlowStartedAt' => null,
+                'resolutionStatus' => 'resolved_phone_only',
+                'resolutionNote' => 'no_active_linear_progress',
+                'resolvedByActiveProgress' => false,
+            ];
+        }
+
+        return [
+            'matchedLeadId' => null,
+            'resolvedFlowStartedAt' => null,
+            'resolutionStatus' => 'ambiguous_phone',
+            'resolutionNote' => "no_active_linear_progress Multiple leads matched phone ({$idsStr}) and none had active lead_remarketing_progress.",
+            'resolvedByActiveProgress' => false,
+        ];
+    }
+
+    private function parseProgressTimestamp(mixed $raw): ?Carbon
+    {
         if ($raw === null) {
             return null;
         }
 
         try {
+            if ($raw instanceof Carbon) {
+                return $raw;
+            }
+
             return Carbon::parse((string) $raw);
         } catch (Throwable) {
             return null;
         }
-    }
-
-    /**
-     * When several Vicidial leads share the same phone, prefer the one whose latest
-     * flow_start anchor in remarketing_tasks is most recent (mysql; task_type/reason as in latestFlowStartedAt).
-     *
-     * @param  list<int>  $leadIds
-     * @return array{
-     *   matchedLeadId: ?int,
-     *   resolvedFlowStartedAt: ?Carbon,
-     *   resolutionStatus: 'resolved'|'ambiguous_no_flow_start'|'ambiguous_tie',
-     *   resolutionNote: ?string,
-     * }
-     */
-    private function resolveLeadIdFromCandidatesByLatestFlowStart(array $leadIds): array
-    {
-        $byLead = [];
-        foreach ($leadIds as $id) {
-            $id = (int) $id;
-            $byLead[$id] = $this->latestFlowStartedAt($id);
-        }
-
-        $withFlow = array_filter($byLead, fn (?Carbon $v) => $v !== null);
-        $idsStr = implode(',', $leadIds);
-
-        if ($withFlow === []) {
-            return [
-                'matchedLeadId' => null,
-                'resolvedFlowStartedAt' => null,
-                'resolutionStatus' => 'ambiguous_no_flow_start',
-                'resolutionNote' => "Multiple leads matched phone ({$idsStr}); none had a flow_start anchor in remarketing_tasks.",
-            ];
-        }
-
-        $maxAt = null;
-        foreach ($withFlow as $at) {
-            if ($maxAt === null || $at->gt($maxAt)) {
-                $maxAt = $at;
-            }
-        }
-
-        $idsAtMax = [];
-        foreach ($withFlow as $leadId => $at) {
-            if ($maxAt !== null && $at->eq($maxAt)) {
-                $idsAtMax[] = $leadId;
-            }
-        }
-
-        if (count($idsAtMax) > 1) {
-            $tieStr = implode(',', $idsAtMax);
-
-            return [
-                'matchedLeadId' => null,
-                'resolvedFlowStartedAt' => null,
-                'resolutionStatus' => 'ambiguous_tie',
-                'resolutionNote' => "Multiple leads matched phone ({$idsStr}); tie on latest flow_start among candidates (lead_ids: {$tieStr}).",
-            ];
-        }
-
-        $winnerId = $idsAtMax[0];
-
-        return [
-            'matchedLeadId' => $winnerId,
-            'resolvedFlowStartedAt' => $byLead[$winnerId],
-            'resolutionStatus' => 'resolved',
-            'resolutionNote' => "Multiple leads matched phone ({$idsStr}); resolved to lead {$winnerId} using latest flow_start among candidates.",
-        ];
     }
 
     private function decideIsAfterFlowStart(?Carbon $engagementAt, ?Carbon $flowStartedAt, ?int $matchedLeadId): ?bool
