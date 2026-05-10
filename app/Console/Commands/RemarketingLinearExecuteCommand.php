@@ -271,6 +271,10 @@ class RemarketingLinearExecuteCommand extends Command
             $whatsappBodyPreview = null;
             $providerMessageId = null;
             $errorMessage = null;
+            $bridgeEnabled = null;
+            $bridgeQueued = null;
+            $bridgeJobId = null;
+            $bridgeError = null;
 
             if ($isDueNow) {
                 $summary['due_now']++;
@@ -348,6 +352,10 @@ class RemarketingLinearExecuteCommand extends Command
                     $whatsappAction = $sendResult['whatsapp_action'];
                     $whatsappBodyPreview = $sendResult['whatsapp_body_preview'];
                     $errorMessage = $sendResult['error_message'];
+                    $bridgeEnabled = $sendResult['bridge_enabled'] ?? null;
+                    $bridgeQueued = $sendResult['bridge_queued'] ?? null;
+                    $bridgeJobId = $sendResult['bridge_job_id'] ?? null;
+                    $bridgeError = $sendResult['bridge_error'] ?? null;
 
                     if ($sendResult['committed']) {
                         $summary['committed']++;
@@ -435,6 +443,10 @@ class RemarketingLinearExecuteCommand extends Command
                 'provider_message_id' => $providerMessageId,
                 'error_message' => $errorMessage,
                 'commit_action' => $commitAction,
+                'bridge_enabled' => $bridgeEnabled,
+                'bridge_queued' => $bridgeQueued,
+                'bridge_job_id' => $bridgeJobId,
+                'bridge_error' => $bridgeError,
             ];
         }
 
@@ -471,6 +483,10 @@ class RemarketingLinearExecuteCommand extends Command
                 $this->line('WhatsApp body preview: '.($row['whatsapp_body_preview'] ?? '-'));
                 $this->line('Provider message ID: '.($row['provider_message_id'] ?? '-'));
                 $this->line('Error: '.($row['error_message'] ?? '-'));
+                $this->line('Bridge enabled: '.(($row['bridge_enabled'] ?? null) === null ? '-' : ($row['bridge_enabled'] ? 'yes' : 'no')));
+                $this->line('Bridge queued: '.(($row['bridge_queued'] ?? null) === null ? '-' : ($row['bridge_queued'] ? 'yes' : 'no')));
+                $this->line('Bridge job ID: '.($row['bridge_job_id'] ?? '-'));
+                $this->line('Bridge error: '.($row['bridge_error'] ?? '-'));
                 $this->line('Commit action: '.$row['commit_action']);
                 $this->line('');
                 $this->line(str_repeat('-', 40));
@@ -1512,6 +1528,8 @@ class RemarketingLinearExecuteCommand extends Command
             );
 
             $manualRequired = $this->stepRequiresManualCompletion($currentStep, $actualDelivery);
+            $bridgeQueued = (bool) ($bridgeResult['queued'] ?? false);
+            $bridgeError = $bridgeResult['error'] ?? null;
             $updates = [
                 'current_step_id' => $currentStep->id,
                 'current_step_order' => $currentStep->step_order,
@@ -1523,10 +1541,29 @@ class RemarketingLinearExecuteCommand extends Command
                 $updates['next_step_due_at'] = $dueAt;
                 $progress->update($updates);
             } else {
-                $updates['last_step_completed_at'] = $now->copy();
-                $updates['status'] = 'active';
-                $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+                $shouldAutoAdvance = (bool) $currentStep->auto_advance_on_send;
+                if ($bridgeEnabled) {
+                    $shouldAutoAdvance = false;
+                }
+
+                if ($shouldAutoAdvance) {
+                    $updates['last_step_completed_at'] = $now->copy();
+                    $updates['status'] = 'active';
+                    $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
+                } else {
+                    $updates['status'] = LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK;
+                    $updates['next_step_due_at'] = $dueAt;
+                }
                 $progress->update($updates);
+            }
+
+            $commitAction = $manualTask !== null ? 'waiting_manual_completion' : 'queued_manual_task';
+            if ($bridgeEnabled) {
+                $commitAction = $bridgeQueued
+                    ? 'bridge_queued_pending_result'
+                    : 'bridge_queue_failed_no_advance';
+            } elseif (! $manualRequired && $advanced) {
+                $commitAction = 'advanced';
             }
 
             return [
@@ -1535,10 +1572,12 @@ class RemarketingLinearExecuteCommand extends Command
                 'whatsapp_action' => 'manual_task_created',
                 'whatsapp_body_preview' => $bodyPreview,
                 'error_message' => null,
+                'bridge_enabled' => $bridgeEnabled,
+                'bridge_queued' => $bridgeQueued,
+                'bridge_job_id' => $bridgeJobId,
+                'bridge_error' => $bridgeError,
                 'advance_state' => $manualRequired ? 'not_advanced_manual_completion_required' : ($advanced ? 'advanced' : 'not_advanced'),
-                'commit_action' => $manualRequired
-                    ? ($manualTask !== null ? 'waiting_manual_completion' : 'queued_manual_task')
-                    : ($advanced ? 'advanced' : 'queued_manual_task'),
+                'commit_action' => $commitAction,
             ];
         });
     }
