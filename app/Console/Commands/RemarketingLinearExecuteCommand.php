@@ -11,6 +11,7 @@ use App\Models\RemarketingTemplate;
 use App\Models\RemarketingTask;
 use App\Services\RemarketingScheduleWindowService;
 use App\Services\LeadPortalLinkService;
+use App\Services\WhatsAppBridgeClient;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Console\Command;
@@ -47,7 +48,8 @@ class RemarketingLinearExecuteCommand extends Command
         private readonly RemarketingLinearBrainPreviewCommand $previewCommand,
         private readonly RemarketingScheduleWindowService $scheduleWindowService,
         private readonly RemarketingTaskService $remarketingTaskService,
-        private readonly LeadPortalLinkService $leadPortalLinkService
+        private readonly LeadPortalLinkService $leadPortalLinkService,
+        private readonly WhatsAppBridgeClient $whatsAppBridgeClient
     ) {
         parent::__construct();
     }
@@ -1007,6 +1009,44 @@ class RemarketingLinearExecuteCommand extends Command
         return $normalized;
     }
 
+    private function buildWhatsAppBridgeJobId(LeadRemarketingProgress $progress, RemarketingStep $currentStep, string $templateKey, ?int $manualTaskId): string
+    {
+        if ($manualTaskId !== null) {
+            return sprintf('whatsapp-task:%d:%s', $manualTaskId, $templateKey !== '' ? $templateKey : 'none');
+        }
+
+        return sprintf(
+            'whatsapp-step:%d:%s:%s:%d',
+            (int) $progress->lead_id,
+            $currentStep->step_key,
+            $templateKey !== '' ? $templateKey : 'none',
+            (int) $currentStep->step_order
+        );
+    }
+
+    private function normalizeBridgePhone(string $phone): ?string
+    {
+        $normalized = $this->normalizeUkPhone($phone);
+        if ($normalized === null) {
+            return null;
+        }
+
+        $digits = preg_replace('/[^\d]/', '', $normalized);
+        if (! is_string($digits) || $digits === '') {
+            return null;
+        }
+
+        if (str_starts_with($digits, '0044')) {
+            return substr($digits, 2);
+        }
+
+        if (str_starts_with($digits, '0')) {
+            return '44'.substr($digits, 1);
+        }
+
+        return $digits;
+    }
+
     private function renderTemplateBody(string $templateBody, array $variables): string
     {
         $replacements = [
@@ -1392,6 +1432,36 @@ class RemarketingLinearExecuteCommand extends Command
                 templateKey: $templateKey
             );
 
+            $phoneData = $this->resolveSmsPhoneData((int) $progress->lead_id);
+            $bridgePhone = $this->normalizeBridgePhone((string) ($phoneData['raw_phone'] ?? ''));
+            $bridgeJobId = $this->buildWhatsAppBridgeJobId($progress, $currentStep, $templateKey, $manualTask?->id);
+            $bridgeBaseUrl = (string) config('services.whatsapp_bridge.base_url', '');
+            $bridgeEnabled = (bool) config('services.whatsapp_bridge.enabled', false);
+            $bridgeResult = [
+                'queued' => false,
+                'status_code' => null,
+                'response' => null,
+                'error' => null,
+            ];
+
+            if ($bridgeEnabled && $bridgePhone === null) {
+                $bridgeResult['error'] = 'invalid_or_missing_bridge_phone';
+            } else {
+                $bridgePayload = [
+                    'id' => $bridgeJobId,
+                    'phone' => $bridgePhone,
+                    'message' => $renderedBody,
+                    'lead_id' => (int) $progress->lead_id,
+                    'source' => 'jinx-remarketing-linear',
+                    'metadata' => [
+                        'remarketing_task_id' => $manualTask?->id,
+                        'remarketing_step_id' => $currentStep->id,
+                        'template_key' => $templateKey,
+                    ],
+                ];
+                $bridgeResult = $this->whatsAppBridgeClient->queueSendJob($bridgePayload);
+            }
+
             $this->createStepLog(
                 progress: $progress,
                 currentStep: $currentStep,
@@ -1412,6 +1482,12 @@ class RemarketingLinearExecuteCommand extends Command
                         'mode' => 'commit_manual_whatsapp_task',
                         'execution_action' => $executionAction,
                         'note' => 'outbound_whatsapp_manual_task',
+                        'bridge_enabled' => $bridgeEnabled,
+                        'bridge_queued' => (bool) ($bridgeResult['queued'] ?? false),
+                        'bridge_job_id' => $bridgeJobId,
+                        'bridge_error' => $bridgeResult['error'] ?? null,
+                        'bridge_status_code' => $bridgeResult['status_code'] ?? null,
+                        'bridge_base_url' => $bridgeBaseUrl !== '' ? $bridgeBaseUrl : null,
                     ],
                     'metadata_json' => [
                         'rendered_body' => $renderedBody,
@@ -1423,6 +1499,12 @@ class RemarketingLinearExecuteCommand extends Command
                         'manual_task_campaign_id' => 'MAIN',
                         'manual_task_id' => $manualTask?->id,
                         'note' => 'outbound_whatsapp_manual_task',
+                        'bridge_enabled' => $bridgeEnabled,
+                        'bridge_queued' => (bool) ($bridgeResult['queued'] ?? false),
+                        'bridge_job_id' => $bridgeJobId,
+                        'bridge_error' => $bridgeResult['error'] ?? null,
+                        'bridge_status_code' => $bridgeResult['status_code'] ?? null,
+                        'bridge_base_url' => $bridgeBaseUrl !== '' ? $bridgeBaseUrl : null,
                     ],
                 ],
                 plannedDelivery: $plannedDelivery,

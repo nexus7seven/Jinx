@@ -82,6 +82,13 @@ return [
         'token' => env('LOCAL_WORKER_TOKEN'),
     ],
 
+
+    'whatsapp_bridge' => [
+        'base_url' => env('WHATSAPP_BRIDGE_BASE_URL', 'http://100.82.166.53:3010'),
+        'enabled' => env('WHATSAPP_BRIDGE_ENABLED', false),
+        'timeout_seconds' => env('WHATSAPP_BRIDGE_TIMEOUT_SECONDS', 10),
+    ],
+
     /*
     | Deckard callback_action.php — direct_dial and other actions (full URL to PHP endpoint).
     | Agent credentials stay on the Deckard server in callback_action.php / env there, not in Jinx.
