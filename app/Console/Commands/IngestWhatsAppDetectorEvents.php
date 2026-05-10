@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Services\WhatsAppDetectorEventIngestor;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\File;
 
 class IngestWhatsAppDetectorEvents extends Command
 {
@@ -17,15 +16,20 @@ class IngestWhatsAppDetectorEvents extends Command
     {
         $path = $this->option('path');
         $path = is_string($path) && $path !== '' ? $path : null;
-        $resolved = $path ?? (string) config('whatsapp_detector.jsonl_path');
-        if ($resolved === '' || ! File::isReadable($resolved)) {
-            $this->error('JSONL not readable: ' . ($resolved !== '' ? $resolved : '(empty path)'));
+        $eventsUrl = (string) config('whatsapp_detector.events_url', '');
+        $sourceType = $eventsUrl !== '' ? 'url' : 'file';
+        $source = $eventsUrl !== '' ? $eventsUrl : ($path ?? (string) config('whatsapp_detector.jsonl_path'));
+
+        try {
+            $stats = $ingestor->ingest($path);
+        } catch (\Throwable $e) {
+            $this->error($e->getMessage());
             return self::FAILURE;
         }
 
-        $stats = $ingestor->ingest($path);
-
         $this->line('whatsapp:ingest-detector-events');
+        $this->line('  source_type: ' . $sourceType);
+        $this->line('  source: ' . ($source !== '' ? $source : '(empty source)'));
         foreach ($stats as $key => $value) {
             $this->line(sprintf('  %s: %d', $key, $value));
         }

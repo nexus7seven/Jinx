@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -41,6 +42,7 @@ class WhatsAppDetectorEventIngestor
     public function ingest(?string $jsonlPath = null): array
     {
         $path = $jsonlPath ?? config('whatsapp_detector.jsonl_path');
+        $eventsUrl = config('whatsapp_detector.events_url');
 
         $stats = [
             'imported' => 0,
@@ -57,6 +59,32 @@ class WhatsAppDetectorEventIngestor
             'response_events_skipped' => 0,
             'response_events_skipped_lead_not_eligible_for_response_inbox' => 0,
         ];
+
+        if (is_string($eventsUrl) && $eventsUrl !== '') {
+            $response = Http::timeout(10)->get($eventsUrl);
+            if (! $response->successful()) {
+                $message = sprintf('Failed to fetch WhatsApp detector events URL [%s]: HTTP %d', $eventsUrl, $response->status());
+                Log::error($message);
+                throw new \RuntimeException($message);
+            }
+
+            foreach (preg_split('/\r\n|\r|\n/', $response->body()) ?: [] as $line) {
+                $trimmed = trim($line);
+                if ($trimmed === '') {
+                    continue;
+                }
+
+                $decoded = json_decode($trimmed, true);
+                if (! is_array($decoded)) {
+                    $stats['invalid_payload']++;
+                    continue;
+                }
+
+                $this->ingestPayload($decoded, $stats);
+            }
+
+            return $stats;
+        }
 
         if (! is_string($path) || $path === '' || ! File::isReadable($path)) {
             return $stats;

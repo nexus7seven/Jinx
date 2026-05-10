@@ -9,6 +9,12 @@ return [
         '/opt/whatsapp-detector/storage/detections/events.jsonl'
     ),
 
+
+    /*
+    | Optional HTTP JSONL source for detector events. When set, ingest uses this URL instead of local file.
+    */
+    'events_url' => env('WHATSAPP_DETECTOR_EVENTS_URL'),
+
     /*
     | Timezone for naive datetime strings from the detector (no Z / no offset), e.g. inferred_message_at.
     */
