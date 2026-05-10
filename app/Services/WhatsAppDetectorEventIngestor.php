@@ -278,9 +278,16 @@ class WhatsAppDetectorEventIngestor
                 'response_events_duplicate' => 0,
                 'response_events_skipped_lead_not_eligible_for_response_inbox' => 0,
             ];
-            $this->maybeCreateRemarketingResponseEvent($detectorEvent, $responseStats);
+            $responseEventAttempt = $this->maybeCreateRemarketingResponseEvent($detectorEvent, $responseStats);
 
-            if (in_array($matchStatus, ['matched_after_flow_start', 'matched_active_linear_progress'], true) && $matchedLeadId !== null && ($isAfter === true || $matchStatus === 'matched_active_linear_progress')) {
+            $shouldRunLegacyReengagement = ! $responseEventAttempt['used_response_pipeline'];
+
+            if (
+                $shouldRunLegacyReengagement
+                && in_array($matchStatus, ['matched_after_flow_start', 'matched_active_linear_progress'], true)
+                && $matchedLeadId !== null
+                && ($isAfter === true || $matchStatus === 'matched_active_linear_progress')
+            ) {
                 try {
                     $context = $this->snapCurrentCycleRemarketingContext((int) $matchedLeadId);
 
@@ -371,13 +378,15 @@ class WhatsAppDetectorEventIngestor
     }
 
     /**
-     * @param array<string, int> $stats
+     * @param  array<string, int>  $stats
+     * @return array{used_response_pipeline: bool}
      */
-    private function maybeCreateRemarketingResponseEvent(WhatsAppDetectorEvent $event, array &$stats): void
+    private function maybeCreateRemarketingResponseEvent(WhatsAppDetectorEvent $event, array &$stats): array
     {
         $leadId = $event->matched_vicidial_lead_id;
         $matchStatus = strtolower(trim((string) ($event->match_status ?? '')));
         $isAfter = $event->is_after_flow_start;
+        $usedResponsePipeline = false;
 
         if ($leadId === null || (int) $leadId <= 0) {
             $stats['response_events_skipped']++;
@@ -385,7 +394,7 @@ class WhatsAppDetectorEventIngestor
                 'detector_event_id' => $event->event_id,
                 'reason' => 'missing_matched_vicidial_lead_id',
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
 
         if (! in_array($matchStatus, ['matched_after_flow_start', 'matched_active_linear_progress'], true)) {
@@ -396,7 +405,7 @@ class WhatsAppDetectorEventIngestor
                 'reason' => 'match_status_not_supported_for_response_event',
                 'match_status' => $matchStatus,
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
 
         if ($matchStatus === 'matched_after_flow_start' && $isAfter !== true) {
@@ -406,7 +415,7 @@ class WhatsAppDetectorEventIngestor
                 'lead_id' => (int) $leadId,
                 'reason' => $isAfter === false ? 'before_flow_start' : 'missing_after_flow_start_flag',
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
 
         if (! $this->looksInboundCustomerReply($event)) {
@@ -416,8 +425,10 @@ class WhatsAppDetectorEventIngestor
                 'lead_id' => (int) $leadId,
                 'reason' => 'not_inbound_customer_reply',
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
+
+        $usedResponsePipeline = true;
 
         $jinxLead = Lead::query()
             ->where('vicidial_lead_id', (int) $leadId)
@@ -481,7 +492,7 @@ class WhatsAppDetectorEventIngestor
                 'reason' => 'lead_not_eligible_for_response_inbox',
                 'wip_status' => $jinxLead?->wip_status,
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
 
         if ($responseEvent->wasRecentlyCreated) {
@@ -492,7 +503,7 @@ class WhatsAppDetectorEventIngestor
                 'lead_id' => (int) $leadId,
                 'dedupe_key' => $dedupeKey,
             ]);
-            return;
+            return ['used_response_pipeline' => $usedResponsePipeline];
         }
 
         $stats['response_events_duplicate']++;
@@ -502,6 +513,8 @@ class WhatsAppDetectorEventIngestor
             'lead_id' => (int) $leadId,
             'dedupe_key' => $dedupeKey,
         ]);
+
+        return ['used_response_pipeline' => $usedResponsePipeline];
     }
 
     private function looksInboundCustomerReply(WhatsAppDetectorEvent $event): bool
