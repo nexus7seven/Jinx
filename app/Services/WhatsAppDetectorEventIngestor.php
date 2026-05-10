@@ -697,7 +697,10 @@ class WhatsAppDetectorEventIngestor
 
         $query = LeadRemarketingProgress::query()
             ->whereIn('lead_id', $leadIds)
-            ->where('progress_status', 'active');
+            ->whereIn('status', [
+                LeadRemarketingProgress::STATUS_ACTIVE,
+                LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK,
+            ]);
         if ($hasStartedAt) {
             $query->select(['lead_id', 'created_at', 'started_at']);
         } else {
@@ -724,7 +727,7 @@ class WhatsAppDetectorEventIngestor
                 'matchedLeadId' => null,
                 'resolvedFlowStartedAt' => null,
                 'resolutionStatus' => 'ambiguous_active_progress',
-                'resolutionNote' => "ambiguous_active_linear_progress Multiple leads matched phone ({$idsStr}) with active lead_remarketing_progress.",
+                'resolutionNote' => "ambiguous_active_linear_progress Multiple leads matched phone ({$idsStr}) with live lead_remarketing_progress.",
                 'resolvedByActiveProgress' => false,
             ];
         }
@@ -736,7 +739,7 @@ class WhatsAppDetectorEventIngestor
                 'matchedLeadId' => $leadId,
                 'resolvedFlowStartedAt' => $timestampsByLead[$leadId] ?? null,
                 'resolutionStatus' => 'resolved_active_progress',
-                'resolutionNote' => 'Resolved by active lead_remarketing_progress',
+                'resolutionNote' => 'Resolved by live lead_remarketing_progress',
                 'resolvedByActiveProgress' => true,
             ];
         }
@@ -755,7 +758,7 @@ class WhatsAppDetectorEventIngestor
             'matchedLeadId' => null,
             'resolvedFlowStartedAt' => null,
             'resolutionStatus' => 'ambiguous_phone',
-            'resolutionNote' => "no_active_linear_progress Multiple leads matched phone ({$idsStr}) and none had active lead_remarketing_progress.",
+            'resolutionNote' => "no_active_linear_progress Multiple leads matched phone ({$idsStr}) and none had live lead_remarketing_progress.",
             'resolvedByActiveProgress' => false,
         ];
     }
