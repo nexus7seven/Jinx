@@ -148,6 +148,14 @@ if (config('remarketing.linear_executor_enabled')) {
         ->appendOutputTo(storage_path('logs/remarketing-linear-execute.log'));
 }
 
+
+if (config('services.whatsapp_bridge.enabled')) {
+    Schedule::command('whatsapp-bridge:poll-results --limit=50')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->appendOutputTo(storage_path('logs/whatsapp-bridge-poll-results.log'));
+}
+
 if (config('remarketing.call_hopper.enabled')) {
     Schedule::command('remarketing:prepare-call-hopper --commit --window=morning --limit=50')
         ->dailyAt('09:00')

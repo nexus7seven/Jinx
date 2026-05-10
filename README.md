@@ -57,3 +57,12 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## WhatsApp bridge polling & diagnostics
+
+- `whatsapp-bridge:poll-results` processes bridge send results and should be run by the Laravel scheduler every minute when `WHATSAPP_BRIDGE_ENABLED=true`.
+- Do **not** use `/extension/send-jobs/next` for diagnostics because it claims a job.
+- Safe bridge diagnostics:
+  - `/extension/send-results`
+  - `/extension/send-jobs/status` (once supported by the bridge)
+  - `/detections/events.jsonl`
