@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class RemarketingReconcileCallOutcomesCommand extends Command
 {
@@ -25,7 +26,7 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         {--lead_id= : Optional VICIdial lead_id filter}
         {--window=auto : morning|evening|auto}';
 
-    protected $description = 'Reconcile VICIdial call outcomes back into remarketing linear progress flow for today windows only.';
+    protected $description = 'Reconcile VICIdial call outcomes back into remarketing linear progress flow using manual-task anchors.';
 
     public function handle(): int
     {
@@ -34,6 +35,9 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         $leadId = $this->option('lead_id');
         $asJson = (bool) $this->option('json');
         $connection = config('services.vicidial.db_connection', 'asterisk');
+        $holdingListId = (string) config('remarketing.call_hopper.holding_list_id');
+        $holdStatus = (string) config('remarketing.call_hopper.hold_status');
+        $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
 
         [$windowLabel, $start, $end] = $this->resolveWindow((string) $this->option('window'));
 
@@ -56,48 +60,60 @@ class RemarketingReconcileCallOutcomesCommand extends Command
             }
             $manualCallStepLeadIds[] = (int) $progress->lead_id;
 
+            $taskAnchorAt = $this->resolveTaskAnchorTimestamp($progress);
             $latestLog = DB::connection($connection)->table('vicidial_log')
                 ->where('lead_id', (int) $progress->lead_id)
-                ->where('list_id', (string) config('remarketing.call_hopper.holding_list_id'))
-                ->where('call_date', '>=', $start)
-                ->where('call_date', '<', $end)
+                ->where('list_id', $holdingListId)
+                ->when($taskAnchorAt, fn ($q) => $q->where('call_date', '>', $taskAnchorAt))
+                ->whereIn('status', $finalOutcomes)
                 ->orderByDesc('call_date')
                 ->first(['status', 'call_date', 'list_id']);
 
-            if (! $latestLog) {
+            $selectedOutcome = null;
+            $outcomeSource = null;
+            if ($latestLog) {
+                $selectedOutcome = strtoupper(trim((string) ($latestLog->status ?? '')));
+                $outcomeSource = 'vicidial_log';
+            } else {
+                $vicidialListFallback = DB::connection($connection)->table('vicidial_list')
+                    ->where('lead_id', (int) $progress->lead_id)
+                    ->where('list_id', $holdingListId)
+                    ->whereIn('status', $finalOutcomes)
+                    ->when($taskAnchorAt, fn ($q) => $q->where('modify_date', '>', $taskAnchorAt))
+                    ->orderByDesc('modify_date')
+                    ->first(['status', 'modify_date', 'list_id']);
+
+                if ($vicidialListFallback) {
+                    $selectedOutcome = strtoupper(trim((string) ($vicidialListFallback->status ?? '')));
+                    $latestLog = (object) ['status' => $selectedOutcome, 'call_date' => $vicidialListFallback->modify_date, 'list_id' => $vicidialListFallback->list_id];
+                    $outcomeSource = 'vicidial_list_fallback';
+                }
+            }
+
+            if (! $selectedOutcome || in_array($selectedOutcome, ['HOLD', 'NEW'], true)) {
                 continue;
             }
 
-            $status = strtoupper(trim((string) ($latestLog->status ?? '')));
-            if ($status === '' || in_array($status, ['HOLD', 'NEW'], true)) {
-                continue;
-            }
-
-            $action = $this->actionForStatus($status);
+            $action = $this->actionForStatus($selectedOutcome);
             $updated = false;
             if ($action !== null && $commit) {
-                $updated = $this->applyAction($progress, $status, $action, $connection, ['call_date' => $latestLog->call_date, 'window' => $windowLabel]);
+                $updated = $this->applyAction($progress, $selectedOutcome, $action, $connection, ['call_date' => $latestLog->call_date, 'window' => $windowLabel, 'task_anchor_at' => $taskAnchorAt]);
             }
 
             $rows[] = [
                 'lead_id' => (int) $progress->lead_id,
                 'step_key' => $step->step_key,
                 'step_order' => $step->step_order,
-                'progress_status' => $progress->status,
-                'latest_disposition' => $status,
+                'task_anchor_at' => $taskAnchorAt,
+                'outcome_source' => $outcomeSource,
+                'outcome_status' => $selectedOutcome,
+                'outcome_at' => $latestLog->call_date,
                 'action' => $action,
-                'window' => $windowLabel,
-                'window_start' => $start->toDateTimeString(),
-                'window_end' => $end->toDateTimeString(),
                 'would_update' => $action !== null,
                 'updated' => $updated,
-                'call_date' => $latestLog->call_date,
+                'mode' => $commit ? 'commit' : 'dry-run',
             ];
         }
-
-        $holdingListId = (string) config('remarketing.call_hopper.holding_list_id');
-        $holdStatus = (string) config('remarketing.call_hopper.hold_status');
-        $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
 
         $manualCallStepLeadIds = DB::table('lead_remarketing_progress as lrp')
             ->join('remarketing_steps as rs', 'rs.id', '=', 'lrp.current_step_id')
@@ -165,11 +181,21 @@ class RemarketingReconcileCallOutcomesCommand extends Command
 
         $payload = ['mode' => $commit ? 'commit' : 'dry-run', 'window' => $windowLabel, 'rows' => $rows];
         if ($asJson && $leadId !== null && $leadId !== '') {
+            $progress = LeadRemarketingProgress::query()->with('currentStep')->whereIn('status', ['active', 'pending_manual_task'])->where('lead_id', (int) $leadId)->whereNull('stopped_at')->orderByDesc('updated_at')->first();
+            $manualCallStepActive = $progress && $progress->currentStep instanceof RemarketingStep && $this->isCallStep($progress->currentStep);
+            $taskAnchorAt = $progress ? $this->resolveTaskAnchorTimestamp($progress) : null;
+
+            $latestLogOutcome = DB::connection($connection)->table('vicidial_log')
+                ->where('lead_id', (int) $leadId)
+                ->where('list_id', $holdingListId)
+                ->when($taskAnchorAt, fn ($q) => $q->where('call_date', '>', $taskAnchorAt))
+                ->whereIn('status', $finalOutcomes)
+                ->orderByDesc('call_date')
+                ->first(['status', 'call_date', 'list_id']);
+
             $vicidialRow = DB::connection($connection)->table('vicidial_list')
                 ->where('lead_id', (int) $leadId)
                 ->first(['lead_id', 'list_id', 'status', 'modify_date', 'called_since_last_reset', 'last_local_call_time']);
-
-            $manualCallStepActive = in_array((int) $leadId, $manualCallStepLeadIds, true);
 
             $statusNormalized = strtoupper(trim((string) ($vicidialRow->status ?? '')));
             $statusAllowed = $vicidialRow ? in_array($statusNormalized, $finalOutcomes, true) && $statusNormalized !== strtoupper(trim($holdStatus)) : false;
@@ -197,6 +223,13 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                 'holding_list_id' => $holdingListId,
                 'window_start' => $start->toDateTimeString(),
                 'window_end' => $end->toDateTimeString(),
+                'manual_call_step_active' => $manualCallStepActive,
+                'task_anchor_at' => $taskAnchorAt,
+                'latest_vicidial_log_outcome_after_anchor' => $latestLogOutcome ? [
+                    'status' => strtoupper(trim((string) $latestLogOutcome->status)),
+                    'call_date' => (string) $latestLogOutcome->call_date,
+                    'list_id' => (string) $latestLogOutcome->list_id,
+                ] : null,
                 'vicidial_list' => $vicidialRow ? [
                     'lead_id' => (int) $vicidialRow->lead_id,
                     'list_id' => (string) $vicidialRow->list_id,
@@ -240,6 +273,44 @@ class RemarketingReconcileCallOutcomesCommand extends Command
     }
 
     private function isCallStep(RemarketingStep $step): bool { return strtolower((string) $step->medium) === 'call' || strtolower((string) $step->primary_medium) === 'call'; }
+
+    private function resolveTaskAnchorTimestamp(LeadRemarketingProgress $progress): ?string
+    {
+        $logQuery = DB::table('lead_remarketing_step_logs')
+            ->where('lead_id', (int) $progress->lead_id)
+            ->orderByDesc('id');
+        if ($progress->current_step_id) {
+            $logQuery->where('remarketing_step_id', (int) $progress->current_step_id);
+        } elseif ($progress->current_step_order) {
+            $logQuery->where('step_order', (int) $progress->current_step_order);
+        }
+        if (Schema::hasColumn('lead_remarketing_step_logs', 'execution_status')) {
+            $logQuery->whereIn('execution_status', ['manual_task_created', 'manual_task_exists']);
+        }
+        $latestStepLog = $logQuery->first(['created_task_id', 'due_at', 'created_at']);
+
+        if ($latestStepLog && ! empty($latestStepLog->created_task_id) && Schema::hasTable('remarketing_tasks')) {
+            $task = DB::table('remarketing_tasks')->where('id', (int) $latestStepLog->created_task_id)->first(['created_at']);
+            if ($task && ! empty($task->created_at)) {
+                return (string) $task->created_at;
+            }
+        }
+
+        if ($progress->status === 'pending_manual_task' && $progress->updated_at) {
+            return (string) $progress->updated_at;
+        }
+        if ($progress->next_step_due_at) {
+            return (string) $progress->next_step_due_at;
+        }
+        if ($latestStepLog && ! empty($latestStepLog->created_at)) {
+            return (string) $latestStepLog->created_at;
+        }
+        if ($latestStepLog && ! empty($latestStepLog->due_at)) {
+            return (string) $latestStepLog->due_at;
+        }
+
+        return null;
+    }
 
     private function actionForStatus(string $status): ?string
     {
