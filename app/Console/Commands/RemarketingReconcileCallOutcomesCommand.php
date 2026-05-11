@@ -24,7 +24,8 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         {--limit=100 : Max progress rows to inspect}
         {--json : Output JSON payload}
         {--lead_id= : Optional VICIdial lead_id filter}
-        {--window=auto : morning|evening|auto}';
+        {--window=auto : morning|evening|auto}
+        {--repair-paused-tasks : Close dangling pending call tasks for callback-paused leads}';
 
     protected $description = 'Reconcile VICIdial call outcomes back into remarketing linear progress flow using manual-task anchors.';
 
@@ -34,12 +35,25 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         $limit = max(1, (int) $this->option('limit'));
         $leadId = $this->option('lead_id');
         $asJson = (bool) $this->option('json');
+        $repairPausedTasks = (bool) $this->option('repair-paused-tasks');
         $connection = config('services.vicidial.db_connection', 'asterisk');
         $holdingListId = (string) config('remarketing.call_hopper.holding_list_id');
         $holdStatus = (string) config('remarketing.call_hopper.hold_status');
         $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'PDROP', 'AB', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
 
         [$windowLabel, $start, $end] = $this->resolveWindow((string) $this->option('window'));
+
+        if ($repairPausedTasks) {
+            $payload = [
+                'mode' => $commit ? 'commit' : 'dry-run',
+                'repair_paused_tasks' => true,
+                'rows' => $this->repairPausedCallbackTasks($commit, $leadId),
+            ];
+
+            $this->line($asJson ? json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : json_encode($payload));
+
+            return self::SUCCESS;
+        }
 
         $query = LeadRemarketingProgress::query()
             ->with('currentStep')
@@ -322,6 +336,87 @@ class RemarketingReconcileCallOutcomesCommand extends Command
             'DNC', 'REM' => 'suppress_stop',
             default => null,
         };
+    }
+
+    private function repairPausedCallbackTasks(bool $commit, mixed $leadIdOption): array
+    {
+        $callbackOutcomes = ['CALLBK', 'CBHOLD'];
+        $query = DB::table('remarketing_tasks as rt')
+            ->join('lead_remarketing_progress as lrp', 'lrp.lead_id', '=', 'rt.lead_id')
+            ->leftJoin('lead_remarketing_step_logs as lrsl', function ($join) {
+                $join->on('lrsl.created_task_id', '=', 'rt.id')
+                    ->on('lrsl.lead_id', '=', 'rt.lead_id');
+            })
+            ->where('rt.task_type', 'call')
+            ->where('rt.status', 'pending')
+            ->where('lrp.status', 'pending_manual_task')
+            ->whereNull('lrp.stopped_at')
+            ->where(function ($progressQuery) use ($callbackOutcomes) {
+                $progressQuery->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(lrp.stop_context_json, '$.pause_reason')) = ?", ['callback_requested'])
+                    ->orWhereIn(DB::raw("UPPER(JSON_UNQUOTE(JSON_EXTRACT(lrp.stop_context_json, '$.call_outcome')))"), $callbackOutcomes);
+            })
+            ->when($leadIdOption !== null && $leadIdOption !== '', fn ($q) => $q->where('rt.lead_id', (int) $leadIdOption))
+            ->groupBy('rt.id', 'rt.lead_id', 'rt.status', 'lrp.id', 'lrp.current_step_id', 'lrp.current_step_order', 'lrp.status', 'lrp.stop_context_json')
+            ->orderBy('rt.id')
+            ->select([
+                'rt.id as task_id',
+                'rt.lead_id',
+                'rt.status as task_status',
+                'lrp.id as progress_id',
+                'lrp.current_step_id',
+                'lrp.current_step_order',
+                'lrp.status as progress_status',
+                'lrp.stop_context_json',
+                DB::raw('MAX(lrsl.id) as source_step_log_id'),
+                DB::raw('MAX(CASE WHEN lrsl.created_task_id = rt.id THEN 1 ELSE 0 END) as has_step_log_link'),
+            ]);
+
+        $rows = [];
+        foreach ($query->get() as $candidate) {
+            $context = is_string($candidate->stop_context_json)
+                ? (json_decode($candidate->stop_context_json, true) ?: [])
+                : ((array) ($candidate->stop_context_json ?? []));
+
+            $stepId = $candidate->current_step_id ? (int) $candidate->current_step_id : null;
+            $stepOrder = $candidate->current_step_order ? (int) $candidate->current_step_order : null;
+            $closeResult = ['closed' => false, 'reason' => 'dry_run'];
+
+            if ($commit) {
+                $closeResult = $this->remarketingProgressionService->closeLinkedManualTaskForCurrentStep(
+                    leadId: (int) $candidate->lead_id,
+                    stepId: $stepId,
+                    stepOrder: $stepOrder,
+                    metadata: [
+                        'source' => 'remarketing:reconcile-call-outcomes',
+                        'mode' => 'repair_paused_tasks',
+                        'action' => 'repair_close_paused_callback_task',
+                        'pause_reason' => $context['pause_reason'] ?? 'callback_requested',
+                        'call_outcome' => $context['call_outcome'] ?? null,
+                        'callback_id' => $context['callback_id'] ?? null,
+                        'callback_time' => $context['callback_time'] ?? null,
+                    ]
+                );
+            }
+
+            $rows[] = [
+                'action' => 'repair_close_paused_callback_task',
+                'mode' => $commit ? 'commit' : 'dry-run',
+                'lead_id' => (int) $candidate->lead_id,
+                'progress_id' => (int) $candidate->progress_id,
+                'progress_status' => (string) $candidate->progress_status,
+                'task_id' => (int) $candidate->task_id,
+                'task_status' => (string) $candidate->task_status,
+                'source_step_log_id' => $candidate->source_step_log_id ? (int) $candidate->source_step_log_id : null,
+                'has_step_log_link' => ((int) $candidate->has_step_log_link) === 1,
+                'pause_reason' => $context['pause_reason'] ?? null,
+                'call_outcome' => $context['call_outcome'] ?? null,
+                'would_update' => true,
+                'updated' => $commit ? (bool) ($closeResult['closed'] ?? false) : false,
+                'close_result' => $closeResult,
+            ];
+        }
+
+        return $rows;
     }
 
     private function applyAction(LeadRemarketingProgress $progress, string $status, string $action, string $connection, array $meta = []): bool
