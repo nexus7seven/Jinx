@@ -6,6 +6,7 @@ use App\Models\LeadRemarketingProgress;
 use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingStep;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class RemarketingProgressionService
 {
@@ -61,7 +62,7 @@ class RemarketingProgressionService
             }
 
             $now = now();
-            LeadRemarketingStepLog::query()->create([
+            $completionLog = LeadRemarketingStepLog::query()->create([
                 'lead_id' => $leadId,
                 'remarketing_step_id' => $manualStep->id,
                 'step_order' => $manualStep->step_order,
@@ -74,6 +75,8 @@ class RemarketingProgressionService
                 'completed_at' => $now,
                 'context_json' => array_merge(['mode' => 'manual_complete_service'], $metadata),
             ]);
+
+            $taskClosed = $this->closeLinkedManualTask($leadId, $manualStep->id, (int) $manualStep->step_order, $completionLog->id, $metadata);
 
             $progress->current_step_id = $manualStep->id;
             $progress->current_step_order = $manualStep->step_order;
@@ -89,7 +92,59 @@ class RemarketingProgressionService
             }
             $progress->save();
 
-            return ['ok' => true, 'message' => 'Manual step completed.', 'step_key' => $manualStep->step_key, 'step_order' => $manualStep->step_order];
+            return ['ok' => true, 'message' => 'Manual step completed.', 'step_key' => $manualStep->step_key, 'step_order' => $manualStep->step_order, 'advanced' => true, 'task_closed' => $taskClosed];
         });
+    }
+
+    private function closeLinkedManualTask(int $leadId, int $stepId, int $stepOrder, int $completionLogId, array $metadata = []): bool
+    {
+        if (! Schema::hasTable('remarketing_tasks')) {
+            return false;
+        }
+
+        $sourceLog = LeadRemarketingStepLog::query()
+            ->where('lead_id', $leadId)
+            ->where('remarketing_step_id', $stepId)
+            ->where('step_order', $stepOrder)
+            ->whereNotNull('created_task_id')
+            ->whereIn('execution_status', ['manual_task_created', 'manual_task_exists', 'queued_task'])
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $sourceLog || empty($sourceLog->created_task_id)) {
+            return false;
+        }
+
+        $task = DB::table('remarketing_tasks')->where('id', (int) $sourceLog->created_task_id)->first();
+        if (! $task) {
+            return false;
+        }
+
+        if (in_array((string) $task->status, ['completed', 'closed'], true)) {
+            return false;
+        }
+
+        $now = now();
+        $updates = [
+            'status' => 'completed',
+            'updated_at' => $now,
+        ];
+
+        if (Schema::hasColumn('remarketing_tasks', 'completed_at')) {
+            $updates['completed_at'] = $now;
+        }
+
+        if (Schema::hasColumn('remarketing_tasks', 'metadata_json')) {
+            $taskMeta = is_string($task->metadata_json) ? json_decode($task->metadata_json, true) : null;
+            if (is_array($taskMeta)) {
+                $taskMeta['completed_by'] = (string) ($metadata['source'] ?? $metadata['mode'] ?? 'manual_ui');
+                $taskMeta['completed_from_step_log_id'] = $completionLogId;
+                $updates['metadata_json'] = json_encode($taskMeta);
+            }
+        }
+
+        DB::table('remarketing_tasks')->where('id', (int) $sourceLog->created_task_id)->update($updates);
+
+        return true;
     }
 }
