@@ -141,6 +141,15 @@ if (config('remarketing.cbna_scanner_enabled')) {
         ->appendOutputTo(storage_path('logs/remarketing-cbna-scan.log'));
 }
 
+if (config('remarketing.cbhold_poller_enabled')) {
+    Schedule::command('remarketing:poll-cbhold --commit --limit=100')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->appendOutputTo(storage_path('logs/remarketing-cbhold-poller.log'));
+}
+
+
+
 if (config('remarketing.linear_executor_enabled')) {
     Schedule::command('remarketing:linear-execute --commit --limit=50')
         ->everyMinute()
