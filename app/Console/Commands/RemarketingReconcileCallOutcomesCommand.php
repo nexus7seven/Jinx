@@ -351,6 +351,8 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                 if (! ($result['ok'] ?? false)) {
                     return false;
                 }
+
+                return (bool) ($result['advanced'] ?? $result['ok'] ?? false);
             } elseif ($action === 'pause') {
                 $progress->status = 'pending_manual_task';
                 $progress->stop_context_json = ['pause_reason' => 'callback_requested', 'call_outcome' => $status];
