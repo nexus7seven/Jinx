@@ -354,9 +354,34 @@ class RemarketingReconcileCallOutcomesCommand extends Command
 
                 return (bool) ($result['advanced'] ?? $result['ok'] ?? false);
             } elseif ($action === 'pause') {
+                $callback = DB::connection($connection)->table('vicidial_callbacks')
+                    ->where('lead_id', (int) $progress->lead_id)
+                    ->orderByDesc('callback_time')
+                    ->orderByDesc('callback_id')
+                    ->first(['callback_id', 'callback_time', 'status']);
+
+                $pauseMeta = [
+                    'pause_reason' => 'callback_requested',
+                    'call_outcome' => $status,
+                    'source' => 'vicidial_call_reconcile',
+                    'call_date' => $meta['call_date'] ?? null,
+                    'window' => $meta['window'] ?? null,
+                    'reconciled_at' => now()->toIso8601String(),
+                    'callback_id' => $callback->callback_id ?? null,
+                    'callback_time' => $callback->callback_time ?? null,
+                    'callback_status' => $callback->status ?? null,
+                ];
+
                 $progress->status = 'pending_manual_task';
-                $progress->stop_context_json = ['pause_reason' => 'callback_requested', 'call_outcome' => $status];
+                $progress->stop_context_json = $pauseMeta;
                 $progress->save();
+
+                $this->remarketingProgressionService->closeLinkedManualTaskForCurrentStep(
+                    leadId: (int) $progress->lead_id,
+                    stepId: $progress->current_step_id ? (int) $progress->current_step_id : null,
+                    stepOrder: $progress->current_step_order ? (int) $progress->current_step_order : null,
+                    metadata: array_merge($pauseMeta, ['action' => 'pause'])
+                );
             } else {
                 $progress->status = 'stopped';
                 $progress->stopped_at = now();
