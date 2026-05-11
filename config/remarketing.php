@@ -3,6 +3,7 @@
 return [
     'cbna_scanner_enabled' => env('REMARKETING_CBNA_SCANNER_ENABLED', false),
     'linear_executor_enabled' => env('REMARKETING_LINEAR_EXECUTOR_ENABLED', false),
+    'cbhold_poller_enabled' => env('REMARKETING_CBHOLD_POLLER_ENABLED', false),
     'call_hopper' => [
         'enabled' => env('REMARKETING_CALL_HOPPER_ENABLED', false),
         'hold_status' => env('REMARKETING_CALL_HOLD_STATUS', 'HOLD'),
