@@ -37,7 +37,7 @@ class RemarketingReconcileCallOutcomesCommand extends Command
         $connection = config('services.vicidial.db_connection', 'asterisk');
         $holdingListId = (string) config('remarketing.call_hopper.holding_list_id');
         $holdStatus = (string) config('remarketing.call_hopper.hold_status');
-        $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
+        $finalOutcomes = ['NA', 'AA', 'AIS', 'CHUP', 'PDROP', 'AB', 'CALLBK', 'CBHOLD', 'WIP', 'NI', 'NODEBT', 'DNC', 'REM'];
 
         [$windowLabel, $start, $end] = $this->resolveWindow((string) $this->option('window'));
 
@@ -315,7 +315,7 @@ class RemarketingReconcileCallOutcomesCommand extends Command
     private function actionForStatus(string $status): ?string
     {
         return match ($status) {
-            'NA', 'AA', 'AIS', 'CHUP' => 'continue',
+            'NA', 'AA', 'AIS', 'CHUP', 'PDROP', 'AB' => 'continue',
             'CALLBK', 'CBHOLD' => 'pause',
             'WIP' => 'convert_wip',
             'NI', 'NODEBT' => 'stop_dead',
@@ -334,7 +334,26 @@ class RemarketingReconcileCallOutcomesCommand extends Command
             $lead = Lead::query()->where('vicidial_lead_id', (int) $progress->lead_id)->first();
 
             if ($action === 'continue') {
-                DB::connection($connection)->table('vicidial_list')->where('lead_id', (int) $progress->lead_id)->where('status', $status)->update(['status' => config('remarketing.call_hopper.hold_status')]);
+                DB::connection($connection)->table('vicidial_list')
+                    ->where('lead_id', (int) $progress->lead_id)
+                    ->where('status', $status)
+                    ->update(['status' => config('remarketing.call_hopper.hold_status')]);
+
+                $this->remarketingProgressionService->closeLinkedManualTaskForCurrentStep(
+                    leadId: (int) $progress->lead_id,
+                    stepId: $progress->current_step_id ? (int) $progress->current_step_id : null,
+                    stepOrder: $progress->current_step_order ? (int) $progress->current_step_order : null,
+                    metadata: [
+                        'source' => 'vicidial_call_reconcile',
+                        'call_outcome' => $status,
+                        'action' => 'continue',
+                        'command' => 'remarketing:reconcile-call-outcomes',
+                        'call_date' => $meta['call_date'] ?? null,
+                        'window' => $meta['window'] ?? null,
+                        'reconciled_at' => now()->toIso8601String(),
+                    ]
+                );
+
                 $result = $this->remarketingProgressionService->completeManualStepForLead(
                     leadId: (int) $progress->lead_id,
                     expectedStepKey: null,
