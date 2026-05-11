@@ -107,7 +107,10 @@ class RemarketingProgressionService
             ->where('remarketing_step_id', $stepId)
             ->where('step_order', $stepOrder)
             ->whereNotNull('created_task_id')
-            ->whereIn('execution_status', ['manual_task_created', 'manual_task_exists', 'queued_task'])
+            ->where(function ($query) {
+                $query->whereIn('execution_status', ['manual_task_created', 'manual_task_exists'])
+                    ->orWhere('status', 'queued_task');
+            })
             ->orderByDesc('id')
             ->first();
 
