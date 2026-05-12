@@ -315,13 +315,14 @@
                 This won&rsquo;t affect your credit score.
             </p>
 
-            <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
+            <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}" data-credit-check-form>
                 @csrf
-                <button type="submit"
+                <button type="submit" data-credit-check-submit data-running-label="Check running…"
                         style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
                     Start check
                 </button>
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
+                @include('portal.partials.credit-check-running')
             </form>
         @elseif (($progress->current_step ?? 'welcome') === 'credit_check_running')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
@@ -1004,25 +1005,34 @@
                     We&rsquo;re still checking your details. Please stay on this page while we continue.
                 </div>
             @else
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <a href="{{ route('portal.entry', ['token' => $rawToken, 'edit_details' => 1]) }}"
-                       style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">
-                        Back to details
-                    </a>
-                    @if($portalCreditCheckCanRetry)
-                        <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
-                            @csrf
-                            <button type="submit"
+                @if($portalCreditCheckCanRetry)
+                    <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}" data-credit-check-form>
+                        @csrf
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                            <a href="{{ route('portal.entry', ['token' => $rawToken, 'edit_details' => 1]) }}"
+                               style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">
+                                Back to details
+                            </a>
+                            <button type="submit" data-credit-check-submit data-running-label="Check running…"
                                     style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
                                 Try credit check again
                             </button>
-                        </form>
-                    @else
+                        </div>
+                        <div style="width:100%;">
+                            @include('portal.partials.credit-check-running')
+                        </div>
+                    </form>
+                @else
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <a href="{{ route('portal.entry', ['token' => $rawToken, 'edit_details' => 1]) }}"
+                           style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">
+                            Back to details
+                        </a>
                         <div style="padding:12px 14px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:14px;">
                             Sorry, our system couldn’t find your credit report automatically. You can still continue by listing any debts you know about below.
                         </div>
-                    @endif
-                </div>
+                    </div>
+                @endif
             @endif
         @else
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
@@ -1043,4 +1053,59 @@
         @endif
     </div>
 </div>
+@push('scripts')
+<script>
+(function () {
+    const messages = [
+        'Starting your secure check…',
+        'Reviewing your information…',
+        'Preparing your credit report…',
+        'This can take a little while. Please stay on this page…',
+        'Still working securely in the background…',
+        'Almost there, thanks for waiting…'
+    ];
+
+    function startCreditCheckLoading(form) {
+        if (form.dataset.creditCheckRunningStarted === '1') {
+            return;
+        }
+        form.dataset.creditCheckRunningStarted = '1';
+
+        const panel = form.querySelector('[data-credit-check-running-panel]');
+        if (panel) {
+            panel.hidden = false;
+            panel.style.display = 'block';
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        form.querySelectorAll('[data-credit-check-submit]').forEach((button) => {
+            if (!button.dataset.originalLabel) {
+                button.dataset.originalLabel = button.textContent.trim();
+            }
+            button.disabled = true;
+            button.setAttribute('aria-disabled', 'true');
+            button.style.opacity = '0.7';
+            button.style.cursor = 'not-allowed';
+            button.textContent = button.dataset.runningLabel || 'Check running…';
+        });
+
+        const status = panel ? panel.querySelector('[data-credit-check-status]') : null;
+        if (!status) {
+            return;
+        }
+
+        let index = 0;
+        window.setInterval(() => {
+            index = (index + 1) % messages.length;
+            status.textContent = messages[index];
+        }, 3000);
+    }
+
+    document.querySelectorAll('[data-credit-check-form]').forEach((form) => {
+        form.addEventListener('submit', () => startCreditCheckLoading(form), { once: true });
+    });
+})();
+</script>
+@endpush
+
 @endsection

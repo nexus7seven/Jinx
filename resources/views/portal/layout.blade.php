@@ -14,6 +14,11 @@
         .portal-logo img { display:block; max-width:210px; width:100%; height:auto; }
         .portal-secure { font-size:12px; font-weight:700; color:var(--cmc-blue-dark); background:#dbeafe; border-radius:999px; padding:8px 12px; text-transform:uppercase; letter-spacing:.04em; }
         .portal-card { background:#fff; border:1px solid #e2e8f0; border-radius:24px; padding:26px; box-shadow:0 16px 36px rgba(15,23,42,.08); }
+        @keyframes portal-credit-spinner { to { transform: rotate(360deg); } }
+        @keyframes portal-credit-shimmer {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(240%); }
+        }
         @media (max-width: 640px) { .portal-card { padding:20px; border-radius:18px; } .portal-logo img { max-width:170px; } }
     </style>
     @stack('head')
