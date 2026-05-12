@@ -993,7 +993,7 @@
             </h1>
 
             <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
-                {{ $portalCreditCheckFailureMessage }}
+                {{ $portalCreditCheckFailureMessage }} You can check your details and try again.
             </p>
             <div style="margin:0 0 12px 0; color:#475569; font-size:14px;">
                 Attempts used: {{ $portalCreditCheckAttemptsUsed }} / {{ $portalCreditCheckAttemptsMax }}
@@ -1007,14 +1007,14 @@
                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
                     <a href="{{ route('portal.entry', ['token' => $rawToken, 'edit_details' => 1]) }}"
                        style="display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">
-                        Check details
+                        Back to details
                     </a>
                     @if($portalCreditCheckCanRetry)
                         <form method="POST" action="{{ route('portal.credit-check.v3.start', ['token' => $rawToken]) }}">
                             @csrf
                             <button type="submit"
                                     style="display:inline-block; padding:14px 20px; border:none; border-radius:14px; background:#1d4ed8; color:#ffffff; font-size:16px; font-weight:700; cursor:pointer;">
-                                Try again
+                                Try credit check again
                             </button>
                         </form>
                     @else

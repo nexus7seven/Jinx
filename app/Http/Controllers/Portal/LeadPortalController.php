@@ -1078,6 +1078,7 @@ class LeadPortalController extends Controller
                 'credit_check' => 'costs',
                 'credit_check_running' => 'costs',
                 'credit_check_questions' => 'costs',
+                'credit_check_failed' => 'details',
                 'credit_report_debts' => 'costs',
                 'add_missing_debts' => 'credit_report_debts',
                 'iva_results' => 'add_missing_debts',
