@@ -1551,8 +1551,13 @@ class RemarketingLinearExecuteCommand extends Command
                     $updates['status'] = 'active';
                     $advanced = $this->applyProgressAdvance($progress, $currentStep, $allSteps, $now->copy(), $updates);
                 } else {
-                    $updates['status'] = LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK;
-                    $updates['next_step_due_at'] = $dueAt;
+                    if ($bridgeEnabled && ! $manualRequired) {
+                        $updates['status'] = 'active';
+                        $updates['next_step_due_at'] = $now->copy()->addMinutes(10);
+                    } else {
+                        $updates['status'] = LeadRemarketingProgress::STATUS_PENDING_MANUAL_TASK;
+                        $updates['next_step_due_at'] = $dueAt;
+                    }
                 }
                 $progress->update($updates);
             }

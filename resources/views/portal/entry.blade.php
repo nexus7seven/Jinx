@@ -983,7 +983,7 @@
                 </button>
             </form>
             @include('portal.partials.help-cta')
-        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_failed')
+        @elseif (trim((string) ($progress->current_step ?? 'welcome')) === 'credit_check_failed')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit check
             </div>

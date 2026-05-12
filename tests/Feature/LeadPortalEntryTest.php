@@ -1285,7 +1285,7 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
-            ->assertRedirect(route('portal.entry', ['token' => $issued['token']));
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertNotNull($progress);
@@ -1311,7 +1311,7 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $this->post(route('portal.credit-check.v3.start', ['token' => $issued['token']]))
-            ->assertRedirect(route('portal.entry', ['token' => $issued['token']));
+            ->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
         $this->assertNotNull($progress);
