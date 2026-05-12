@@ -1332,7 +1332,10 @@ class LeadPortalEntryTest extends TestCase
 
         $this->get(route('portal.entry', ['token' => $issued['token']]))
             ->assertOk()
-            ->assertSee('Something went wrong while checking your information. You can try again now.')
+            ->assertSee('Something went wrong while checking your information. You can try again now. You can check your details and try again.')
+            ->assertSee('Try credit check again')
+            ->assertSee('Back to details')
+            ->assertDontSee('Your next step is coming soon')
             ->assertSee(route('portal.credit-check.v3.start', ['token' => $issued['token']]), false)
             ->assertDontSee(route('portal.credit-check.start', ['token' => $issued['token']]), false);
     }
