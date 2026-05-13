@@ -2640,6 +2640,56 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('credit_check_running', $progress->current_step);
     }
 
+    public function test_portal_poll_listener_running_with_pending_report_and_pdf_keeps_job_active(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => true, 'activeJob' => true], 200),
+            'http://listener.test/jobs/portal-job-running-pending/state' => Http::response([
+                'ok' => true,
+                'status' => 'running',
+                'active' => true,
+                'activeJob' => ['leadId' => 78],
+                'queued' => true,
+            ], 200),
+            'http://listener.test/jobs/portal-job-running-pending/questions' => Http::response(['payload' => ['status' => 'none']], 200),
+            'http://listener.test/jobs/portal-job-running-pending/report-data' => Http::response(['payload' => ['status' => 'pending']], 200),
+            'http://listener.test/jobs/portal-job-running-pending/pdf-state' => Http::response(['payload' => ['status' => 'pending']], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        $log = CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-running-pending',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'attempts' => 0,
+            'started_at' => now()->subSeconds(20),
+        ]);
+        LeadPortalProgress::updateOrCreate(['lead_id' => $lead->id], ['current_step' => 'credit_check_running']);
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'status' => 'running',
+                'running' => true,
+            ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_running', $progress->current_step);
+
+        $log->refresh();
+        $this->assertSame(CreditCheckJobLog::STATUS_RUNNING, $log->status);
+        $this->assertNull($log->ended_at);
+        $this->assertSame(0, $log->attempts);
+    }
+
     public function test_portal_entry_render_does_not_expose_literal_blade_conditionals(): void
     {
         $service = app(LeadPortalTokenService::class);
