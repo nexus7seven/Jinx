@@ -8,9 +8,15 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Services\VicidialRemarketingHoldService;
 
 class RemarketingScanCbnaCommand extends Command
 {
+    public function __construct(private VicidialRemarketingHoldService $vicidialRemarketingHoldService)
+    {
+        parent::__construct();
+    }
+
     private const TARGET_LIST_ID = '5555555555';
 
     private const TARGET_STATUS = 'HOLD';
@@ -170,7 +176,8 @@ class RemarketingScanCbnaCommand extends Command
                 $row['remarketing_started_directly'] = true;
             }
 
-            $moved = $this->moveVicidialRow($vicidialLeadId);
+            $moveResult = $this->moveVicidialRow($vicidialLeadId);
+            $moved = (bool) ($moveResult['handled'] ?? false);
             if ($moved) {
                 $summary['vicidial_moved_to_HOLD_list_5555555555']++;
                 $row['vicidial_moved_to_HOLD_list_5555555555'] = true;
@@ -285,20 +292,12 @@ class RemarketingScanCbnaCommand extends Command
         ];
     }
 
-    private function moveVicidialRow(int $vicidialLeadId): bool
+    private function moveVicidialRow(int $vicidialLeadId): array
     {
-        $payload = ['status' => self::TARGET_STATUS];
-        if (Schema::connection('asterisk')->hasColumn('vicidial_list', 'list_id')) {
-            $payload['list_id'] = self::TARGET_LIST_ID;
-        }
-
-        $updated = DB::connection('asterisk')
-            ->table('vicidial_list')
-            ->where('lead_id', $vicidialLeadId)
-            ->where('status', 'CBNA')
-            ->update($payload);
-
-        return $updated > 0;
+        return $this->vicidialRemarketingHoldService->parkLeadInHoldingListPreservingCallbacks(
+            $vicidialLeadId,
+            self::TARGET_LIST_ID
+        );
     }
 
     private function normalizeUkTo44Digits(string $phone): ?string
