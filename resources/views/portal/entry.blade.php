@@ -4,7 +4,7 @@
 
 @section('content')
 @php
-    $currentStep = (string) ($progress->current_step ?? 'welcome');
+    $currentStep = trim((string) ($progress->current_step ?? 'welcome'));
     $stepOrder = ['welcome','details','debts','income','costs','credit_check','credit_check_running','credit_check_questions','credit_report_debts','add_missing_debts','iva_results','review','completed'];
     $stepIndex = array_search($currentStep, $stepOrder, true);
     $stepIndex = $stepIndex === false ? 0 : $stepIndex;
@@ -42,7 +42,7 @@
                 {{ $errors->first('credit_check') }}
             </div>
         @endif
-        @if (($progress->current_step ?? 'welcome') === 'welcome')
+        @if ($currentStep === 'welcome')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Secure customer portal
             </div>
@@ -76,7 +76,7 @@
                     Start
                 </button>
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'details')
+        @elseif ($currentStep === 'details')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Details step
             </div>
@@ -166,7 +166,7 @@
                     <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
                 @endif
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'debts')
+        @elseif ($currentStep === 'debts')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Debts step
             </div>
@@ -199,7 +199,7 @@
                 </button>
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'income')
+        @elseif ($currentStep === 'income')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Income step
             </div>
@@ -243,7 +243,7 @@
                 </button>
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'costs')
+        @elseif ($currentStep === 'costs')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Costs step
             </div>
@@ -299,7 +299,7 @@
                 </button>
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'credit_check')
+        @elseif ($currentStep === 'credit_check')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit check
             </div>
@@ -324,7 +324,7 @@
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
                 @include('portal.partials.credit-check-running')
             </form>
-        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_running')
+        @elseif ($currentStep === 'credit_check_running')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit check
             </div>
@@ -393,7 +393,7 @@
                     setTimeout(pollOnce, 1500);
                 })();
             </script>
-        @elseif (($progress->current_step ?? 'welcome') === 'credit_check_questions')
+        @elseif ($currentStep === 'credit_check_questions')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Security check
             </div>
@@ -489,7 +489,7 @@
                     })();
                 </script>
             @endif
-        @elseif (($progress->current_step ?? 'welcome') === 'credit_report_debts')
+        @elseif ($currentStep === 'credit_report_debts')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit file balances
             </div>
@@ -532,7 +532,7 @@
                 </div>
             </form>
             @include('portal.partials.help-cta')
-        @elseif (($progress->current_step ?? 'welcome') === 'add_missing_debts')
+        @elseif ($currentStep === 'add_missing_debts')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Missing debts
             </div>
@@ -801,7 +801,7 @@
                     renderDebts();
                 });
             </script>
-        @elseif (($progress->current_step ?? 'welcome') === 'iva_results')
+        @elseif ($currentStep === 'iva_results')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Results
             </div>
@@ -850,7 +850,7 @@
                 <a href="{{ route('portal.entry', ['token' => $rawToken, 'go_back' => 1]) }}" style="margin-left:8px; display:inline-block; padding:14px 20px; border:1px solid #cbd5e1; border-radius:14px; background:#ffffff; color:#0f172a; font-size:16px; font-weight:700; text-decoration:none;">Back</a>
             </form>
             @include('portal.partials.help-cta')
-        @elseif (($progress->current_step ?? 'welcome') === 'review')
+        @elseif ($currentStep === 'review')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Review
             </div>
@@ -963,7 +963,7 @@
                 </div>
             </form>
             @include('portal.partials.help-cta')
-        @elseif (($progress->current_step ?? 'welcome') === 'complete_pending')
+        @elseif ($currentStep === 'complete_pending')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Complete pending
             </div>
@@ -984,7 +984,7 @@
                 </button>
             </form>
             @include('portal.partials.help-cta')
-        @elseif (trim((string) ($progress->current_step ?? 'welcome')) === 'credit_check_failed')
+        @elseif ($currentStep === 'credit_check_failed')
             <div style="display:inline-block; margin-bottom:18px; padding:8px 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;">
                 Credit check
             </div>

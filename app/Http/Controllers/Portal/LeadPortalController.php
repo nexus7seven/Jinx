@@ -696,16 +696,14 @@ class LeadPortalController extends Controller
         }
 
         if (($payload['job_status'] ?? null) === 'success') {
-            $progress->last_completed_step = 'credit_check';
-            $progress->current_step = 'credit_report_debts';
+            $progress->current_step = 'credit_check_running';
             $progress->last_seen_at = now();
             $progress->save();
 
-            return response()->json([
-                'ok' => true,
-                'status' => 'complete',
-                'next_step' => 'credit_report_debts',
-                'redirect_url' => route('portal.entry', ['token' => $token]),
+            Log::warning('Portal credit-check poll success without import completion', [
+                'lead_id' => $lead->id,
+                'job_log_id' => $activeLog?->id,
+                'external_job_id' => $activeLog?->external_job_id,
             ]);
         } elseif ($questionsRequired) {
             $progress->current_step = 'credit_check_questions';

@@ -2602,6 +2602,60 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame('credit_check_failed', $progress->current_step);
     }
 
+    public function test_portal_poll_success_without_import_completion_stays_on_credit_check_running(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => true, 'activeJob' => false], 200),
+            'http://listener.test/jobs/portal-job-success-no-import/state' => Http::response([
+                'ok' => true,
+                'active' => false,
+                'latestStatus' => ['data' => ['step' => 'done']],
+            ], 200),
+            'http://listener.test/jobs/portal-job-success-no-import/questions' => Http::response(['payload' => []], 200),
+            'http://listener.test/jobs/portal-job-success-no-import/report-data' => Http::response(['payload' => []], 200),
+            'http://listener.test/jobs/portal-job-success-no-import/pdf-state' => Http::response(['payload' => ['status' => 'pending']], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-success-no-import',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now()->subSeconds(15),
+        ]);
+        LeadPortalProgress::updateOrCreate(['lead_id' => $lead->id], ['current_step' => 'credit_check_running']);
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson(['status' => 'idle']);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_running', $progress->current_step);
+    }
+
+    public function test_portal_entry_render_does_not_expose_literal_blade_conditionals(): void
+    {
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        LeadPortalProgress::updateOrCreate(['lead_id' => $lead->id], ['current_step' => 'review']);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertDontSee('@elseif', false)
+            ->assertDontSee('@if', false)
+            ->assertDontSee('@endif', false);
+    }
+
     public function test_repeated_portal_poll_does_not_duplicate_imported_debts(): void
     {
         config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
