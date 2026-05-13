@@ -682,6 +682,34 @@ class LeadPortalController extends Controller
                 return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
             }
 
+            $listenerQuestions = ! empty($payload['security_questions'] ?? [])
+                || ! empty($questionsPayload['questions'] ?? [])
+                || (($questionsPayload['status'] ?? null) === 'questions');
+
+            if ($listenerQuestions) {
+                $questions = $payload['security_questions']
+                    ?? $questionsPayload['questions']
+                    ?? [];
+
+                $progress->current_step = 'credit_check_questions';
+                $progress->last_seen_at = now();
+                $progress->save();
+
+                $request->session()->put(
+                    $this->creditCheckQuestionsSessionKey($portalToken),
+                    $questions
+                );
+
+                return response()->json([
+                    'ok' => true,
+                    'status' => 'questions',
+                    'running' => false,
+                    'questions_required' => true,
+                    'security_questions' => $questions,
+                    'redirect_url' => route('portal.entry', ['token' => $token]),
+                ]);
+            }
+
             if ($listenerRunningState) {
                 $progress->current_step = 'credit_check_running';
                 $progress->last_seen_at = now();

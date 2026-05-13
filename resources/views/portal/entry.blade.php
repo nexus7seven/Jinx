@@ -334,12 +334,12 @@
             </h1>
 
             <p style="margin:0 0 20px 0; color:#475569; font-size:16px; line-height:1.6;">
-                This can take a few moments.
+                This can take a few moments. You may be asked a few security questions to confirm your identity. Please stay on this page.
             </p>
 
             <div id="portal-credit-check-status"
                  style="padding:14px 16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#334155;">
-                We&rsquo;ll refresh this page as soon as your check is ready.
+                We&rsquo;ll refresh this page as soon as your check is ready or if we need confirmation from you.
             </div>
 
             <script>
