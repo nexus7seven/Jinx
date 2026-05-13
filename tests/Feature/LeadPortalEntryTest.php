@@ -2667,7 +2667,6 @@ class LeadPortalEntryTest extends TestCase
             'external_job_id' => 'portal-job-running-pending',
             'status' => CreditCheckJobLog::STATUS_RUNNING,
             'friendly_status' => 'Running',
-            'attempts' => 0,
             'started_at' => now()->subSeconds(20),
         ]);
         LeadPortalProgress::updateOrCreate(['lead_id' => $lead->id], ['current_step' => 'credit_check_running']);
@@ -2687,7 +2686,82 @@ class LeadPortalEntryTest extends TestCase
         $log->refresh();
         $this->assertSame(CreditCheckJobLog::STATUS_RUNNING, $log->status);
         $this->assertNull($log->ended_at);
-        $this->assertSame(0, $log->attempts);
+    }
+
+
+    public function test_portal_poll_listener_running_with_security_questions_redirects_to_questions_step(): void
+    {
+        config()->set('services.credit_check_v3_listener.base_url', 'http://listener.test');
+
+        Http::fake([
+            'http://listener.test/health' => Http::response(['ok' => true, 'activeJob' => true], 200),
+            'http://listener.test/jobs/portal-job-running-questions/state' => Http::response([
+                'ok' => true,
+                'status' => 'running',
+                'active' => true,
+                'activeJob' => ['leadId' => 78],
+                'queued' => false,
+            ], 200),
+            'http://listener.test/jobs/portal-job-running-questions/questions' => Http::response([
+                'payload' => [
+                    'status' => 'questions',
+                    'questions' => [
+                        [
+                            'id' => 'q1',
+                            'question' => 'Which lender do you recognise?',
+                            'answers' => ['Bank A', 'Bank B', 'Bank C'],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'http://listener.test/jobs/portal-job-running-questions/report-data' => Http::response(['payload' => ['status' => 'pending']], 200),
+            'http://listener.test/jobs/portal-job-running-questions/pdf-state' => Http::response(['payload' => ['status' => 'pending']], 200),
+        ]);
+
+        $service = app(LeadPortalTokenService::class);
+        $lead = $this->makeLead(['dob' => '1985-06-15']);
+        $issued = $service->issueForLead($lead);
+        $this->verifyPortalSession($issued['token']);
+
+        $log = CreditCheckJobLog::create([
+            'lead_id' => $lead->id,
+            'external_job_id' => 'portal-job-running-questions',
+            'status' => CreditCheckJobLog::STATUS_RUNNING,
+            'friendly_status' => 'Running',
+            'started_at' => now()->subSeconds(20),
+        ]);
+
+        LeadPortalProgress::updateOrCreate(
+            ['lead_id' => $lead->id],
+            [
+                'current_step' => 'credit_check_running',
+                'credit_check_attempts' => 0,
+            ]
+        );
+
+        $this->getJson(route('portal.credit-check.poll', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'status' => 'questions',
+                'running' => false,
+                'questions_required' => true,
+            ]);
+
+        $progress = LeadPortalProgress::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($progress);
+        $this->assertSame('credit_check_questions', $progress->current_step);
+        $this->assertSame(0, (int) $progress->credit_check_attempts);
+
+        $log->refresh();
+        $this->assertSame(CreditCheckJobLog::STATUS_RUNNING, $log->status);
+        $this->assertNull($log->ended_at);
+
+        $this->get(route('portal.entry', ['token' => $issued['token']]))
+            ->assertOk()
+            ->assertSee('We need to confirm a few details')
+            ->assertSee('Which lender do you recognise?')
+            ->assertSee('Bank A');
     }
 
     public function test_portal_entry_render_does_not_expose_literal_blade_conditionals(): void
