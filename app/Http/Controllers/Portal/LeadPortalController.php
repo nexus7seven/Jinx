@@ -634,6 +634,10 @@ class LeadPortalController extends Controller
         $activeLog = $result['log'];
         $bundle = $result['bundle'];
         $questionsRequired = ! empty($payload['security_questions'] ?? []);
+        $statePayload = is_array($bundle) ? (array) (($bundle['state']['payload'] ?? $bundle['state']) ?? []) : [];
+        $questionsPayload = is_array($bundle) ? (array) (($bundle['questions']['payload'] ?? $bundle['questions']) ?? []) : [];
+        $reportPayload = is_array($bundle) ? (array) (($bundle['reportData']['payload'] ?? $bundle['reportData']) ?? []) : [];
+        $pdfPayload = is_array($bundle) ? (array) (($bundle['pdfState']['payload'] ?? $bundle['pdfState']) ?? []) : [];
 
         $progress = $this->leadPortalProgressService->ensureForLead($lead);
         $timeoutSeconds = (int) config('services.credit_check_v3_listener.portal_running_timeout_seconds', self::PORTAL_RUNNING_TIMEOUT_SECONDS);
@@ -642,8 +646,15 @@ class LeadPortalController extends Controller
             $listenerUnavailable = in_array((string) ($payload['listener_status'] ?? ''), ['Listener offline', 'Listener unavailable'], true);
             $bundleInvalid = ! is_array($bundle);
             $timedOut = (int) ($payload['elapsed_seconds'] ?? 0) > $timeoutSeconds;
+            $listenerRunningState = ($statePayload['status'] ?? null) === 'running'
+                || ($statePayload['active'] ?? false) === true
+                || ! empty($statePayload['activeJob'])
+                || ($statePayload['queued'] ?? false) === true
+                || ($reportPayload['status'] ?? null) === 'pending'
+                || ($pdfPayload['status'] ?? null) === 'pending'
+                || ($questionsPayload['status'] ?? null) === 'none';
 
-            if ($listenerUnavailable || $bundleInvalid || $timedOut) {
+            if ($timedOut) {
                 $activeLog->status = $timedOut ? CreditCheckJobLog::STATUS_TIMEOUT : CreditCheckJobLog::STATUS_FAILED;
                 $activeLog->friendly_status = $timedOut ? 'Credit check timed out' : 'Failed';
                 $activeLog->error_message = 'Something went wrong while checking your information. You can try again now.';
@@ -655,6 +666,32 @@ class LeadPortalController extends Controller
                 $progress->save();
 
                 return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
+            }
+
+            if (! $listenerRunningState && ($listenerUnavailable || $bundleInvalid)) {
+                $activeLog->status = CreditCheckJobLog::STATUS_FAILED;
+                $activeLog->friendly_status = 'Failed';
+                $activeLog->error_message = 'Something went wrong while checking your information. You can try again now.';
+                $activeLog->ended_at = $activeLog->ended_at ?? now();
+                $activeLog->save();
+
+                $progress->current_step = 'credit_check_failed';
+                $progress->last_seen_at = now();
+                $progress->save();
+
+                return $this->terminalCreditCheckFailureResponse($token, $lead, $progress, $activeLog);
+            }
+
+            if ($listenerRunningState) {
+                $progress->current_step = 'credit_check_running';
+                $progress->last_seen_at = now();
+                $progress->save();
+
+                return response()->json([
+                    'ok' => true,
+                    'status' => 'running',
+                    'running' => true,
+                ]);
             }
         }
 
