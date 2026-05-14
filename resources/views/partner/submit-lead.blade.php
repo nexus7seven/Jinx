@@ -60,24 +60,28 @@
                         style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
                 </div>
 
-                <div>
-                    <label style="display:block; margin-bottom:6px; font-size:14px;">Email</label>
-                    <input type="email" name="email" value="{{ old('email') }}"
+                @unless($partner->minimal_submission_form)
+                    <div>
+                        <label style="display:block; margin-bottom:6px; font-size:14px;">Email</label>
+                        <input type="email" name="email" value="{{ old('email') }}"
+                            style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
+                    </div>
+                @endunless
+            </div>
+
+            @unless($partner->minimal_submission_form)
+                <div style="margin-bottom:14px;">
+                    <label style="display:block; margin-bottom:6px; font-size:14px;">Address</label>
+                    <input type="text" name="address1" value="{{ old('address1') }}"
                         style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
                 </div>
-            </div>
 
-            <div style="margin-bottom:14px;">
-                <label style="display:block; margin-bottom:6px; font-size:14px;">Address</label>
-                <input type="text" name="address1" value="{{ old('address1') }}"
-                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
-            </div>
-
-            <div style="margin-bottom:14px;">
-                <label style="display:block; margin-bottom:6px; font-size:14px;">Postcode</label>
-                <input type="text" name="postcode" value="{{ old('postcode') }}"
-                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
-            </div>
+                <div style="margin-bottom:14px;">
+                    <label style="display:block; margin-bottom:6px; font-size:14px;">Postcode</label>
+                    <input type="text" name="postcode" value="{{ old('postcode') }}"
+                        style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
+                </div>
+            @endunless
 
             <div style="margin-bottom:18px;">
                 <label style="display:block; margin-bottom:6px; font-size:14px;">Notes</label>
@@ -90,7 +94,7 @@
 
             <button type="submit"
                 style="width:100%; padding:14px 18px; border:none; border-radius:14px; background:#22c55e; color:#052e16; font-size:16px; font-weight:700; cursor:pointer;">
-                Continue to Debts
+                {{ $partner->single_stage_submission ? 'Submit Lead' : 'Continue to Debts' }}
             </button>
         </form>
     </div>
