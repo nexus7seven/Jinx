@@ -67,6 +67,12 @@ class PartnerLeadController extends Controller
             ->first();
 
         if ($existing) {
+            if ($partner->single_stage_submission) {
+                return redirect()->route('partner.lead.thankyou', [
+                    'token' => $partner->token,
+                ])->with('message', 'Lead already exists and has been accepted.');
+            }
+
             return redirect()->route('partner.lead.debts', [
                 'token' => $partner->token,
                 'lead' => $existing->id,
@@ -106,6 +112,12 @@ class PartnerLeadController extends Controller
             ]);
 
             DB::commit();
+
+            if ($partner->single_stage_submission) {
+                return redirect()->route('partner.lead.thankyou', [
+                    'token' => $partner->token,
+                ])->with('message', 'Lead submitted successfully');
+            }
 
             return redirect()->route('partner.lead.debts', [
                 'token' => $partner->token,
