@@ -35,6 +35,7 @@ class PartnerLeadController extends Controller
             'last_name' => trim((string) $request->query('last_name', '')),
             'phone' => trim((string) $request->query('phone', '')),
             'notes' => trim((string) $request->query('notes', '')),
+            'submitted_by' => trim((string) $request->query('submitted_by', '')),
         ];
 
         return view('partner.submit-lead', [
@@ -63,6 +64,7 @@ class PartnerLeadController extends Controller
             'address1'   => ['nullable', 'string', 'max:255'],
             'postcode'   => ['nullable', 'string', 'max:20'],
             'notes'      => ['nullable', 'string'],
+            'submitted_by' => ['nullable', 'string', 'max:100'],
             'website'    => ['nullable', 'max:0'],
         ]);
 
@@ -75,6 +77,15 @@ class PartnerLeadController extends Controller
             ->first();
 
         if ($existing) {
+            $submittedBy = trim((string) ($validated['submitted_by'] ?? ''));
+
+            if ($submittedBy !== '' && blank($existing->submitted_by_vicidial_user)) {
+                $existing->update([
+                    'submitted_by_vicidial_user' => $submittedBy,
+                ]);
+                $existing->refresh();
+            }
+
             if ($partner->single_stage_submission) {
                 if (($existing->source ?? null) === $partner->name) {
                     return redirect()->route('partner.lead.complete', [
@@ -85,7 +96,10 @@ class PartnerLeadController extends Controller
 
                 return redirect()->route('partner.lead.thankyou', [
                     'token' => $partner->token,
-                ])->with('message', 'Lead already exists and has been accepted.');
+                ])->with([
+                    'message' => 'Lead already exists and has been accepted.',
+                    'confirmation' => $this->buildConfirmationPayload($existing),
+                ]);
             }
 
             return redirect()->route('partner.lead.debts', [
@@ -109,6 +123,7 @@ class PartnerLeadController extends Controller
                 'wip_status'       => Lead::defaultWipStatusForPartnerIntake(),
                 'case_notes'       => $validated['notes'] ?? null,
                 'vicidial_lead_id' => null,
+                'submitted_by_vicidial_user' => $validated['submitted_by'] ?? null,
             ]);
 
             $vicidialLeadId = $this->vicidialLeadService->createPartnerLead($partner, [
@@ -256,6 +271,7 @@ class PartnerLeadController extends Controller
         return view('partner.thankyou', [
             'partner' => $partner,
             'lead' => $lead,
+            'confirmation' => $this->buildConfirmationPayload($lead),
         ]);
     }
 
@@ -268,6 +284,7 @@ class PartnerLeadController extends Controller
 
         return view('partner.thankyou', [
             'partner' => $partner,
+            'confirmation' => session('confirmation'),
         ]);
     }
 
@@ -283,6 +300,20 @@ class PartnerLeadController extends Controller
         }
 
         return $partner;
+    }
+
+
+    private function buildConfirmationPayload(Lead $lead): array
+    {
+        return [
+            'submission_reference' => $lead->vicidial_lead_id ?: $lead->id,
+            'jinx_lead_id' => $lead->id,
+            'first_name' => $lead->first_name,
+            'last_name' => $lead->last_name,
+            'phone' => $lead->phone_number,
+            'notes' => $lead->case_notes,
+            'submitted_by' => $lead->submitted_by_vicidial_user,
+        ];
     }
 
     private function ensureDebtBelongsToLead(Lead $lead, Debt $debt): void

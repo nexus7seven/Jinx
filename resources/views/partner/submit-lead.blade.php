@@ -89,6 +89,8 @@
                     style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc; resize:vertical;">{{ old('notes', $prefill['notes'] ?? '') }}</textarea>
             </div>
 
+            <input type="hidden" name="submitted_by" value="{{ old('submitted_by', $prefill['submitted_by'] ?? '') }}">
+
             <input type="text" name="website" value="" tabindex="-1" autocomplete="off"
                 style="position:absolute; left:-9999px; opacity:0; pointer-events:none;">
 
