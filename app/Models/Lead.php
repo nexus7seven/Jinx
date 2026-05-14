@@ -78,6 +78,7 @@ class Lead extends Model
         'address_line_1',
         'case_notes',
         'source',
+        'submitted_by_vicidial_user',
         'from_vicidial_webform',
         'wip_status',
         'financial_statement',

@@ -44,7 +44,19 @@
         </div>
     @endif
 
-    @if(isset($lead))
+    @php
+        $confirmationData = $confirmation ?? (isset($lead) ? [
+            'submission_reference' => $lead->vicidial_lead_id ?: $lead->id,
+            'jinx_lead_id' => $lead->id,
+            'first_name' => $lead->first_name,
+            'last_name' => $lead->last_name,
+            'phone' => $lead->phone_number,
+            'notes' => $lead->case_notes,
+            'submitted_by' => $lead->submitted_by_vicidial_user,
+        ] : null);
+    @endphp
+
+    @if(!empty($confirmationData))
         <div style="
             margin:0 0 20px 0;
             padding:16px;
@@ -57,32 +69,38 @@
                 Submission Reference
             </p>
             <p style="margin:0 0 12px 0; color:#f8fafc; font-size:24px; font-weight:700;">
-                {{ $lead->vicidial_lead_id ?: $lead->id }}
+                {{ $confirmationData['submission_reference'] ?? '' }}
             </p>
 
-            @if($lead->vicidial_lead_id)
+            @if(!empty($confirmationData['jinx_lead_id']))
                 <p style="margin:0 0 12px 0; color:#94a3b8; font-size:13px;">
-                    Jinx Lead ID: <span style="color:#e2e8f0; font-weight:700;">{{ $lead->id }}</span>
+                    Jinx Lead ID: <span style="color:#e2e8f0; font-weight:700;">{{ $confirmationData['jinx_lead_id'] }}</span>
                 </p>
             @endif
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; color:#e2e8f0; font-size:14px;">
                 <div>
                     <p style="margin:0 0 3px 0; color:#94a3b8; font-size:12px;">First name</p>
-                    <p style="margin:0; font-weight:700;">{{ $lead->first_name }}</p>
+                    <p style="margin:0; font-weight:700;">{{ $confirmationData['first_name'] ?? '' }}</p>
                 </div>
                 <div>
                     <p style="margin:0 0 3px 0; color:#94a3b8; font-size:12px;">Last name</p>
-                    <p style="margin:0; font-weight:700;">{{ $lead->last_name }}</p>
+                    <p style="margin:0; font-weight:700;">{{ $confirmationData['last_name'] ?? '' }}</p>
                 </div>
                 <div style="grid-column:1 / -1;">
                     <p style="margin:0 0 3px 0; color:#94a3b8; font-size:12px;">Phone</p>
-                    <p style="margin:0; font-weight:700;">{{ $lead->phone_number }}</p>
+                    <p style="margin:0; font-weight:700;">{{ $confirmationData['phone'] ?? '' }}</p>
                 </div>
-                @if(!empty($lead->case_notes))
+                @if(!empty($confirmationData['notes']))
                     <div style="grid-column:1 / -1;">
                         <p style="margin:0 0 3px 0; color:#94a3b8; font-size:12px;">Notes</p>
-                        <p style="margin:0; white-space:pre-wrap;">{{ $lead->case_notes }}</p>
+                        <p style="margin:0; white-space:pre-wrap;">{{ $confirmationData['notes'] }}</p>
+                    </div>
+                @endif
+                @if(!empty($confirmationData['submitted_by']))
+                    <div style="grid-column:1 / -1;">
+                        <p style="margin:0 0 3px 0; color:#94a3b8; font-size:12px;">Submitted by</p>
+                        <p style="margin:0; font-weight:700;">{{ $confirmationData['submitted_by'] }}</p>
                     </div>
                 @endif
             </div>
