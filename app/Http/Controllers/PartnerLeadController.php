@@ -23,15 +23,23 @@ class PartnerLeadController extends Controller
     ) {
     }
 
-    public function create(string $token): View
+    public function create(Request $request, string $token): View
     {
         $partner = Partner::query()
             ->where('token', $token)
             ->where('active', true)
             ->firstOrFail();
 
+        $prefill = [
+            'first_name' => trim((string) $request->query('first_name', '')),
+            'last_name' => trim((string) $request->query('last_name', '')),
+            'phone' => trim((string) $request->query('phone', '')),
+            'notes' => trim((string) $request->query('notes', '')),
+        ];
+
         return view('partner.submit-lead', [
             'partner' => $partner,
+            'prefill' => $prefill,
         ]);
     }
 

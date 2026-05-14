@@ -42,13 +42,13 @@
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
                 <div>
                     <label style="display:block; margin-bottom:6px; font-size:14px;">First name</label>
-                    <input type="text" name="first_name" value="{{ old('first_name') }}" required
+                    <input type="text" name="first_name" value="{{ old('first_name', $prefill['first_name'] ?? '') }}" required
                         style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
                 </div>
 
                 <div>
                     <label style="display:block; margin-bottom:6px; font-size:14px;">Last name</label>
-                    <input type="text" name="last_name" value="{{ old('last_name') }}" required
+                    <input type="text" name="last_name" value="{{ old('last_name', $prefill['last_name'] ?? '') }}" required
                         style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
                 </div>
             </div>
@@ -56,7 +56,7 @@
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
                 <div>
                     <label style="display:block; margin-bottom:6px; font-size:14px;">Phone</label>
-                    <input type="text" name="phone" value="{{ old('phone') }}" required
+                    <input type="text" name="phone" value="{{ old('phone', $prefill['phone'] ?? '') }}" required
                         style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc;">
                 </div>
 
@@ -86,7 +86,7 @@
             <div style="margin-bottom:18px;">
                 <label style="display:block; margin-bottom:6px; font-size:14px;">Notes</label>
                 <textarea name="notes" rows="6"
-                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc; resize:vertical;">{{ old('notes') }}</textarea>
+                    style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#f8fafc; resize:vertical;">{{ old('notes', $prefill['notes'] ?? '') }}</textarea>
             </div>
 
             <input type="text" name="website" value="" tabindex="-1" autocomplete="off"
