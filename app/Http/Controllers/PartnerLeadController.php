@@ -76,6 +76,13 @@ class PartnerLeadController extends Controller
 
         if ($existing) {
             if ($partner->single_stage_submission) {
+                if (($existing->source ?? null) === $partner->name) {
+                    return redirect()->route('partner.lead.complete', [
+                        'token' => $partner->token,
+                        'lead' => $existing->id,
+                    ])->with('message', 'Lead already exists and has been accepted.');
+                }
+
                 return redirect()->route('partner.lead.thankyou', [
                     'token' => $partner->token,
                 ])->with('message', 'Lead already exists and has been accepted.');
@@ -122,8 +129,9 @@ class PartnerLeadController extends Controller
             DB::commit();
 
             if ($partner->single_stage_submission) {
-                return redirect()->route('partner.lead.thankyou', [
+                return redirect()->route('partner.lead.complete', [
                     'token' => $partner->token,
+                    'lead' => $lead->id,
                 ])->with('message', 'Lead submitted successfully');
             }
 
