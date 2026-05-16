@@ -23,6 +23,7 @@ use App\Services\LeadChecklistService;
 use App\Services\LeadPortalLinkService;
 use App\Services\LeadPortalTokenService;
 use App\Http\Controllers\PartnerLeadController;
+use App\Http\Controllers\PartnerPortalAuthController;
 use App\Http\Controllers\LeadFinancialStatementController;
 use App\Http\Controllers\WebsiteLeadController;
 use App\Http\Controllers\Portal\LeadPortalEmailClickController;
@@ -148,6 +149,16 @@ Route::options('/partner-lead-submit', function () {
 Route::post('/partner-lead-submit', [WebsiteLeadController::class, 'store'])
     ->middleware('throttle:20,1')
     ->name('partner.lead.submit');
+
+Route::middleware('guest')->group(function () {
+    Route::get('/partner-portal/login', [PartnerPortalAuthController::class, 'showLogin'])->name('partner-portal.login');
+    Route::post('/partner-portal/login', [PartnerPortalAuthController::class, 'login'])->name('partner-portal.login.attempt');
+});
+
+Route::middleware('partner.portal.auth')->group(function () {
+    Route::post('/partner-portal/logout', [PartnerPortalAuthController::class, 'logout'])->name('partner-portal.logout');
+    Route::get('/partner-portal/leads', [PartnerPortalAuthController::class, 'leads'])->name('partner-portal.leads');
+});
 
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -347,6 +358,7 @@ Route::middleware('auth')->group(function () {
     })->name('lead.portal-link');
 
     Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
+    Route::patch('/lead/{lead}/lead-feedback', [LeadCaseController::class, 'updateLeadFeedback'])->name('lead.lead-feedback.update');
     Route::post('/lead/{lead}/action-points', [LeadCaseController::class, 'storeActionPoint'])->name('lead.action-points.store');
     Route::delete('/lead/{lead}/action-points/{item}', [LeadCaseController::class, 'destroyActionPoint'])->name('lead.action-points.destroy');
 

@@ -77,6 +77,7 @@ class Lead extends Model
         'postcode',
         'address_line_1',
         'case_notes',
+        'lead_feedback',
         'source',
         'submitted_by_vicidial_user',
         'from_vicidial_webform',
