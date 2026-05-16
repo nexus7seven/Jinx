@@ -301,8 +301,33 @@
                     <input type="date" name="to" value="{{ $to }}" class="control">
                 </label>
 
-                <button type="submit" class="apply-btn">Apply dates</button>
+                <label>
+                    <span class="meta-label">Status</span>
+                    <select name="status" class="control">
+                        <option value="">All statuses</option>
+                        @foreach($statusOptions as $statusOption)
+                            <option value="{{ $statusOption }}" @selected($selectedStatus === $statusOption)>{{ $statusOption }}</option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <label>
+                    <span class="meta-label">Submitted by</span>
+                    <select name="submitted_by" class="control">
+                        <option value="">All submitted by</option>
+                        @foreach($submittedByOptions as $submittedByOption)
+                            <option value="{{ $submittedByOption }}" @selected($selectedSubmittedBy === $submittedByOption)>{{ $submittedByOption }}</option>
+                        @endforeach
+                    </select>
+                </label>
+
+                <button type="submit" class="apply-btn">Apply filters</button>
             </div>
+            @if($from !== '' || $to !== '' || $selectedStatus !== '' || $selectedSubmittedBy !== '')
+                <div style="margin-top:.65rem;">
+                    <a href="{{ route('partner-portal.leads') }}" style="color:#93c5fd; font-size:.9rem;">Clear filters</a>
+                </div>
+            @endif
         </form>
 
         <div class="search-row">
