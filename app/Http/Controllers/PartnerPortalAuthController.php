@@ -78,6 +78,7 @@ class PartnerPortalAuthController extends Controller
             'wip_status',
             'submitted_by_vicidial_user',
             'lead_feedback',
+            'case_notes',
         ]);
 
         return view('partner.portal.leads', [
