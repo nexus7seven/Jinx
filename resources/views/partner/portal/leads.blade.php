@@ -203,6 +203,57 @@
             margin: 0;
         }
 
+
+        .notes-wrap {
+            position: relative;
+            margin-top: .75rem;
+            display: inline-block;
+        }
+
+        .notes-trigger {
+            background: #1f2937;
+            border-color: #4b5563;
+            color: #cbd5e1;
+            cursor: pointer;
+        }
+
+        .notes-wrap:focus-within .notes-tooltip,
+        .notes-wrap:hover .notes-tooltip {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .notes-tooltip {
+            position: absolute;
+            left: 0;
+            top: calc(100% + .45rem);
+            z-index: 20;
+            width: max-content;
+            max-width: min(420px, 85vw);
+            max-height: 220px;
+            overflow: auto;
+            white-space: pre-wrap;
+            background: #0b1220;
+            border: 1px solid #475569;
+            border-radius: 10px;
+            color: #e5e7eb;
+            padding: .7rem .8rem;
+            font-size: .88rem;
+            line-height: 1.4;
+            box-shadow: 0 12px 24px rgba(0, 0, 0, .35);
+            opacity: 0;
+            transform: translateY(-4px);
+            pointer-events: none;
+            transition: opacity .15s ease, transform .15s ease;
+        }
+
+        .notes-muted {
+            margin-top: .75rem;
+            color: #6b7280;
+            font-size: .82rem;
+        }
+
         .empty-state {
             padding: 1rem;
             background: #111827;
@@ -258,7 +309,7 @@
             <input
                 id="leadSearch"
                 class="search-input"
-                placeholder="Instant search name, phone, status, submitted by, feedback"
+                placeholder="Instant search customer name, phone, status, submitted by, feedback, submitted notes"
             >
         </div>
         <p id="leadCount" class="count-line">Showing {{ $leads->count() }} leads</p>
@@ -267,19 +318,23 @@
     <div id="leadCards" class="lead-list">
         @forelse($leads as $lead)
             @php
-                $customerName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: '—';
+                $customerName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: 'Unknown customer';
                 $status = $lead->wip_status ?: '—';
                 $phone = $lead->phone_number ?: '—';
                 $submittedBy = $lead->submitted_by_vicidial_user ?: '—';
                 $feedback = trim((string)($lead->lead_feedback ?? ''));
+                $caseNotes = trim((string)($lead->case_notes ?? ''));
                 $dateReceived = optional($lead->created_at)->format('Y-m-d H:i') ?: '—';
             @endphp
             <article
                 class="lead-card"
-                data-search="{{ strtolower(trim($customerName . ' ' . $phone . ' ' . $status . ' ' . $submittedBy . ' ' . $feedback)) }}"
+                data-search="{{ strtolower(trim($customerName . ' ' . $phone . ' ' . $status . ' ' . $submittedBy . ' ' . $feedback . ' ' . $caseNotes)) }}"
             >
                 <div class="lead-top">
-                    <h2 class="lead-name">{{ $customerName }}</h2>
+                    <div>
+                        <div class="meta-label" style="margin-bottom:.25rem;">Customer</div>
+                        <h2 class="lead-name">{{ $customerName }}</h2>
+                    </div>
                     <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
                         <span class="pill status-pill">{{ $status }}</span>
                         <span class="pill source-pill">{{ $submittedBy }}</span>
@@ -309,6 +364,15 @@
                         <p class="feedback-empty">No feedback yet</p>
                     @endif
                 </div>
+
+                @if($caseNotes !== '')
+                    <div class="notes-wrap">
+                        <button type="button" class="pill notes-trigger" aria-label="View submitted notes">Submitted notes</button>
+                        <div class="notes-tooltip" role="tooltip">{{ $caseNotes }}</div>
+                    </div>
+                @else
+                    <div class="notes-muted">No submitted notes</div>
+                @endif
             </article>
         @empty
             <div id="emptyState" class="empty-state">No leads found for this date range.</div>
