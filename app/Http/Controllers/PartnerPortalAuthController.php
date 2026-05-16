@@ -55,7 +55,12 @@ class PartnerPortalAuthController extends Controller
         $validated = $request->validate([
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            'status' => ['nullable', 'string'],
+            'submitted_by' => ['nullable', 'string'],
         ]);
+
+        $selectedStatus = trim((string) ($validated['status'] ?? ''));
+        $selectedSubmittedBy = trim((string) ($validated['submitted_by'] ?? ''));
 
         $query = Lead::query()
             ->where('source', $partner->name)
@@ -68,6 +73,30 @@ class PartnerPortalAuthController extends Controller
         if (! empty($validated['to'])) {
             $query->whereDate('created_at', '<=', $validated['to']);
         }
+
+        if ($selectedStatus !== '') {
+            $query->where('wip_status', $selectedStatus);
+        }
+
+        if ($selectedSubmittedBy !== '') {
+            $query->where('submitted_by_vicidial_user', $selectedSubmittedBy);
+        }
+
+        $statusOptions = Lead::query()
+            ->where('source', $partner->name)
+            ->whereNotNull('wip_status')
+            ->where('wip_status', '!=', '')
+            ->distinct()
+            ->orderBy('wip_status')
+            ->pluck('wip_status');
+
+        $submittedByOptions = Lead::query()
+            ->where('source', $partner->name)
+            ->whereNotNull('submitted_by_vicidial_user')
+            ->where('submitted_by_vicidial_user', '!=', '')
+            ->distinct()
+            ->orderBy('submitted_by_vicidial_user')
+            ->pluck('submitted_by_vicidial_user');
 
         $leads = $query->get([
             'id',
@@ -86,6 +115,10 @@ class PartnerPortalAuthController extends Controller
             'leads' => $leads,
             'from' => $validated['from'] ?? '',
             'to' => $validated['to'] ?? '',
+            'selectedStatus' => $selectedStatus,
+            'selectedSubmittedBy' => $selectedSubmittedBy,
+            'statusOptions' => $statusOptions,
+            'submittedByOptions' => $submittedByOptions,
             'statusFieldUsed' => 'wip_status',
         ]);
     }
