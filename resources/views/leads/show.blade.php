@@ -70,6 +70,7 @@
         <div class="lead-top-nav">
             <a href="/wip" class="lead-top-nav-link"><span aria-hidden="true">←</span><span>Back to WIP</span></a>
             <button type="button" id="openScribbleNotesBtn" class="lead-top-nav-btn">🗒️ Scribble Notes</button>
+            <button type="button" id="openLeadFeedbackBtn" class="lead-top-nav-btn">💬 Lead Feedback</button>
             <button type="button" id="openPrepNotesBtn" class="lead-top-nav-btn">📌 Prep Notes</button>
             <button type="button" id="jumpClientDetailsBtn" class="lead-top-nav-btn" data-nav-section="client-details-section">Client</button>
             <button type="button" id="jumpDebtsBtn" class="lead-top-nav-btn" data-nav-section="debts-section">Debts</button>
@@ -132,6 +133,26 @@
                 style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;"
             >
                 Save Notes
+            </button>
+        </div>
+    </div>
+
+
+
+    <div id="leadFeedbackPanel" class="lead-quick-panel">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:18px;">Lead Feedback</h2>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div id="leadFeedbackStatus" style="font-size:12px; color:#9ca3af;">Ready</div>
+                <button type="button" id="closeLeadFeedbackBtn" style="background:transparent; color:#9ca3af; border:0; font-size:20px; line-height:1; cursor:pointer;">×</button>
+            </div>
+        </div>
+
+        <textarea id="leadFeedbackInput" style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:12px 14px; border-radius:10px; border:1px solid #374151; background:#020617; color:#f9fafb; font-size:14px; line-height:1.5; margin-bottom:12px;" placeholder="Write partner-visible feedback here...">{{ old('lead_feedback', $lead->lead_feedback ?? '') }}</textarea>
+
+        <div style="display:flex; justify-content:flex-end;">
+            <button type="button" id="leadFeedbackSaveBtn" style="min-height:42px; background:#2563eb; color:#ffffff; border:0; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;">
+                Save Feedback
             </button>
         </div>
     </div>
@@ -587,12 +608,18 @@
     const openScribbleNotesBtn = document.getElementById('openScribbleNotesBtn');
     const closeScribbleNotesBtn = document.getElementById('closeScribbleNotesBtn');
     const openPrepNotesBtn = document.getElementById('openPrepNotesBtn');
+    const openLeadFeedbackBtn = document.getElementById('openLeadFeedbackBtn');
+    const closeLeadFeedbackBtn = document.getElementById('closeLeadFeedbackBtn');
     const closePrepNotesBtn = document.getElementById('closePrepNotesBtn');
     const caseNotesPanel = document.getElementById('caseNotesPanel');
     const prepNotesPanel = document.getElementById('prepNotesPanel');
+    const leadFeedbackPanel = document.getElementById('leadFeedbackPanel');
     const caseNotesInput = document.getElementById('caseNotesInput');
     const caseNotesSaveBtn = document.getElementById('caseNotesSaveBtn');
     const caseNotesStatus = document.getElementById('caseNotesStatus');
+    const leadFeedbackInput = document.getElementById('leadFeedbackInput');
+    const leadFeedbackSaveBtn = document.getElementById('leadFeedbackSaveBtn');
+    const leadFeedbackStatus = document.getElementById('leadFeedbackStatus');
     const actionPointInput = document.getElementById('actionPointInput');
     const addActionPointBtn = document.getElementById('addActionPointBtn');
     const actionPointStatus = document.getElementById('actionPointStatus');
@@ -605,6 +632,9 @@
     const portalLinkOutput = document.getElementById('portalLinkOutput');
 
     let caseNotesOpen = false;
+    let leadFeedbackOpen = false;
+    let leadFeedbackSaveTimer = null;
+    let leadFeedbackLastSavedValue = leadFeedbackInput ? leadFeedbackInput.value : '';
     let caseNotesSaveTimer = null;
     let caseNotesLastSavedValue = caseNotesInput ? caseNotesInput.value : '';
 
@@ -682,6 +712,51 @@
             setCaseNotesStatus('Saved', '#10b981');
         } catch (e) {
             setCaseNotesStatus('Save failed', '#ef4444');
+        }
+    }
+
+
+    function setLeadFeedbackStatus(message, color = '#9ca3af') {
+        if (!leadFeedbackStatus) return;
+        leadFeedbackStatus.textContent = message;
+        leadFeedbackStatus.style.color = color;
+    }
+
+    function setLeadFeedbackOpen(nextOpen) {
+        if (!leadFeedbackPanel) return;
+        leadFeedbackOpen = nextOpen;
+        leadFeedbackPanel.style.display = leadFeedbackOpen ? 'block' : 'none';
+        if (openLeadFeedbackBtn) {
+            openLeadFeedbackBtn.classList.toggle('is-active', leadFeedbackOpen);
+        }
+        if (nextOpen && caseNotesPanel) { setCaseNotesOpen(false); }
+        if (nextOpen && prepNotesPanel) { setPrepNotesOpen(false); }
+    }
+
+    async function saveLeadFeedback() {
+        if (!leadFeedbackInput) return;
+        const value = leadFeedbackInput.value;
+        if (value === leadFeedbackLastSavedValue) {
+            setLeadFeedbackStatus('Saved', '#10b981');
+            return;
+        }
+        setLeadFeedbackStatus('Saving...', '#fbbf24');
+        try {
+            const response = await fetch('/lead/{{ $lead->id }}/lead-feedback', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ lead_feedback: value }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error('Failed saving feedback');
+            leadFeedbackLastSavedValue = value;
+            setLeadFeedbackStatus('Saved', '#10b981');
+        } catch (e) {
+            setLeadFeedbackStatus('Save failed', '#ef4444');
         }
     }
 
@@ -901,6 +976,23 @@
             setPrepNotesOpen(!isOpen);
         });
     }
+    if (openLeadFeedbackBtn) {
+        openLeadFeedbackBtn.addEventListener('click', function () { setLeadFeedbackOpen(!leadFeedbackOpen); });
+    }
+    if (closeLeadFeedbackBtn) {
+        closeLeadFeedbackBtn.addEventListener('click', function () { setLeadFeedbackOpen(false); });
+    }
+    if (leadFeedbackSaveBtn) {
+        leadFeedbackSaveBtn.addEventListener('click', async function () { await saveLeadFeedback(); });
+    }
+    if (leadFeedbackInput) {
+        leadFeedbackInput.addEventListener('input', function () {
+            setLeadFeedbackStatus('Typing...', '#9ca3af');
+            if (leadFeedbackSaveTimer) clearTimeout(leadFeedbackSaveTimer);
+            leadFeedbackSaveTimer = setTimeout(() => { saveLeadFeedback(); }, 700);
+        });
+    }
+
     if (closePrepNotesBtn) {
         closePrepNotesBtn.addEventListener('click', function () {
             setPrepNotesOpen(false);

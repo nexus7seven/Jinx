@@ -25,6 +25,23 @@ class LeadCaseController extends Controller
         ]);
     }
 
+
+    public function updateLeadFeedback(Request $request, Lead $lead): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_feedback' => ['nullable', 'string'],
+        ]);
+
+        $lead->update([
+            'lead_feedback' => $validated['lead_feedback'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'lead_feedback' => $lead->lead_feedback,
+        ]);
+    }
+
     public function storeActionPoint(Request $request, Lead $lead): JsonResponse
     {
         $validated = $request->validate([

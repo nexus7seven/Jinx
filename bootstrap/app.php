@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\EnsureLocalWorkerToken;
 use App\Http\Middleware\EnsureWhatsAppDetectorApiToken;
+use App\Http\Middleware\EnsurePartnerPortalAuthenticated;
 use Illuminate\Http\Middleware\HandleCors;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -19,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'local.worker.token' => EnsureLocalWorkerToken::class,
             'whatsapp.detector.token' => EnsureWhatsAppDetectorApiToken::class,
+            'partner.portal.auth' => EnsurePartnerPortalAuthenticated::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
