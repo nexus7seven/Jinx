@@ -4,86 +4,328 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ $partner->name }} Leads</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #0b1220;
+            color: #f9fafb;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .page-wrap {
+            width: min(1100px, 100% - 2rem);
+            margin: 1.5rem auto 2rem;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .title {
+            margin: 0;
+            font-size: clamp(1.4rem, 2.5vw, 2rem);
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            margin: .45rem 0 0;
+            color: #9ca3af;
+            font-size: .95rem;
+        }
+
+        .logout-btn {
+            border: 1px solid #4b5563;
+            background: #1f2937;
+            color: #f9fafb;
+            border-radius: 10px;
+            padding: .62rem .95rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .panel {
+            background: #111827;
+            border: 1px solid #374151;
+            border-radius: 14px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: .75rem;
+            align-items: end;
+        }
+
+        .control,
+        .search-input,
+        .apply-btn {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid #374151;
+            padding: .65rem .75rem;
+            background: #0f172a;
+            color: #f9fafb;
+            font-size: .94rem;
+        }
+
+        .apply-btn {
+            background: #1d4ed8;
+            border-color: #2563eb;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .search-row {
+            margin-top: .75rem;
+        }
+
+        .count-line {
+            color: #9ca3af;
+            font-size: .9rem;
+            margin: .4rem 0 0;
+        }
+
+        .lead-list {
+            display: grid;
+            gap: .9rem;
+            margin-top: .9rem;
+        }
+
+        .lead-card {
+            background: #111827;
+            border: 1px solid #374151;
+            border-radius: 14px;
+            padding: 1rem;
+        }
+
+        .lead-top {
+            display: flex;
+            justify-content: space-between;
+            gap: .75rem;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            margin-bottom: .8rem;
+        }
+
+        .lead-name {
+            margin: 0;
+            font-size: 1.05rem;
+            line-height: 1.2;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            border-radius: 999px;
+            padding: .28rem .72rem;
+            font-size: .77rem;
+            font-weight: 700;
+            letter-spacing: .02em;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .status-pill {
+            background: rgba(59, 130, 246, .15);
+            border-color: rgba(96, 165, 250, .4);
+            color: #bfdbfe;
+        }
+
+        .source-pill {
+            background: rgba(245, 158, 11, .14);
+            border-color: rgba(251, 191, 36, .35);
+            color: #fde68a;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: .6rem .9rem;
+        }
+
+        .meta-item {
+            color: #d1d5db;
+            font-size: .9rem;
+        }
+
+        .meta-label {
+            color: #9ca3af;
+            font-size: .78rem;
+            margin-bottom: .15rem;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .feedback-box {
+            margin-top: .85rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: .75rem;
+        }
+
+        .feedback-label {
+            color: #93c5fd;
+            font-size: .78rem;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: .35rem;
+        }
+
+        .feedback-text {
+            color: #e5e7eb;
+            font-size: .92rem;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            margin: 0;
+        }
+
+        .feedback-empty {
+            color: #6b7280;
+            font-size: .92rem;
+            font-style: italic;
+            margin: 0;
+        }
+
+        .empty-state {
+            padding: 1rem;
+            background: #111827;
+            border: 1px dashed #4b5563;
+            border-radius: 10px;
+            color: #94a3b8;
+        }
+
+        @media (max-width: 640px) {
+            .page-wrap {
+                width: min(1100px, 100% - 1rem);
+            }
+
+            .panel,
+            .lead-card {
+                padding: .85rem;
+            }
+        }
+    </style>
 </head>
-<body style="margin:0; background:#0b1220; color:#f9fafb; font-family:Arial,sans-serif;">
-<div style="max-width:1000px; margin:20px auto; padding:20px; box-sizing:border-box;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-        <h1 style="margin:0;">{{ $partner->name }} Lead Report</h1>
+<body>
+<div class="page-wrap">
+    <div class="top-bar">
+        <div>
+            <h1 class="title">Lead Report</h1>
+            <p class="subtitle">{{ $partner->name }} partner portal · Status field: <strong>{{ $statusFieldUsed }}</strong></p>
+        </div>
 
         <form method="POST" action="{{ route('partner-portal.logout') }}" style="margin:0;">
             @csrf
-            <button
-                type="submit"
-                style="background:#374151; color:#fff; border:0; border-radius:8px; padding:10px; cursor:pointer;"
-            >
-                Logout
-            </button>
+            <button type="submit" class="logout-btn">Logout</button>
         </form>
     </div>
 
-    <p style="color:#94a3b8;">Status field used: <strong>{{ $statusFieldUsed }}</strong></p>
+    <div class="panel">
+        <form method="GET">
+            <div class="controls-grid">
+                <label>
+                    <span class="meta-label">From date</span>
+                    <input type="date" name="from" value="{{ $from }}" class="control">
+                </label>
 
-    <form method="GET" style="display:flex; gap:10px; flex-wrap:wrap; margin:14px 0;">
-        <input
-            type="date"
-            name="from"
-            value="{{ $from }}"
-            style="padding:10px; border-radius:8px; background:#020617; border:1px solid #374151; color:#f9fafb;"
-        >
+                <label>
+                    <span class="meta-label">To date</span>
+                    <input type="date" name="to" value="{{ $to }}" class="control">
+                </label>
 
-        <input
-            type="date"
-            name="to"
-            value="{{ $to }}"
-            style="padding:10px; border-radius:8px; background:#020617; border:1px solid #374151; color:#f9fafb;"
-        >
+                <button type="submit" class="apply-btn">Apply dates</button>
+            </div>
+        </form>
 
-        <button
-            type="submit"
-            style="padding:10px 14px; background:#2563eb; color:#fff; border:0; border-radius:8px; cursor:pointer;"
-        >
-            Apply dates
-        </button>
-    </form>
+        <div class="search-row">
+            <input
+                id="leadSearch"
+                class="search-input"
+                placeholder="Instant search name, phone, status, submitted by, feedback"
+            >
+        </div>
+        <p id="leadCount" class="count-line">Showing {{ $leads->count() }} leads</p>
+    </div>
 
-    <input
-        id="leadSearch"
-        placeholder="Instant search name, phone, status, submitted by, feedback"
-        style="width:100%; padding:11px; background:#020617; border:1px solid #374151; color:#f9fafb; border-radius:8px; box-sizing:border-box;"
-    >
-
-    <div id="leadCards" style="display:flex; flex-direction:column; gap:12px; margin-top:14px;">
+    <div id="leadCards" class="lead-list">
         @forelse($leads as $lead)
-            <div
+            @php
+                $customerName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: '—';
+                $status = $lead->wip_status ?: '—';
+                $phone = $lead->phone_number ?: '—';
+                $submittedBy = $lead->submitted_by_vicidial_user ?: '—';
+                $feedback = trim((string)($lead->lead_feedback ?? ''));
+                $dateReceived = optional($lead->created_at)->format('Y-m-d H:i') ?: '—';
+            @endphp
+            <article
                 class="lead-card"
-                data-search="{{ strtolower(trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '') . ' ' . ($lead->phone_number ?? '') . ' ' . ($lead->wip_status ?? '') . ' ' . ($lead->submitted_by_vicidial_user ?? '') . ' ' . ($lead->lead_feedback ?? ''))) }}"
-                style="background:#111827; border:1px solid #374151; border-radius:12px; padding:14px;"
+                data-search="{{ strtolower(trim($customerName . ' ' . $phone . ' ' . $status . ' ' . $submittedBy . ' ' . $feedback)) }}"
             >
-                <div><strong>Date received:</strong> {{ optional($lead->created_at)->format('Y-m-d H:i') }}</div>
-                <div><strong>Customer name:</strong> {{ trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: '—' }}</div>
-                <div><strong>Phone:</strong> {{ $lead->phone_number ?: '—' }}</div>
-                <div><strong>Status:</strong> {{ $lead->wip_status ?: '—' }}</div>
-                <div><strong>Submitted by:</strong> {{ $lead->submitted_by_vicidial_user ?: '—' }}</div>
-                <div><strong>Lead feedback notes:</strong> {{ $lead->lead_feedback ?: '—' }}</div>
-            </div>
+                <div class="lead-top">
+                    <h2 class="lead-name">{{ $customerName }}</h2>
+                    <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                        <span class="pill status-pill">{{ $status }}</span>
+                        <span class="pill source-pill">{{ $submittedBy }}</span>
+                    </div>
+                </div>
+
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <div class="meta-label">Date received</div>
+                        <div>{{ $dateReceived }}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Phone</div>
+                        <div>{{ $phone }}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Submitted by</div>
+                        <div>{{ $submittedBy }}</div>
+                    </div>
+                </div>
+
+                <div class="feedback-box">
+                    <div class="feedback-label">Lead feedback notes</div>
+                    @if($feedback !== '')
+                        <p class="feedback-text">{{ $feedback }}</p>
+                    @else
+                        <p class="feedback-empty">No feedback yet</p>
+                    @endif
+                </div>
+            </article>
         @empty
-            <div
-                id="emptyState"
-                style="padding:16px; background:#111827; border:1px dashed #374151; border-radius:10px; color:#94a3b8;"
-            >
-                No leads found for this date range.
-            </div>
+            <div id="emptyState" class="empty-state">No leads found for this date range.</div>
         @endforelse
     </div>
+
+    <div id="emptyStateSearch" class="empty-state" style="display:none; margin-top:.9rem;">No leads match your current search.</div>
 </div>
 
 <script>
     const searchInput = document.getElementById('leadSearch');
     const leadCards = [...document.querySelectorAll('.lead-card')];
-    const emptyState = document.getElementById('emptyState');
+    const emptyStateSearch = document.getElementById('emptyStateSearch');
+    const leadCount = document.getElementById('leadCount');
 
     function filterLeads() {
-        const query = (searchInput.value || '').toLowerCase();
+        const query = (searchInput?.value || '').toLowerCase().trim();
         let visibleCount = 0;
 
         leadCards.forEach((card) => {
@@ -92,13 +334,18 @@
             if (isMatch) visibleCount++;
         });
 
-        if (emptyState) {
-            emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+        if (emptyStateSearch) {
+            emptyStateSearch.style.display = visibleCount === 0 && leadCards.length > 0 ? 'block' : 'none';
+        }
+
+        if (leadCount) {
+            leadCount.textContent = `Showing ${visibleCount} lead${visibleCount === 1 ? '' : 's'}`;
         }
     }
 
     if (searchInput) {
         searchInput.addEventListener('input', filterLeads);
+        filterLeads();
     }
 </script>
 </body>
