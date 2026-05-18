@@ -1,6 +1,7 @@
 @php
     $isWip = request()->routeIs('wip.*');
     $isRemarketing = request()->routeIs('remarketing.*');
+    $isDialDashboard = request()->routeIs('reports.data-dialling-dashboard');
 @endphp
 <style>
     .app-nav {
@@ -147,6 +148,13 @@
             @if ($isRemarketing) aria-current="page" @endif
         >
             Remarketing
+        </a>
+        <a
+            href="{{ route('reports.data-dialling-dashboard') }}"
+            class="app-nav__tab {{ $isDialDashboard ? 'app-nav__tab--active' : '' }}"
+            @if ($isDialDashboard) aria-current="page" @endif
+        >
+            Dialling Dashboard
         </a>
         <div class="app-nav__search-wrap" id="appNavSearchWrap">
             <input
