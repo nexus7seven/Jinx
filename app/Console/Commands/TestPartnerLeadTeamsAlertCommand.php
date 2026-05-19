@@ -15,6 +15,7 @@ class TestPartnerLeadTeamsAlertCommand extends Command
     {
         $this->info('Partner lead Teams webhook configured: '.($service->webhookIsConfigured() ? 'yes' : 'no'));
         $this->info('Partner lead Teams payload key: '.$service->payloadKey());
+        $this->info('Partner lead Teams payload mode: '.$service->payloadMode());
 
         if (! $service->webhookIsConfigured()) {
             $this->warn('Webhook is not configured. Set TEAMS_PARTNER_LEAD_WEBHOOK_URL to run this test.');
@@ -23,9 +24,12 @@ class TestPartnerLeadTeamsAlertCommand extends Command
         }
 
         $message = "🚨 TEST TRANSFER ALERT FROM JINX\nIf you can see this in Teams, the webhook is working.";
+        $adaptiveBody = 'If you can see this in Teams, adaptive cards are working.';
 
         try {
-            $response = $service->sendRawTestMessage($message);
+            $response = $service->payloadMode() === 'adaptive_card'
+                ? $service->sendRawTestAdaptiveCard('🚨 TEST TRANSFER ALERT FROM JINX', $adaptiveBody)
+                : $service->sendRawTestMessage($message);
 
             if ($response->successful()) {
                 $this->info('Test alert sent successfully. HTTP status: '.$response->status());

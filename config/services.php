@@ -42,6 +42,7 @@ return [
     'teams_partner_lead' => [
         'webhook_url' => env('TEAMS_PARTNER_LEAD_WEBHOOK_URL'),
         'payload_key' => env('TEAMS_PARTNER_LEAD_PAYLOAD_KEY', 'text'),
+        'payload_mode' => env('TEAMS_PARTNER_LEAD_PAYLOAD_MODE', 'text'),
     ],
 	
 	'temp_mail' => [
