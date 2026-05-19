@@ -27,9 +27,9 @@ class TestPartnerLeadTeamsAlertCommand extends Command
         $adaptiveBody = 'If you can see this in Teams, adaptive cards are working.';
 
         try {
-            $response = $service->payloadMode() === 'adaptive_card'
-                ? $service->sendRawTestAdaptiveCard('🚨 TEST TRANSFER ALERT FROM JINX', $adaptiveBody)
-                : $service->sendRawTestMessage($message);
+            $response = $service->payloadMode() === 'text'
+                ? $service->sendRawTestMessage($message)
+                : $service->sendRawTestAdaptiveCard('🚨 TEST TRANSFER ALERT FROM JINX', $adaptiveBody);
 
             if ($response->successful()) {
                 $this->info('Test alert sent successfully. HTTP status: '.$response->status());
