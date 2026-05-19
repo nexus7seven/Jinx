@@ -38,6 +38,11 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+
+    'teams_partner_lead' => [
+        'webhook_url' => env('TEAMS_PARTNER_LEAD_WEBHOOK_URL'),
+        'payload_key' => env('TEAMS_PARTNER_LEAD_PAYLOAD_KEY', 'text'),
+    ],
 	
 	'temp_mail' => [
     'provider' => env('TEMP_MAIL_PROVIDER', 'tempmailio'),
