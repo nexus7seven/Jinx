@@ -7,6 +7,7 @@ use App\Models\Debt;
 use App\Models\Lead;
 use App\Models\Partner;
 use App\Services\FinancialStatementService;
+use App\Services\PartnerLeadTeamsNotificationService;
 use App\Services\VicidialLeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -19,7 +20,8 @@ class PartnerLeadController extends Controller
 {
     public function __construct(
         private VicidialLeadService $vicidialLeadService,
-        private FinancialStatementService $financialStatementService
+        private FinancialStatementService $financialStatementService,
+        private PartnerLeadTeamsNotificationService $partnerLeadTeamsNotificationService
     ) {
     }
 
@@ -87,6 +89,8 @@ class PartnerLeadController extends Controller
             }
 
             if ($partner->single_stage_submission) {
+                $this->partnerLeadTeamsNotificationService->notify($partner, $existing, true);
+
                 if (($existing->source ?? null) === $partner->name) {
                     return redirect()->route('partner.lead.complete', [
                         'token' => $partner->token,
@@ -144,6 +148,8 @@ class PartnerLeadController extends Controller
             DB::commit();
 
             if ($partner->single_stage_submission) {
+                $this->partnerLeadTeamsNotificationService->notify($partner, $lead);
+
                 return redirect()->route('partner.lead.complete', [
                     'token' => $partner->token,
                     'lead' => $lead->id,
