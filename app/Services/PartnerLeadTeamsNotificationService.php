@@ -9,6 +9,10 @@ use Illuminate\Http\Client\Response;
 
 class PartnerLeadTeamsNotificationService
 {
+    private const PAYLOAD_MODE_TEXT = 'text';
+
+
+    private const PAYLOAD_MODE_ADAPTIVE_CARD_ATTACHMENTS = 'adaptive_card_attachments';
     public function notify(Partner $partner, Lead $lead, bool $isDuplicate = false): void
     {
         if ($partner->name !== 'IS SUBMISSIONS') {
@@ -56,9 +60,11 @@ class PartnerLeadTeamsNotificationService
         ]);
 
         try {
-            $this->sendPayload($this->buildPayload(
-                $this->payloadMode() === 'adaptive_card' ? $this->buildAdaptiveCard($payloadData) : $message
-            ))->throw();
+            $content = $this->payloadMode() === self::PAYLOAD_MODE_TEXT
+                ? $message
+                : $this->buildAdaptiveCard($payloadData);
+
+            $this->sendPayload($this->buildPayload($content))->throw();
         } catch (\Throwable $e) {
             report($e);
         }
@@ -104,9 +110,9 @@ class PartnerLeadTeamsNotificationService
 
     public function payloadMode(): string
     {
-        $payloadMode = strtolower(trim((string) config('services.teams_partner_lead.payload_mode', 'text')));
+        $payloadMode = strtolower(trim((string) config('services.teams_partner_lead.payload_mode', self::PAYLOAD_MODE_TEXT)));
 
-        return $payloadMode !== '' ? $payloadMode : 'text';
+        return $payloadMode !== '' ? $payloadMode : self::PAYLOAD_MODE_TEXT;
     }
 
     private function sendPayload(array $payload): Response
@@ -119,6 +125,17 @@ class PartnerLeadTeamsNotificationService
 
     private function buildPayload(string|array $content): array
     {
+        if ($this->payloadMode() === self::PAYLOAD_MODE_ADAPTIVE_CARD_ATTACHMENTS) {
+            return [
+                'attachments' => [
+                    [
+                        'contentType' => 'application/vnd.microsoft.card.adaptive',
+                        'content' => is_array($content) ? $content : ['type' => 'TextBlock', 'text' => $content],
+                    ],
+                ],
+            ];
+        }
+
         return [
             $this->payloadKey() => $content,
         ];
