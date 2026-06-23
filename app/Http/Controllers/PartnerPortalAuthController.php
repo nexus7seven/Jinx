@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\Partner;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\View\View;
 
@@ -44,6 +45,69 @@ $validated = $request->validate([
         $request->session()->regenerateToken();
 
         return redirect()->route('partner-portal.login');
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        /** @var Partner $partner */
+        $partner = $request->attributes->get('partner_portal_partner');
+
+        $validated = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $query = Lead::query()
+            ->where('source', $partner->name)
+            ->orderByDesc('created_at');
+
+        if (! empty($validated['from'])) {
+            $query->whereDate('created_at', '>=', $validated['from']);
+        }
+
+        if (! empty($validated['to'])) {
+            $query->whereDate('created_at', '<=', $validated['to']);
+        }
+
+        $filename = empty($validated['from']) && empty($validated['to'])
+            ? 'outerorbit_leads_all.csv'
+            : sprintf(
+                'outerorbit_leads_%s_to_%s.csv',
+                $validated['from'] ?? 'all',
+                $validated['to'] ?? 'all'
+            );
+
+        return response()->streamDownload(function () use ($query) {
+            $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [
+                'Customer Name',
+                'Date Received',
+                'Phone',
+                'Submitted By',
+                'Case Status',
+                'Lead Feedback',
+                'Submitted Notes',
+            ]);
+
+            $query->chunk(500, function ($leads) use ($handle) {
+                foreach ($leads as $lead) {
+                    fputcsv($handle, [
+                        trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')),
+                        optional($lead->created_at)->format('d/m/Y H:i:s') ?? '',
+                        $lead->phone_number,
+                        $lead->submitted_by_vicidial_user,
+                        $lead->wip_status,
+                        $lead->lead_feedback,
+                        $lead->case_notes,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function leads(Request $request): View

@@ -159,6 +159,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware('partner.portal.auth')->group(function () {
     Route::post('/partner-portal/logout', [PartnerPortalAuthController::class, 'logout'])->name('partner-portal.logout');
     Route::get('/partner-portal/leads', [PartnerPortalAuthController::class, 'leads'])->name('partner-portal.leads');
+    Route::get('/partner-portal/leads/export', [PartnerPortalAuthController::class, 'export'])->name('partner-portal.leads.export');
 });
 
 Route::middleware('auth')->group(function () {

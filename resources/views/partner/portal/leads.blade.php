@@ -73,7 +73,8 @@
 
         .control,
         .search-input,
-        .apply-btn {
+        .apply-btn,
+        .export-btn {
             width: 100%;
             border-radius: 10px;
             border: 1px solid #374151;
@@ -88,6 +89,15 @@
             border-color: #2563eb;
             font-weight: 600;
             cursor: pointer;
+        }
+
+        .export-btn {
+            background: #047857;
+            border-color: #059669;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            text-align: center;
         }
 
         .search-row {
@@ -322,6 +332,8 @@
                 </label>
 
                 <button type="submit" class="apply-btn">Apply filters</button>
+
+                <button type="submit" class="export-btn" formaction="{{ route('partner-portal.leads.export') }}" formmethod="GET">Export CSV</button>
             </div>
             @if($from !== '' || $to !== '' || $selectedStatus !== '' || $selectedSubmittedBy !== '')
                 <div style="margin-top:.65rem;">
