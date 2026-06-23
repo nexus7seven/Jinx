@@ -15,7 +15,7 @@ class PartnerLeadTeamsNotificationService
     private const PAYLOAD_MODE_ADAPTIVE_CARD_ATTACHMENTS = 'adaptive_card_attachments';
     public function notify(Partner $partner, Lead $lead, bool $isDuplicate = false): void
     {
-        if ($partner->name !== 'IS SUBMISSIONS') {
+        if ($partner->name !== 'OuterOrbit Submissions') {
             return;
         }
 
@@ -34,7 +34,7 @@ class PartnerLeadTeamsNotificationService
 
         $payloadData = [
             'title' => '🚨 TRANSFER INCOMING',
-            'partner' => 'IS SUBMISSIONS',
+            'partner' => 'OuterOrbit Submissions',
             'type' => $isDuplicate ? 'Duplicate lead' : 'New lead',
             'submissionReference' => $submissionReference,
             'leadId' => (string) $lead->id,
@@ -48,7 +48,7 @@ class PartnerLeadTeamsNotificationService
         $message = implode("\n", [
             '🚨 TRANSFER INCOMING',
             '',
-            'Partner: IS SUBMISSIONS',
+            'Partner: OuterOrbit Submissions',
             'Type: '.$payloadData['type'],
             'Submission Reference: '.$payloadData['submissionReference'],
             'Jinx Lead ID: '.$payloadData['leadId'],
@@ -79,7 +79,7 @@ class PartnerLeadTeamsNotificationService
     {
         return $this->sendPayload($this->buildPayload($this->buildAdaptiveCard([
             'title' => $title,
-            'partner' => 'IS SUBMISSIONS',
+            'partner' => 'OuterOrbit Submissions',
             'type' => 'Test lead',
             'submissionReference' => 'TEST-REFERENCE',
             'leadId' => 'TEST-LEAD-ID',

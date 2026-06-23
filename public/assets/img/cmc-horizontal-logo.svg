@@ -1,0 +1,63 @@
+<svg width="1100" height="280" viewBox="0 0 1100 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cmcGrad" x1="28" y1="20" x2="212" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F4C9A"/>
+      <stop offset="1" stop-color="#1265B3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon -->
+  <g transform="translate(10,10)">
+    <path d="M191 36
+             C159 7 117 -5 74 -3
+             C1 1 -55 59 -59 132
+             C-63 219 4 293 90 298
+             C136 301 173 286 204 258
+             C214 248 215 232 206 223
+             C197 214 182 214 172 223
+             C150 243 123 253 93 251
+             C34 248 -12 198 -11 137
+             C-10 78 37 32 94 30
+             C124 30 150 40 172 58
+             C182 66 197 66 206 56
+             C215 46 215 28 191 36Z"
+          fill="url(#cmcGrad)"/>
+    <path d="M166 64
+             C145 47 121 39 94 40
+             C42 42 2 84 0 136
+             C-2 192 41 238 96 240
+             C123 242 146 234 165 218
+             C174 209 175 194 167 186
+             C159 178 145 178 136 186
+             C125 196 112 200 98 199
+             C66 198 41 171 42 139
+             C43 108 68 83 99 82
+             C113 82 126 86 136 95
+             C145 103 158 102 167 93
+             C175 85 175 72 166 64Z"
+          fill="#0C356F" opacity="0.9"/>
+    <circle cx="218" cy="174" r="16" fill="#8B0F5A"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="280" y="122"
+        font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="74"
+        font-weight="700"
+        letter-spacing="-1.5"
+        fill="#0A2540">Clear My</text>
+  <text x="280" y="195"
+        font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="74"
+        font-weight="700"
+        letter-spacing="-1.5"
+        fill="#1265B3">Credit</text>
+
+  <!-- Tagline -->
+  <text x="282" y="236"
+        font-family="Inter, Arial, Helvetica, sans-serif"
+        font-size="26"
+        font-weight="500"
+        letter-spacing="2.8"
+        fill="#5B6B7C">CLEARER OPTIONS. BETTER OUTCOMES.</text>
+</svg>

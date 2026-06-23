@@ -18,11 +18,10 @@ class PartnerPortalAuthController extends Controller
 
     public function login(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ]);
-
+$validated = $request->validate([
+    'email' => ['required', 'string'],
+    'password' => ['required', 'string'],
+]);
         $partner = Partner::query()
             ->where('portal_email', strtolower(trim($validated['email'])))
             ->where('portal_access_enabled', true)

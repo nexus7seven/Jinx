@@ -18,13 +18,13 @@
     <form method="POST" action="{{ route('partner-portal.login.attempt') }}">
         @csrf
 
-        <label for="portal_email">Email</label>
-        <input
-            id="portal_email"
-            type="email"
-            name="email"
-            value="{{ old('email') }}"
-            required
+<label for="portal_email">Username</label>
+<input
+    id="portal_email"
+    type="text"
+    name="email"
+    value="{{ old('email') }}"
+    required
             style="width:100%; padding:10px; margin:6px 0 12px; background:#020617; border:1px solid #374151; color:#f9fafb; border-radius:8px; box-sizing:border-box;"
         >
 
