@@ -6,41 +6,43 @@
     <title>Jinx Lead {{ $lead->id }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
+        .lead-page { max-width: 1680px; margin: 0 auto; padding: 16px 20px 36px; box-sizing: border-box; }
+        .lead-workspace { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(340px, 1fr); gap: 18px; align-items: stretch; }
+        .lead-workspace-main { min-width: 0; min-height: 0; }
+        .lead-case-assistant { display: flex; flex-direction: column; min-height: 560px; background: #0f172a; border: 1px solid #334155; border-radius: 14px; overflow: hidden; box-shadow: 0 10px 28px rgba(2, 6, 23, 0.35); }
         #leadStickyShell,
-        .lead-sticky-shell { position: sticky; top: 0; z-index: 10000; margin-bottom: 12px; overflow: visible; }
-        .lead-top-nav { position: relative; z-index: 10001; overflow: visible; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: rgba(2, 6, 23, 0.98); border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; backdrop-filter: blur(8px); }
+        .lead-sticky-shell { position: relative; z-index: 40; margin-bottom: 14px; overflow: visible; }
+        .lead-top-nav { position: relative; z-index: 41; overflow: visible; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; background: #020617; border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; }
         .lead-top-nav-link, .lead-top-nav-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; padding: 6px 9px; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
         .lead-top-nav-btn { font-family: inherit; }
         .lead-top-nav-link:hover, .lead-top-nav-btn:hover { border-color: #60a5fa; background: #172036; color: #f8fafc; }
         .lead-top-nav-btn.is-active { border-color: #2563eb; background: #1d4ed8; color: #ffffff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); }
-        .lead-nav-search-wrap { position: relative; z-index: 10002; overflow: visible; margin-left: 6px; display: inline-flex; flex-direction: column; min-width: min(300px, 85vw); }
+        .lead-nav-search-wrap { position: relative; z-index: 42; overflow: visible; margin-left: auto; display: inline-flex; flex-direction: column; min-width: min(320px, 85vw); flex: 1 1 240px; }
         .lead-nav-search-box { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 8px; border: 1px solid #374151; background: #020617; color: #f8fafc; font-size: 12px; }
         .lead-nav-search-box::placeholder { color: #64748b; }
-        .lead-nav-search-results { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; width: 100%; border: 1px solid #334155; border-radius: 10px; background: #0f172a; overflow: hidden; z-index: 10003; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55); }
+        .lead-nav-search-results { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; width: 100%; border: 1px solid #334155; border-radius: 10px; background: #0f172a; overflow: hidden; z-index: 43; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.55); }
         .lead-nav-search-result { display: block; text-decoration: none; padding: 9px 10px; border-bottom: 1px solid rgba(51, 65, 85, 0.35); color: #cbd5e1; }
         .lead-nav-search-result:last-child { border-bottom: none; }
         .lead-nav-search-result:hover { background: rgba(59, 130, 246, 0.18); color: #f8fafc; }
         .lead-nav-search-name { display: block; font-size: 13px; font-weight: 600; color: inherit; }
         .lead-nav-search-meta { display: block; margin-top: 2px; font-size: 11px; color: #94a3b8; }
         .lead-nav-search-empty { padding: 9px 10px; font-size: 12px; color: #94a3b8; }
-        .lead-info-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; padding: 8px 10px; background: rgba(17, 24, 39, 0.98); border: 1px solid #374151; border-radius: 0 0 12px 12px; backdrop-filter: blur(8px); }
-        .lead-info-item-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
-        .lead-info-item-value { font-size: 12px; font-weight: 700; color: #f8fafc; line-height: 1.25; word-break: break-word; }
-        .lead-section-shell { margin-bottom: 18px; position: relative; z-index: 1; }
-        .lead-section-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #374151; border-radius: 12px; background: #0f172a; }
-        .lead-section-shell.is-active .lead-section-header { border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,0.28); }
-        .lead-section-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
-        .lead-section-toggle { min-height: 32px; border-radius: 8px; border: 1px solid #475569; background: #111827; color: #e5e7eb; padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer; min-width: 110px; text-align: center; }
-        .lead-section-toggle:hover { border-color: #60a5fa; color: #f8fafc; }
-        .lead-section-body { margin-top: 10px; }
-        .lead-quick-panel { display: none; position: fixed; top: 78px; right: 20px; width: min(360px, calc(100vw - 28px)); max-height: calc(100vh - 96px); overflow: auto; z-index: 320; background: #111827; border: 1px solid #334155; border-right: 3px solid #2563eb; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
-        .client-details-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:14px; box-sizing:border-box; margin-bottom:14px; }
-        .client-details-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 16px; align-items:start; }
-        .client-details-column { display:flex; flex-direction:column; gap:12px; min-width:0; }
+        .lead-info-bar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 12px 14px; background: #111827; border: 1px solid #374151; border-radius: 0 0 12px 12px; }
+        .lead-info-item-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+        .lead-info-item-value { font-size: 15px; font-weight: 700; color: #f8fafc; line-height: 1.3; word-break: break-word; }
+        .lead-case-tabs { display: flex; gap: 6px; padding: 6px; margin-bottom: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 12px; position: sticky; top: 0; z-index: 5; }
+        .lead-case-tab { flex: 1; min-height: 42px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #cbd5e1; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; }
+        .lead-case-tab:hover { color: #f8fafc; background: #172036; }
+        .lead-case-tab[aria-selected="true"] { background: #1d4ed8; border-color: #2563eb; color: #ffffff; }
+        .lead-tab-panel[hidden] { display: none !important; }
+        .lead-quick-panel { display: none; position: fixed; top: 16px; left: 20px; width: min(380px, calc(100vw - 28px)); max-height: calc(100vh - 32px); overflow: auto; z-index: 320; background: #111827; border: 1px solid #334155; border-left: 3px solid #2563eb; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+        .client-details-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:18px 20px; box-sizing:border-box; }
+        .client-details-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px 24px; align-items:start; }
+        .client-details-column { display:flex; flex-direction:column; gap:14px; min-width:0; }
         .client-field label { display:block; font-size:12px; color:#9ca3af; margin-bottom:4px; }
         .client-input { display:block; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb; margin:0; font-size:14px; min-height:40px; }
         .client-input:disabled { background:#0b1220; color:#6b7280; }
-        .client-status-row { margin-bottom:10px; font-size:12px; color:#9ca3af; }
+        .client-status-row { margin-bottom:12px; font-size:12px; color:#9ca3af; }
         .client-field-address { grid-column: 1 / -1; }
         .client-phone-row { display:flex; gap:8px; align-items:stretch; }
         .client-phone-row .client-input { flex:1; }
@@ -49,18 +51,68 @@
         .temp-email-details > summary { cursor:pointer; list-style:none; padding:8px 10px; font-size:11px; font-weight:700; color:#9fb0c9; }
         .temp-email-details > summary::-webkit-details-marker { display:none; }
         .temp-email-content { padding:0 12px 12px 12px; border-top:1px solid #1f2937; }
+        .debts-workspace-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:18px 20px; box-sizing:border-box; }
+        .debts-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+        .ca-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 14px; border-bottom: 1px solid #1e293b; background: #111827; }
+        .ca-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+        .ca-title { margin: 0; font-size: 20px; color: #f8fafc; }
+        .ca-status-pill { font-size: 11px; font-weight: 700; color: #93c5fd; background: #1e3a5f; border: 1px solid #1d4ed8; border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
+        .ca-context { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1e293b; }
+        .ca-block { background: #020617; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px; }
+        .ca-block-title { margin: 0 0 6px; font-size: 11px; font-weight: 700; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.04em; }
+        .ca-block-body { margin: 0; font-size: 13px; line-height: 1.45; color: #e2e8f0; }
+        .ca-muted { color: #94a3b8; }
+        .ca-history { flex: 1; min-height: 160px; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: #020617; }
+        .ca-msg { border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; }
+        .ca-msg-system { background: #111827; border: 1px dashed #334155; color: #94a3b8; }
+        .ca-composer { padding: 12px 14px 14px; border-top: 1px solid #1e293b; background: #111827; }
+        .ca-composer-label { display: block; font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 6px; }
+        .ca-composer-row { display: flex; gap: 8px; align-items: stretch; }
+        .ca-input { flex: 1; min-height: 72px; resize: vertical; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid #374151; background: #020617; color: #f8fafc; font-size: 13px; font-family: inherit; }
+        .ca-input:disabled { color: #64748b; }
+        .ca-send { align-self: flex-end; min-height: 40px; padding: 8px 14px; border: 0; border-radius: 8px; background: #1e3a5f; color: #93c5fd; font-size: 13px; font-weight: 700; cursor: not-allowed; }
+        .ca-composer-hint { margin-top: 6px; font-size: 11px; color: #64748b; }
+        .fs-overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: #0b1220; }
+        .fs-ov-household { grid-column: span 2; }
+        .fs-ov-sfs { grid-column: span 3; }
+        .fs-ov-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; margin-bottom: 4px; }
+        .fs-ov-value { font-size: 16px; font-weight: 700; color: #e2e8f0; line-height: 1.25; }
+        .fs-ov-note { margin-top: 4px; font-size: 11px; color: #94a3b8; line-height: 1.35; }
+        .fs-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-top: 12px; }
+        @media (min-width: 1101px) {
+            html, body { height: 100%; }
+            body { overflow: hidden; }
+            .lead-page { height: 100vh; display: flex; flex-direction: column; padding-bottom: 16px; }
+            .lead-workspace { flex: 1; min-height: 0; }
+            .lead-workspace-main { overflow-y: auto; height: 100%; padding-right: 4px; }
+            .lead-case-assistant { height: 100%; min-height: 0; }
+        }
+        @media (max-width: 1200px) {
+            .lead-info-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .fs-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .fs-ov-household, .fs-ov-sfs { grid-column: span 3; }
+        }
+        @media (max-width: 1100px) {
+            .lead-workspace { grid-template-columns: 1fr; }
+            .lead-case-assistant { position: relative; top: auto; height: auto; min-height: 420px; }
+            .lead-nav-search-wrap { margin-left: 0; }
+        }
         @media (max-width: 720px) {
+            .lead-page { padding: 12px 12px 28px; }
             .lead-top-nav { gap: 5px; padding: 7px; }
             .lead-top-nav-link, .lead-top-nav-btn { font-size: 11px; padding: 5px 8px; min-height: 30px; }
-            .lead-info-item-value { font-size: 11px; }
-            .lead-section-title { font-size: 15px; }
-            .client-details-grid { grid-template-columns:1fr; gap:12px; }
+            .lead-info-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .lead-info-item-value { font-size: 13px; }
+            .lead-case-tabs { flex-direction: column; }
+            .client-details-grid, .fs-field-grid { grid-template-columns: 1fr; gap: 12px; }
+            .fs-overview { grid-template-columns: 1fr 1fr; }
+            .fs-ov-household, .fs-ov-sfs { grid-column: span 2; }
         }
     </style>
 </head>
 <body style="margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 
-<div style="max-width:980px; margin:0 auto; padding:20px 20px 40px 20px; box-sizing:border-box;">
+<div class="lead-page">
 
     @php
         $leadDisplayName = $lead->formattedName();
@@ -72,9 +124,6 @@
             <button type="button" id="openScribbleNotesBtn" class="lead-top-nav-btn">🗒️ Scribble Notes</button>
             <button type="button" id="openLeadFeedbackBtn" class="lead-top-nav-btn">💬 Lead Feedback</button>
             <button type="button" id="openPrepNotesBtn" class="lead-top-nav-btn">📌 Prep Notes</button>
-            <button type="button" id="jumpClientDetailsBtn" class="lead-top-nav-btn" data-nav-section="client-details-section">Client</button>
-            <button type="button" id="jumpDebtsBtn" class="lead-top-nav-btn" data-nav-section="debts-section">Debts</button>
-            <button type="button" id="jumpIncomeExpenditureBtn" class="lead-top-nav-btn" data-nav-section="income-expenditure-section">I&amp;E</button>
             <div id="leadNavSearchWrap" class="lead-nav-search-wrap">
                 <input
                     type="search"
@@ -208,12 +257,15 @@
         </div>
     </div>
 
-    <div id="client-details-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Client Details</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="client-details-section">Collapse</button>
-        </div>
-        <div id="client-details-section-body" class="lead-section-body">
+    <div class="lead-workspace">
+    <div class="lead-workspace-main">
+    <div class="lead-case-tabs" role="tablist" aria-label="Lead case sections">
+        <button type="button" role="tab" id="jumpClientDetailsBtn" class="lead-case-tab" data-case-tab="client-details" aria-controls="client-details-section" aria-selected="true">Client Details</button>
+        <button type="button" role="tab" id="jumpIncomeExpenditureBtn" class="lead-case-tab" data-case-tab="financial-statement" aria-controls="income-expenditure-section" aria-selected="false">Financial Statement</button>
+        <button type="button" role="tab" id="jumpDebtsBtn" class="lead-case-tab" data-case-tab="debts" aria-controls="debts-section" aria-selected="false">Debts</button>
+    </div>
+
+    <div id="client-details-section" class="lead-tab-panel" role="tabpanel" aria-labelledby="jumpClientDetailsBtn" data-case-panel="client-details">
     <div class="client-details-card">
         <div id="saveStatus" class="client-status-row">
             Ready
@@ -400,28 +452,16 @@
             </div>
         </div>
     </div>
-        </div>
     </div>
 
-    <div id="income-expenditure-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Income &amp; Expenditure</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="income-expenditure-section">Collapse</button>
-        </div>
-        <div id="income-expenditure-section-body" class="lead-section-body">
+    <div id="income-expenditure-section" class="lead-tab-panel" role="tabpanel" aria-labelledby="jumpIncomeExpenditureBtn" data-case-panel="financial-statement" hidden>
             @include('partials.financial-statement-card')
-        </div>
     </div>
 
-    <div id="debts-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Debts</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="debts-section">Collapse</button>
-        </div>
-        <div id="debts-section-body" class="lead-section-body">
-    <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-            <h2 style="margin:0; font-size:24px;">Debts</h2>
+    <div id="debts-section" class="lead-tab-panel" role="tabpanel" aria-labelledby="jumpDebtsBtn" data-case-panel="debts" hidden>
+    <div class="debts-workspace-card">
+        <div class="debts-toolbar">
+            <h2 style="margin:0; font-size:18px;">Debts</h2>
 
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                 <label for="practiceSelect" style="font-size:13px; color:#9ca3af;">Practice View</label>
@@ -472,7 +512,10 @@
             @include('leads.partials.lead-debts-section-inner')
         </div>
     </div>
-        </div>
+    </div>
+    </div>
+
+    @include('leads.partials.case-assistant')
     </div>
 
 <div
@@ -2167,68 +2210,48 @@
     })();
 
     (function initLeadSectionNavigation() {
-        const sectionIds = ['client-details-section', 'debts-section', 'income-expenditure-section'];
+        const tabButtons = Array.from(document.querySelectorAll('[data-case-tab]'));
+        const panels = Array.from(document.querySelectorAll('[data-case-panel]'));
+        const validTabs = tabButtons.map(function (btn) { return btn.getAttribute('data-case-tab'); });
 
-        function sectionBody(sectionId) {
-            return document.getElementById(sectionId + '-body');
-        }
-
-        function setExpanded(sectionId, expanded) {
-            const body = sectionBody(sectionId);
-            const toggle = document.querySelector('[data-section-toggle="' + sectionId + '"]');
-            const sectionEl = document.getElementById(sectionId);
-            if (!body || !toggle) return;
-            body.style.display = expanded ? 'block' : 'none';
-            toggle.textContent = expanded ? 'Collapse ▲' : 'Expand ▼';
-            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-            if (sectionEl) {
-                sectionEl.classList.toggle('is-active', expanded);
+        function showTab(tabId, options) {
+            const nextId = validTabs.indexOf(tabId) !== -1 ? tabId : 'client-details';
+            tabButtons.forEach(function (btn) {
+                const selected = btn.getAttribute('data-case-tab') === nextId;
+                btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+            });
+            panels.forEach(function (panel) {
+                const selected = panel.getAttribute('data-case-panel') === nextId;
+                if (selected) {
+                    panel.removeAttribute('hidden');
+                } else {
+                    panel.setAttribute('hidden', 'hidden');
+                }
+            });
+            if (!options || options.updateHash !== false) {
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState(null, '', '#' + nextId);
+                } else {
+                    window.location.hash = nextId;
+                }
             }
         }
 
-        function getStickyOffset() {
-            const shell = document.getElementById('leadStickyShell');
-            return shell ? shell.getBoundingClientRect().height + 16 : 16;
-        }
-
-        function focusSection(sectionId) {
-            sectionIds.forEach(function (id) {
-                setExpanded(id, id === sectionId);
-            });
-            document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
-                btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === sectionId);
-            });
-
-            const section = document.getElementById(sectionId);
-            if (!section) return;
-            const top = window.scrollY + section.getBoundingClientRect().top - getStickyOffset();
-            window.scrollTo({ top, behavior: 'smooth' });
-        }
-
-        document.querySelectorAll('[data-section-toggle]').forEach(function (toggleBtn) {
-            toggleBtn.addEventListener('click', function () {
-                const sectionId = this.getAttribute('data-section-toggle');
-                const body = sectionBody(sectionId);
-                if (!body) return;
-                const nextOpen = body.style.display === 'none';
-                setExpanded(sectionId, nextOpen);
+        tabButtons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                showTab(btn.getAttribute('data-case-tab'));
             });
         });
 
-        const jumpClientDetailsBtn = document.getElementById('jumpClientDetailsBtn');
-        const jumpDebtsBtn = document.getElementById('jumpDebtsBtn');
-        const jumpIncomeExpenditureBtn = document.getElementById('jumpIncomeExpenditureBtn');
-
-        if (jumpClientDetailsBtn) jumpClientDetailsBtn.addEventListener('click', function () { focusSection('client-details-section'); });
-        if (jumpDebtsBtn) jumpDebtsBtn.addEventListener('click', function () { focusSection('debts-section'); });
-        if (jumpIncomeExpenditureBtn) jumpIncomeExpenditureBtn.addEventListener('click', function () { focusSection('income-expenditure-section'); });
-
-        setExpanded('client-details-section', true);
-        setExpanded('debts-section', false);
-        setExpanded('income-expenditure-section', false);
-        document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
-            btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === 'client-details-section');
+        window.addEventListener('hashchange', function () {
+            const hash = String(window.location.hash || '').replace('#', '');
+            if (validTabs.indexOf(hash) !== -1) {
+                showTab(hash, { updateHash: false });
+            }
         });
+
+        const initialHash = String(window.location.hash || '').replace('#', '');
+        showTab(validTabs.indexOf(initialHash) !== -1 ? initialHash : 'client-details', { updateHash: initialHash !== '' });
     })();
 
     (function initLeadKeyboardShortcuts() {
@@ -2241,8 +2264,8 @@
 
         const shortcutActions = {
             '1': function () { const btn = document.getElementById('jumpClientDetailsBtn'); if (btn) btn.click(); },
-            '2': function () { const btn = document.getElementById('jumpDebtsBtn'); if (btn) btn.click(); },
-            '3': function () { const btn = document.getElementById('jumpIncomeExpenditureBtn'); if (btn) btn.click(); },
+            '2': function () { const btn = document.getElementById('jumpIncomeExpenditureBtn'); if (btn) btn.click(); },
+            '3': function () { const btn = document.getElementById('jumpDebtsBtn'); if (btn) btn.click(); },
             'n': function () { if (openScribbleNotesBtn) openScribbleNotesBtn.click(); },
             'p': function () { if (openPrepNotesBtn) openPrepNotesBtn.click(); },
         };

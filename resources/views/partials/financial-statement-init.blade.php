@@ -114,6 +114,27 @@
         }
 
         const hh = getHousehold();
+        const householdEl = document.getElementById('fs-overview-household');
+        if (householdEl) {
+            householdEl.textContent = formatHouseholdForCapLabel(hh);
+        }
+
+        const targetRaw = card.getAttribute('data-fs-target-di');
+        const targetDi = targetRaw === null || targetRaw === '' ? null : Number(targetRaw);
+        const varianceEl = document.getElementById('fs-overview-variance');
+        if (varianceEl) {
+            if (targetDi === null || !Number.isFinite(targetDi)) {
+                varianceEl.textContent = '—';
+                varianceEl.style.color = '#94a3b8';
+            } else {
+                const variance = Math.round((disposableTotalValue - targetDi) * 100) / 100;
+                const sign = variance > 0 ? '+' : '';
+                varianceEl.textContent = sign + fsFormatMoney(variance);
+                varianceEl.style.color = variance < 0 ? '#fda4af' : '#86efac';
+            }
+        }
+
+        const sfsWarnings = [];
         fsClientPayload.expenditure_sections.forEach(function (sec) {
             const sid = sec.id;
             const total = sectionTotal(sid);
@@ -172,6 +193,7 @@
                 }
                 meta.style.borderColor = '#854d0e';
                 meta.style.background = '#1c1917';
+                sfsWarnings.push(sec.title + ' below 65% of cap');
             } else if (below65El) {
                 below65El.style.display = 'none';
             }
@@ -183,10 +205,22 @@
                 }
                 meta.style.borderColor = '#991b1b';
                 meta.style.background = '#2a1215';
+                sfsWarnings.push(sec.title + ' exceeds cap');
             } else if (overEl) {
                 overEl.style.display = 'none';
             }
         });
+
+        const sfsEl = document.getElementById('fs-overview-sfs');
+        if (sfsEl) {
+            if (sfsWarnings.length === 0) {
+                sfsEl.textContent = 'No SFS guideline warnings';
+                sfsEl.style.color = '#86efac';
+            } else {
+                sfsEl.textContent = sfsWarnings.join(' · ');
+                sfsEl.style.color = '#fde68a';
+            }
+        }
     }
 
     let fsSaveTimer = null;

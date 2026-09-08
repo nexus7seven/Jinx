@@ -1,12 +1,34 @@
 @php
     $fsH = $financialStatement['household'];
     $fsLimits = $fsClientPayload['household_limits'];
+    $fsStored = is_array($lead->financial_statement ?? null) ? $lead->financial_statement : [];
+    $fsTargetDiRaw = $fsStored['facts']['target_di'] ?? $fsStored['calculation']['target_di'] ?? null;
+    $fsTargetDi = is_numeric($fsTargetDiRaw) ? (float) $fsTargetDiRaw : null;
 @endphp
 
-<div id="financialStatementCard" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+<style>
+    .fs-overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; padding: 12px; border: 1px solid #334155; border-radius: 12px; background: #0b1220; }
+    .fs-ov-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; margin-bottom: 4px; }
+    .fs-ov-value { font-size: 16px; font-weight: 700; color: #e2e8f0; line-height: 1.25; }
+    .fs-ov-note { margin-top: 4px; font-size: 11px; color: #94a3b8; line-height: 1.35; }
+    .fs-ov-household { grid-column: span 2; }
+    .fs-ov-sfs { grid-column: span 3; }
+    .fs-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-top: 12px; }
+    @media (max-width: 1200px) {
+        .fs-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .fs-ov-household, .fs-ov-sfs { grid-column: span 3; }
+    }
+    @media (max-width: 720px) {
+        .fs-overview { grid-template-columns: 1fr 1fr; }
+        .fs-ov-household, .fs-ov-sfs { grid-column: span 2; }
+        .fs-field-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div id="financialStatementCard" data-fs-target-di="{{ $fsTargetDi === null ? '' : number_format($fsTargetDi, 2, '.', '') }}" style="background:#111827; border:1px solid #374151; border-radius:14px; padding:18px 20px; box-sizing:border-box;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:14px;">
         <div>
-            <h2 style="margin:0; font-size:24px;">Income &amp; expenditure</h2>
+            <h2 style="margin:0; font-size:20px;">Financial Statement</h2>
             <div style="font-size:12px; color:#94a3b8; margin-top:6px;">SFS-style section caps for Comms &amp; Leisure, Food, Personal</div>
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; align-self:center;">
@@ -21,20 +43,35 @@
         </div>
     </div>
 
-    <div
-        style="position:sticky; top:16px; z-index:30; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:8px; margin-bottom:16px; padding:8px 10px; border:1px solid #334155; border-radius:10px; background:#0b1220; box-shadow:0 4px 12px rgba(2, 6, 23, 0.3);"
-    >
+    <div class="fs-overview">
         <div>
-            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Total income</div>
-            <div id="fs-summary-income-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25;">£0.00</div>
+            <div class="fs-ov-label">Target DI</div>
+            <div id="fs-overview-target-di" class="fs-ov-value">{{ $fsTargetDi === null ? 'Not set' : '£'.number_format($fsTargetDi, 2) }}</div>
+            <div class="fs-ov-note">Stored target{{ $fsTargetDi === null ? ' is not on this form yet' : '' }}</div>
         </div>
         <div>
-            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Total expenditure</div>
-            <div id="fs-summary-expenditure-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25;">£0.00</div>
+            <div class="fs-ov-label">Current DI</div>
+            <div id="fs-summary-disposable-total" class="fs-ov-value">£0.00</div>
         </div>
         <div>
-            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em; line-height:1.2;">Disposable income</div>
-            <div id="fs-summary-disposable-total" style="font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.25; transition:color 120ms ease;">£0.00</div>
+            <div class="fs-ov-label">Difference to target</div>
+            <div id="fs-overview-variance" class="fs-ov-value">—</div>
+        </div>
+        <div>
+            <div class="fs-ov-label">Total income</div>
+            <div id="fs-summary-income-total" class="fs-ov-value">£0.00</div>
+        </div>
+        <div>
+            <div class="fs-ov-label">Total expenditure</div>
+            <div id="fs-summary-expenditure-total" class="fs-ov-value">£0.00</div>
+        </div>
+        <div class="fs-ov-household">
+            <div class="fs-ov-label">Household</div>
+            <div id="fs-overview-household" class="fs-ov-value" style="font-size:14px;">—</div>
+        </div>
+        <div class="fs-ov-sfs">
+            <div class="fs-ov-label">SFS status / warnings</div>
+            <div id="fs-overview-sfs" class="fs-ov-value" style="font-size:14px;">—</div>
         </div>
     </div>
 
@@ -74,7 +111,7 @@
                 </span>
             </summary>
             <div style="padding:0 16px 14px 16px; border-top:1px solid #1e293b;">
-                <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+                <div class="fs-field-grid">
                     @foreach ($fsClientPayload['income'] as $row)
                         @php
                             $amt = (float) ($financialStatement['income'][$row['code']] ?? 0);
@@ -132,7 +169,7 @@
                                 <div data-fs-over style="margin-top:4px; display:none; color:#fecaca;"></div>
                             </div>
                         @endif
-                        <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+                        <div class="fs-field-grid">
                             @foreach ($section['lines'] as $line)
                                 @php
                                     $eAmt = (float) ($financialStatement['expenditure'][$line['code']] ?? 0);
