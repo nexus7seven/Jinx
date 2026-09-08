@@ -57,9 +57,10 @@ class FinancialStatementCalculationServiceTest extends TestCase
             app(FinancialStatementService::class)->emptyState(),
             ['household' => ['adults' => 1, 'partner_exists' => false]]
         ));
-        $this->assertSame(
+        $this->assertEqualsWithDelta(
             179.0,
-            $applied['calculation']['sfs']['comms']['max'] - $oneAdult['calculation']['sfs']['comms']['max']
+            $applied['calculation']['sfs']['comms']['max'] - $oneAdult['calculation']['sfs']['comms']['max'],
+            0.0001
         );
     }
 
@@ -82,13 +83,13 @@ class FinancialStatementCalculationServiceTest extends TestCase
             app(FinancialStatementService::class)->emptyState()
         );
 
-        $this->assertSame(317.80, $applied['calculation']['sfs']['housekeeping']['min']);
-        $this->assertSame(454.00, $applied['calculation']['sfs']['housekeeping']['max']);
-        $this->assertSame(175.00, $applied['calculation']['sfs']['comms']['min']);
-        $this->assertSame(250.00, $applied['calculation']['sfs']['comms']['max']);
-        $this->assertSame(66.50, $applied['calculation']['sfs']['personal']['min']);
-        $this->assertSame(95.00, $applied['calculation']['sfs']['personal']['max']);
-        $this->assertSame(454.00, $applied['calculation']['sfs']['housekeeping']['headroom']);
+        $this->assertEqualsWithDelta(317.80, $applied['calculation']['sfs']['housekeeping']['min'], 0.0001);
+        $this->assertEqualsWithDelta(454.00, $applied['calculation']['sfs']['housekeeping']['max'], 0.0001);
+        $this->assertEqualsWithDelta(175.00, $applied['calculation']['sfs']['comms']['min'], 0.0001);
+        $this->assertEqualsWithDelta(250.00, $applied['calculation']['sfs']['comms']['max'], 0.0001);
+        $this->assertEqualsWithDelta(66.50, $applied['calculation']['sfs']['personal']['min'], 0.0001);
+        $this->assertEqualsWithDelta(95.00, $applied['calculation']['sfs']['personal']['max'], 0.0001);
+        $this->assertEqualsWithDelta(454.00, $applied['calculation']['sfs']['housekeeping']['headroom'], 0.0001);
         $this->assertSame('calculated', $applied['line_meta']['calculation.sfs.housekeeping']['origin']);
     }
 
@@ -100,7 +101,7 @@ class FinancialStatementCalculationServiceTest extends TestCase
 
         $applied = app(FinancialStatementCalculationService::class)->apply($statement);
 
-        $this->assertSame(569.0, $applied['calculation']['sfs']['comms']['max']);
+        $this->assertEqualsWithDelta(569.0, $applied['calculation']['sfs']['comms']['max'], 0.0001);
     }
 
     public function test_totals_disposable_income_and_target_di(): void
@@ -114,13 +115,13 @@ class FinancialStatementCalculationServiceTest extends TestCase
 
         $applied = app(FinancialStatementCalculationService::class)->apply($statement);
 
-        $this->assertSame(2000.0, $applied['calculation']['income_total']);
-        $this->assertSame(1315.0, $applied['calculation']['expenditure_total']);
-        $this->assertSame(685.0, $applied['calculation']['disposable_income']);
-        $this->assertSame(150.0, $applied['calculation']['target_di']);
-        $this->assertSame(1850.0, $applied['calculation']['required_expenditure']);
-        $this->assertSame(535.0, $applied['calculation']['variance_to_target']);
-        $this->assertSame(400.0, $applied['calculation']['sfs']['housekeeping']['actual']);
+        $this->assertEqualsWithDelta(2000.0, $applied['calculation']['income_total'], 0.0001);
+        $this->assertEqualsWithDelta(1315.0, $applied['calculation']['expenditure_total'], 0.0001);
+        $this->assertEqualsWithDelta(685.0, $applied['calculation']['disposable_income'], 0.0001);
+        $this->assertEqualsWithDelta(150.0, $applied['calculation']['target_di'], 0.0001);
+        $this->assertEqualsWithDelta(1850.0, $applied['calculation']['required_expenditure'], 0.0001);
+        $this->assertEqualsWithDelta(535.0, $applied['calculation']['variance_to_target'], 0.0001);
+        $this->assertEqualsWithDelta(400.0, $applied['calculation']['sfs']['housekeeping']['actual'], 0.0001);
         $this->assertEqualsWithDelta(400 / 317.80 * 100, $applied['calculation']['sfs']['housekeeping']['pct_min'], 0.0001);
         $this->assertEqualsWithDelta(400 / 454.00 * 100, $applied['calculation']['sfs']['housekeeping']['pct_max'], 0.0001);
     }

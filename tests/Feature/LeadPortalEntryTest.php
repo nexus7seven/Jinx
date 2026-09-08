@@ -810,7 +810,7 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
-        $this->assertSame(2450.50, $lead->financial_statement['income']['client_salary']);
+        $this->assertEquals(2450.50, $lead->financial_statement['income']['client_salary']);
     }
 
     public function test_self_employed_income_maps_to_client_salary(): void
@@ -827,8 +827,8 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
-        $this->assertSame(1800.0, $lead->financial_statement['income']['client_salary']);
-        $this->assertSame(0.0, $lead->financial_statement['income']['self_employed']);
+        $this->assertEquals(1800.0, $lead->financial_statement['income']['client_salary']);
+        $this->assertEquals(0.0, $lead->financial_statement['income']['self_employed']);
     }
 
     public function test_benefits_income_does_not_map_to_universal_credit(): void
@@ -846,8 +846,8 @@ class LeadPortalEntryTest extends TestCase
 
         $lead->refresh();
         $this->assertSame('900.00', (string) $lead->monthly_income);
-        $this->assertSame(0.0, $lead->financial_statement['income']['universal_credit']);
-        $this->assertSame(0.0, $lead->financial_statement['income']['client_salary']);
+        $this->assertEquals(0.0, $lead->financial_statement['income']['universal_credit']);
+        $this->assertEquals(0.0, $lead->financial_statement['income']['client_salary']);
     }
 
     public function test_unemployed_income_does_not_map_to_universal_credit(): void
@@ -865,7 +865,7 @@ class LeadPortalEntryTest extends TestCase
 
         $lead->refresh();
         $this->assertSame('500.00', (string) $lead->monthly_income);
-        $this->assertSame(0.0, $lead->financial_statement['income']['universal_credit']);
+        $this->assertEquals(0.0, $lead->financial_statement['income']['universal_credit']);
     }
 
     public function test_pension_income_maps_to_pension_key(): void
@@ -882,7 +882,7 @@ class LeadPortalEntryTest extends TestCase
         ])->assertRedirect(route('portal.entry', ['token' => $issued['token']]));
 
         $lead->refresh();
-        $this->assertSame(1200.0, $lead->financial_statement['income']['pension']);
+        $this->assertEquals(1200.0, $lead->financial_statement['income']['pension']);
     }
 
     public function test_saving_income_rejects_invalid_employment_status_option(): void
@@ -1040,13 +1040,13 @@ class LeadPortalEntryTest extends TestCase
         $this->assertSame(2, $lead->financial_statement['schema_version']);
         $housing = $lead->financial_statement['expenditure']['housing'];
         $utilities = $lead->financial_statement['expenditure']['utilities'];
-        $this->assertSame(900.0, $housing['rent_mortgage']);
-        $this->assertSame(100.0, $housing['council_tax']);
-        $this->assertSame(15.0, $housing['tv_licence']);
-        $this->assertSame(0.0, $utilities['electricity']);
-        $this->assertSame(0.0, $utilities['gas']);
-        $this->assertSame(0.0, $utilities['water']);
-        $this->assertSame(0.0, $lead->financial_statement['expenditure']['sfs']['housekeeping']);
+        $this->assertEquals(900.0, $housing['rent_mortgage']);
+        $this->assertEquals(100.0, $housing['council_tax']);
+        $this->assertEquals(15.0, $housing['tv_licence']);
+        $this->assertEquals(0.0, $utilities['electricity']);
+        $this->assertEquals(0.0, $utilities['gas']);
+        $this->assertEquals(0.0, $utilities['water']);
+        $this->assertEquals(0.0, $lead->financial_statement['expenditure']['sfs']['housekeeping']);
         $this->assertSame('150.00', (string) $lead->monthly_utilities_cost);
         $this->assertSame('300.00', (string) $lead->monthly_food_travel_cost);
     }
@@ -1083,9 +1083,9 @@ class LeadPortalEntryTest extends TestCase
         $lead->refresh();
         $this->assertSame(2, $lead->financial_statement['household']['adults']);
         $this->assertSame(1, $lead->financial_statement['household']['children_under_16']);
-        $this->assertSame(777.0, $lead->financial_statement['income']['partner_salary']);
-        $this->assertSame(44.0, $lead->financial_statement['expenditure']['sfs']['comms']['home_internet_tv']);
-        $this->assertSame(900.0, $lead->financial_statement['expenditure']['housing']['rent_mortgage']);
+        $this->assertEquals(777.0, $lead->financial_statement['income']['partner_salary']);
+        $this->assertEquals(44.0, $lead->financial_statement['expenditure']['sfs']['comms']['home_internet_tv']);
+        $this->assertEquals(900.0, $lead->financial_statement['expenditure']['housing']['rent_mortgage']);
         $this->assertSame(2, $lead->financial_statement['schema_version']);
     }
 

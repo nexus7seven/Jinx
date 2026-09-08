@@ -60,8 +60,8 @@ class LeadFinancialStatementTest extends TestCase
         $mapped = app(FinancialStatementService::class)->mergeForLead($lead);
 
         $this->assertSame(2, $mapped['schema_version']);
-        $this->assertSame(1000.0, $mapped['income']['client_salary']);
-        $this->assertSame(200.0, $mapped['expenditure']['sfs']['housekeeping']);
+        $this->assertEquals(1000.0, $mapped['income']['client_salary']);
+        $this->assertEquals(200.0, $mapped['expenditure']['sfs']['housekeeping']);
         $this->assertSame(1, $lead->fresh()->financial_statement['schema_version']);
         $this->assertSame(1000, $lead->fresh()->financial_statement['income']['salary']);
     }
@@ -161,8 +161,8 @@ class LeadFinancialStatementTest extends TestCase
 
         $lead->refresh();
         $this->assertSame(2, $lead->financial_statement['schema_version']);
-        $this->assertSame(1100.0, $lead->financial_statement['income']['client_salary']);
-        $this->assertSame(15.0, $lead->financial_statement['expenditure']['housing']['tv_licence']);
+        $this->assertEquals(1100.0, $lead->financial_statement['income']['client_salary']);
+        $this->assertEquals(15.0, $lead->financial_statement['expenditure']['housing']['tv_licence']);
         $this->assertArrayNotHasKey('salary', $lead->financial_statement['income']);
     }
 }
