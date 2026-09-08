@@ -16,8 +16,15 @@ class SpendingGuidelineServiceTest extends TestCase
     public function test_comms_leisure_two_adults_one_teen(): void
     {
         $s = app(SpendingGuidelineService::class);
-        // 250 + 178 + 140
-        $this->assertSame(568.0, $s->cap('comms_leisure', 2, 0, 1));
+        // 250 + 179 + 140
+        $this->assertSame(569.0, $s->cap('comms_leisure', 2, 0, 1));
+    }
+
+    public function test_comms_min_preserves_source_precision(): void
+    {
+        $s = app(SpendingGuidelineService::class);
+        $this->assertSame(175.0, $s->bounds('comms', 1, 0, 0)['min']);
+        $this->assertSame(125.30, $s->bounds('comms', 2, 0, 0)['min'] - 175.0);
     }
 
     public function test_food_two_adults_one_child_under_16(): void

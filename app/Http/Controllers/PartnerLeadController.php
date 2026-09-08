@@ -182,7 +182,7 @@ class PartnerLeadController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $financialStatement = $this->financialStatementService->mergeForLead($lead);
+        $financialStatement = $this->financialStatementService->uiStateForLead($lead);
         $fsClientPayload = $this->financialStatementService->clientViewPayload();
 
         return view('partner.lead-debts', [

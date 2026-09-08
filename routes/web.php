@@ -197,7 +197,7 @@ Route::middleware('auth')->group(function () {
         $creditors = Creditor::orderBy('name')->get();
         $practices = VotingPractice::orderBy('id')->get();
         $financialStatementService = app(FinancialStatementService::class);
-        $financialStatement = $financialStatementService->mergeForLead($lead);
+        $financialStatement = $financialStatementService->uiStateForLead($lead);
         $fsClientPayload = $financialStatementService->clientViewPayload();
 
         $lastDialledAt = app(VicidialDialActivityService::class)->lastDialledAtForLead($lead);

@@ -22,7 +22,11 @@ class FinancialStatementCalculationService
         $statement = $this->applyHouseholdDerived($statement);
         $statement = $this->applyTvLicence($statement);
         $statement = $this->syncSfsSectionTotals($statement);
-        $statement['calculation']['sfs'] = $this->sfsAnalysis($statement);
+        $analysis = $this->sfsAnalysis($statement);
+        $statement['calculation']['sfs'] = $analysis;
+        foreach (array_keys($analysis) as $band) {
+            $this->markDerived($statement, "calculation.sfs.{$band}");
+        }
         $statement = $this->applyTotals($statement);
         $statement = $this->ensureFlags($statement);
 
@@ -38,6 +42,13 @@ class FinancialStatementCalculationService
         $household = is_array($statement['household'] ?? null) ? $statement['household'] : [];
         $adults = max(1, (int) ($household['adults'] ?? 1));
         $children = is_array($household['children'] ?? null) ? $household['children'] : [];
+        $partnerExists = array_key_exists('partner_exists', $household)
+            ? (bool) $household['partner_exists']
+            : $adults > 1;
+
+        if ($partnerExists) {
+            $adults = max($adults, 2);
+        }
 
         $fromAges = $this->childBandsFromAges($children);
 
@@ -59,9 +70,7 @@ class FinancialStatementCalculationService
             'children_under_16' => $under16,
             'children_16_18' => $age1618,
             'size' => $adults + $childCount,
-            'partner_exists' => array_key_exists('partner_exists', $household)
-                ? (bool) $household['partner_exists']
-                : $adults > 1,
+            'partner_exists' => $partnerExists,
             'council_tax_counting_adults' => $household['council_tax_counting_adults'] ?? null,
         ]);
 
@@ -180,7 +189,6 @@ class FinancialStatementCalculationService
                 'pct_max' => $max > 0 ? ($actual / $max) * 100 : null,
                 'headroom' => $max - $actual,
             ];
-            $this->markDerived($statement, "calculation.sfs.{$band}");
         }
 
         return $analysis;
