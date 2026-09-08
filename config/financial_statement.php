@@ -9,14 +9,20 @@ return [
     ],
 
     'income' => [
-        ['code' => 'salary', 'label' => 'Salary'],
+        ['code' => 'client_salary', 'label' => 'Salary'],
         ['code' => 'partner_salary', 'label' => 'Partner Salary'],
         ['code' => 'self_employed', 'label' => 'Self Employed Income'],
         ['code' => 'universal_credit', 'label' => 'Universal Credit'],
         ['code' => 'child_benefit', 'label' => 'Child Benefit'],
-        ['code' => 'child_maintenance_in', 'label' => 'Child Maintenance'],
-        ['code' => 'pensions', 'label' => 'Pensions'],
+        ['code' => 'maintenance_received', 'label' => 'Child Maintenance'],
+        ['code' => 'pension', 'label' => 'Pensions'],
+        ['code' => 'pip_dla', 'label' => 'PIP / DLA'],
+        ['code' => 'esa', 'label' => 'ESA'],
+        ['code' => 'carers_allowance', 'label' => "Carer's Allowance"],
+        ['code' => 'student', 'label' => 'Student loan / grant / bursary'],
+        ['code' => 'foster_guardianship', 'label' => 'Foster / Guardianship Allowance'],
         ['code' => 'other_income', 'label' => 'Other'],
+        ['code' => 'uc_advance_add_back', 'label' => 'UC Advance add-back'],
     ],
 
     'expenditure_sections' => [
@@ -35,7 +41,7 @@ return [
             'title' => 'Utilities',
             'cap_band' => null,
             'lines' => [
-                ['code' => 'electric', 'label' => 'Electric'],
+                ['code' => 'electricity', 'label' => 'Electric'],
                 ['code' => 'gas', 'label' => 'Gas'],
                 ['code' => 'water', 'label' => 'Water'],
             ],
@@ -58,7 +64,7 @@ return [
                 ['code' => 'public_transport', 'label' => 'Public Transport'],
                 ['code' => 'car_finance', 'label' => 'Car Finance'],
                 ['code' => 'car_insurance', 'label' => 'Car Insurance'],
-                ['code' => 'car_tax', 'label' => 'Car Tax'],
+                ['code' => 'road_tax', 'label' => 'Car Tax'],
                 ['code' => 'mot_maintenance', 'label' => 'MOT / Maintenance'],
                 ['code' => 'breakdown_cover', 'label' => 'Breakdown Cover'],
                 ['code' => 'fuel', 'label' => 'Fuel'],
@@ -69,7 +75,7 @@ return [
             'title' => 'Food / House',
             'cap_band' => 'food',
             'lines' => [
-                ['code' => 'food', 'label' => 'Food'],
+                ['code' => 'housekeeping', 'label' => 'Food'],
             ],
         ],
         [
@@ -87,7 +93,7 @@ return [
             'lines' => [
                 ['code' => 'childcare', 'label' => 'Childcare'],
                 ['code' => 'adult_care', 'label' => 'Adult Care'],
-                ['code' => 'child_maintenance_out', 'label' => 'Child Maintenance'],
+                ['code' => 'maintenance_paid', 'label' => 'Child Maintenance'],
                 ['code' => 'prescriptions', 'label' => 'Prescriptions'],
                 ['code' => 'dentistry', 'label' => 'Dentistry'],
             ],
