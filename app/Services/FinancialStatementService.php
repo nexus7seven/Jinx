@@ -194,7 +194,7 @@ class FinancialStatementService
     }
 
     /**
-     * Flattened projection for the existing staff/partner I&E card.
+     * Flattened projection for the existing staff/partner I&E card, including overview fields.
      *
      * @return array<string, mixed>
      */
@@ -214,9 +214,29 @@ class FinancialStatementService
             $expenditure[$code] = $this->valueAtPath($statement['expenditure'] ?? [], $path);
         }
 
+        $calculation = is_array($statement['calculation'] ?? null) ? $statement['calculation'] : [];
+        $facts = is_array($statement['facts'] ?? null) ? $statement['facts'] : [];
+        $flags = is_array($statement['flags'] ?? null) ? $statement['flags'] : [];
+
         return [
             'schema_version' => 2,
             'guidelines_version' => $statement['guidelines_version'] ?? config('sfs_spending_guidelines.version'),
+            'status' => $statement['status'] ?? null,
+            'flags' => [
+                'rule_required' => array_values($flags['rule_required'] ?? []),
+                'calculator_required' => array_values($flags['calculator_required'] ?? []),
+            ],
+            'facts' => [
+                'target_di' => $facts['target_di'] ?? ($calculation['target_di'] ?? null),
+            ],
+            'calculation' => [
+                'income_total' => $calculation['income_total'] ?? null,
+                'expenditure_total' => $calculation['expenditure_total'] ?? null,
+                'disposable_income' => $calculation['disposable_income'] ?? null,
+                'target_di' => $calculation['target_di'] ?? ($facts['target_di'] ?? null),
+                'variance_to_target' => $calculation['variance_to_target'] ?? null,
+                'sfs' => $calculation['sfs'] ?? null,
+            ],
             'household' => $statement['household'] ?? [],
             'income' => $statement['income'] ?? [],
             'expenditure' => $expenditure,

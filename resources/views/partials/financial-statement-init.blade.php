@@ -114,6 +114,56 @@
         }
 
         const hh = getHousehold();
+        const householdEl = document.getElementById('fs-overview-household');
+        if (householdEl) {
+            const size = hh.adults + hh.children_under_16 + hh.children_16_18;
+            householdEl.textContent = hh.adults + (hh.adults === 1 ? ' adult' : ' adults')
+                + ', ' + hh.children_under_16 + ' under 16'
+                + ', ' + hh.children_16_18 + ' aged 16–18'
+                + ' · household size ' + size;
+        }
+
+        const overview = document.getElementById('fsOverview');
+        const targetRaw = overview ? overview.getAttribute('data-target-di') : '';
+        const targetDi = targetRaw === '' || targetRaw === null ? null : Number(targetRaw);
+        const targetEl = document.getElementById('fs-overview-target-di');
+        const diffEl = document.getElementById('fs-overview-diff-target');
+        if (targetEl) {
+            targetEl.textContent = targetDi === null || !Number.isFinite(targetDi) ? '—' : fsFormatMoney(targetDi);
+        }
+        if (diffEl) {
+            if (targetDi === null || !Number.isFinite(targetDi)) {
+                diffEl.textContent = '—';
+                diffEl.style.color = '#e2e8f0';
+            } else {
+                const diff = Math.round((disposableTotalValue - targetDi) * 100) / 100;
+                diffEl.textContent = fsFormatMoney(diff);
+                diffEl.style.color = diff < 0 ? '#fda4af' : '#86efac';
+            }
+        }
+
+        const warningEl = document.getElementById('fs-overview-warnings');
+        if (warningEl) {
+            const liveWarnings = [];
+            fsClientPayload.expenditure_sections.forEach(function (sec) {
+                if (!sec.cap_band) {
+                    return;
+                }
+                const total = sectionTotal(sec.id);
+                const cap = fsComputeCap(sec.cap_band, hh.adults, hh.children_under_16, hh.children_16_18);
+                if (cap > 0 && total > cap + 0.005) {
+                    liveWarnings.push(sec.title + ' exceeds guideline cap.');
+                }
+            });
+            const storedWarnings = [];
+            if (Array.isArray(fsClientPayload.savedFlags)) {
+                fsClientPayload.savedFlags.forEach(function (flag) {
+                    if (flag) storedWarnings.push(String(flag));
+                });
+            }
+            const combined = storedWarnings.concat(liveWarnings);
+            warningEl.textContent = combined.length ? combined.join(' ') : 'None';
+        }
         fsClientPayload.expenditure_sections.forEach(function (sec) {
             const sid = sec.id;
             const total = sectionTotal(sid);
@@ -223,6 +273,8 @@
             }
             statusEl.textContent = 'Saved';
             statusEl.style.color = '#10b981';
+            applySavedStatement(data.financial_statement || null);
+            refreshTotalsAndGuidelines();
         } catch (e) {
             statusEl.textContent = 'Save failed';
             statusEl.style.color = '#ef4444';
@@ -249,14 +301,57 @@
         }
     });
 
-    const minimiseAllBtn = document.getElementById('fsMinimiseAllIe');
-    if (minimiseAllBtn) {
-        minimiseAllBtn.addEventListener('click', function () {
-            card.querySelectorAll('details[data-fs-ie-card]').forEach(function (d) {
-                d.removeAttribute('open');
-            });
-        });
+    function sfsBandLabel(band) {
+        if (band === 'housekeeping') return 'Food / housekeeping';
+        if (band === 'comms') return 'Comms & leisure';
+        if (band === 'personal') return 'Personal';
+        return String(band);
     }
+
+    function applySavedStatement(statement) {
+        if (!statement || typeof statement !== 'object') {
+            return;
+        }
+        const overview = document.getElementById('fsOverview');
+        const calc = statement.calculation || {};
+        const facts = statement.facts || {};
+        const target = calc.target_di ?? facts.target_di;
+        if (overview) {
+            overview.setAttribute('data-target-di', target === null || target === undefined || target === '' ? '' : String(target));
+            if (statement.status) {
+                overview.setAttribute('data-status', statement.status);
+            }
+        }
+        const statusOverviewEl = document.getElementById('fs-overview-status');
+        if (statusOverviewEl && statement.status) {
+            statusOverviewEl.textContent = String(statement.status).replace(/_/g, ' ');
+        }
+        const flags = statement.flags || {};
+        const savedFlags = [].concat(flags.rule_required || [], flags.calculator_required || []);
+        const sfs = calc.sfs || {};
+        Object.keys(sfs).forEach(function (band) {
+            const row = sfs[band] || {};
+            const max = Number(row.max || 0);
+            const actual = Number(row.actual || 0);
+            if (max > 0 && actual > max + 0.005) {
+                savedFlags.push(sfsBandLabel(band) + ' exceeds SFS guideline max.');
+            }
+        });
+        fsClientPayload.savedFlags = savedFlags;
+    }
+
+    (function seedSavedFlags() {
+        const overviewEl = document.getElementById('fsOverview');
+        if (!overviewEl) {
+            return;
+        }
+        try {
+            const raw = overviewEl.getAttribute('data-flags');
+            fsClientPayload.savedFlags = raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            fsClientPayload.savedFlags = [];
+        }
+    })();
 
     refreshTotalsAndGuidelines();
 })();

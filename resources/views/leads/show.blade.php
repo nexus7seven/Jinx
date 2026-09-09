@@ -7,7 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         #leadStickyShell,
-        .lead-sticky-shell { position: sticky; top: 0; z-index: 10000; margin-bottom: 12px; overflow: visible; }
+        .lead-sticky-shell { position: sticky; top: 0; z-index: 10000; margin-bottom: 12px; overflow: visible; flex-shrink: 0; }
         .lead-top-nav { position: relative; z-index: 10001; overflow: visible; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: rgba(2, 6, 23, 0.98); border: 1px solid #374151; border-radius: 12px 12px 0 0; border-bottom: 0; backdrop-filter: blur(8px); }
         .lead-top-nav-link, .lead-top-nav-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; padding: 6px 9px; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
         .lead-top-nav-btn { font-family: inherit; }
@@ -26,13 +26,40 @@
         .lead-info-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; padding: 8px 10px; background: rgba(17, 24, 39, 0.98); border: 1px solid #374151; border-radius: 0 0 12px 12px; backdrop-filter: blur(8px); }
         .lead-info-item-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
         .lead-info-item-value { font-size: 12px; font-weight: 700; color: #f8fafc; line-height: 1.25; word-break: break-word; }
-        .lead-section-shell { margin-bottom: 18px; position: relative; z-index: 1; }
-        .lead-section-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #374151; border-radius: 12px; background: #0f172a; }
-        .lead-section-shell.is-active .lead-section-header { border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,0.28); }
-        .lead-section-title { font-size: 16px; font-weight: 700; color: #f8fafc; }
-        .lead-section-toggle { min-height: 32px; border-radius: 8px; border: 1px solid #475569; background: #111827; color: #e5e7eb; padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer; min-width: 110px; text-align: center; }
-        .lead-section-toggle:hover { border-color: #60a5fa; color: #f8fafc; }
-        .lead-section-body { margin-top: 10px; }
+        html, body { height: 100%; }
+        .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        .lead-page-frame { max-width: min(1760px, 100%); margin: 0 auto; padding: 12px 16px 12px; box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; min-height: 0; }
+        .lead-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(380px, 1fr); gap: 16px; align-items: stretch; }
+        .lead-workspace-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+        .case-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+        .case-tab { flex: 1; min-height: 46px; border-radius: 10px; border: 1px solid #334155; background: #111827; color: #cbd5e1; padding: 10px 14px; font-size: 14px; font-weight: 800; letter-spacing: 0.01em; cursor: pointer; font-family: inherit; }
+        .case-tab:hover { border-color: #60a5fa; color: #f8fafc; }
+        .case-tab.is-active { background: #1d4ed8; border-color: #2563eb; color: #ffffff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
+        .lead-main-scroll { flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
+        .case-tab-panel { display: none; }
+        .case-tab-panel.is-active { display: block; }
+        .debts-workspace-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; }
+        .case-assistant { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #0f172a; border: 1px solid #334155; border-radius: 14px; overflow: hidden; }
+        .case-assistant-header { flex-shrink: 0; padding: 14px 16px 10px; border-bottom: 1px solid #1e293b; background: linear-gradient(180deg, #172036 0%, #0f172a 100%); }
+        .case-assistant-title { margin: 0; font-size: 20px; color: #f8fafc; }
+        .case-assistant-subtitle { margin-top: 4px; font-size: 12px; color: #94a3b8; }
+        .case-assistant-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+        .case-assistant-panel, .case-assistant-history-wrap { background: #020617; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px; }
+        .case-assistant-history-wrap { flex: 1; min-height: 120px; display: flex; flex-direction: column; }
+        .case-assistant-panel-title { margin: 0 0 8px; font-size: 11px; font-weight: 800; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.05em; }
+        .case-assistant-context { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+        .case-assistant-context dt { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .case-assistant-context dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; color: #e2e8f0; }
+        .case-assistant-muted { font-size: 13px; color: #94a3b8; line-height: 1.45; }
+        .case-assistant-history { flex: 1; overflow: auto; min-height: 80px; }
+        .case-assistant-composer { flex-shrink: 0; padding: 10px 12px 12px; border-top: 1px solid #1e293b; background: #0b1220; }
+        .case-assistant-input { width: 100%; box-sizing: border-box; resize: none; min-height: 72px; border-radius: 10px; border: 1px solid #334155; background: #020617; color: #f8fafc; padding: 10px 12px; font-size: 14px; font-family: inherit; }
+        .case-assistant-input:disabled { color: #64748b; }
+        .case-assistant-composer-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+        .case-assistant-send { min-height: 36px; border: 0; border-radius: 8px; background: #1e3a8a; color: #93c5fd; padding: 8px 14px; font-weight: 700; cursor: not-allowed; }
+        #debtList { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+        #debtList .debt-row { margin-bottom: 0 !important; }
+        #noDebtsMessage { grid-column: 1 / -1; }
         .lead-quick-panel { display: none; position: fixed; top: 78px; right: 20px; width: min(360px, calc(100vw - 28px)); max-height: calc(100vh - 96px); overflow: auto; z-index: 320; background: #111827; border: 1px solid #334155; border-right: 3px solid #2563eb; border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
         .client-details-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:14px; box-sizing:border-box; margin-bottom:14px; }
         .client-details-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 16px; align-items:start; }
@@ -49,18 +76,25 @@
         .temp-email-details > summary { cursor:pointer; list-style:none; padding:8px 10px; font-size:11px; font-weight:700; color:#9fb0c9; }
         .temp-email-details > summary::-webkit-details-marker { display:none; }
         .temp-email-content { padding:0 12px 12px 12px; border-top:1px solid #1f2937; }
+        @media (max-width: 1100px) {
+            .lead-page-frame { height: auto; min-height: 100vh; }
+            .lead-workspace { grid-template-columns: 1fr; }
+            .lead-main-scroll { overflow: visible; }
+            .case-assistant { min-height: 520px; }
+        }
         @media (max-width: 720px) {
             .lead-top-nav { gap: 5px; padding: 7px; }
             .lead-top-nav-link, .lead-top-nav-btn { font-size: 11px; padding: 5px 8px; min-height: 30px; }
             .lead-info-item-value { font-size: 11px; }
-            .lead-section-title { font-size: 15px; }
             .client-details-grid { grid-template-columns:1fr; gap:12px; }
+            .case-assistant-context { grid-template-columns: 1fr; }
+            #debtList { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body style="margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#f9fafb; min-height:100vh;">
 
-<div style="max-width:980px; margin:0 auto; padding:20px 20px 40px 20px; box-sizing:border-box;">
+<div class="lead-page-frame">
 
     @php
         $leadDisplayName = $lead->formattedName();
@@ -72,9 +106,6 @@
             <button type="button" id="openScribbleNotesBtn" class="lead-top-nav-btn">🗒️ Scribble Notes</button>
             <button type="button" id="openLeadFeedbackBtn" class="lead-top-nav-btn">💬 Lead Feedback</button>
             <button type="button" id="openPrepNotesBtn" class="lead-top-nav-btn">📌 Prep Notes</button>
-            <button type="button" id="jumpClientDetailsBtn" class="lead-top-nav-btn" data-nav-section="client-details-section">Client</button>
-            <button type="button" id="jumpDebtsBtn" class="lead-top-nav-btn" data-nav-section="debts-section">Debts</button>
-            <button type="button" id="jumpIncomeExpenditureBtn" class="lead-top-nav-btn" data-nav-section="income-expenditure-section">I&amp;E</button>
             <div id="leadNavSearchWrap" class="lead-nav-search-wrap">
                 <input
                     type="search"
@@ -208,12 +239,15 @@
         </div>
     </div>
 
-    <div id="client-details-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Client Details</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="client-details-section">Collapse</button>
-        </div>
-        <div id="client-details-section-body" class="lead-section-body">
+    <div class="lead-workspace">
+        <div class="lead-workspace-main">
+            <div class="case-tabs" role="tablist" aria-label="Case sections">
+                <button type="button" class="case-tab is-active" role="tab" id="tabBtnClientDetails" data-case-tab="client-details" aria-selected="true">Client Details</button>
+                <button type="button" class="case-tab" role="tab" id="tabBtnFinancialStatement" data-case-tab="financial-statement" aria-selected="false">Financial Statement</button>
+                <button type="button" class="case-tab" role="tab" id="tabBtnDebts" data-case-tab="debts" aria-selected="false">Debts</button>
+            </div>
+            <div class="lead-main-scroll">
+    <div id="client-details-section" class="case-tab-panel is-active" role="tabpanel" data-case-panel="client-details">
     <div class="client-details-card">
         <div id="saveStatus" class="client-status-row">
             Ready
@@ -400,26 +434,14 @@
             </div>
         </div>
     </div>
-        </div>
     </div>
 
-    <div id="income-expenditure-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Income &amp; Expenditure</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="income-expenditure-section">Collapse</button>
-        </div>
-        <div id="income-expenditure-section-body" class="lead-section-body">
+    <div id="income-expenditure-section" class="case-tab-panel" role="tabpanel" data-case-panel="financial-statement">
             @include('partials.financial-statement-card')
-        </div>
     </div>
 
-    <div id="debts-section" class="lead-section-shell">
-        <div class="lead-section-header">
-            <div class="lead-section-title">Debts</div>
-            <button type="button" class="lead-section-toggle" data-section-toggle="debts-section">Collapse</button>
-        </div>
-        <div id="debts-section-body" class="lead-section-body">
-    <div style="background:#111827; border:1px solid #374151; border-radius:14px; padding:22px; box-sizing:border-box; margin-bottom:20px;">
+    <div id="debts-section" class="case-tab-panel" role="tabpanel" data-case-panel="debts">
+    <div class="debts-workspace-card">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
             <h2 style="margin:0; font-size:24px;">Debts</h2>
 
@@ -472,8 +494,12 @@
             @include('leads.partials.lead-debts-section-inner')
         </div>
     </div>
-        </div>
     </div>
+            </div>
+        </div>
+        @include('leads.partials.case-assistant')
+    </div>
+</div>
 
 <div
     id="debtModalOverlay"
@@ -2155,6 +2181,10 @@
                 if (leadInfoWipStatus) {
                     leadInfoWipStatus.textContent = data.wip_status;
                 }
+                const caseAssistantWipStatus = document.getElementById('caseAssistantWipStatus');
+                if (caseAssistantWipStatus) {
+                    caseAssistantWipStatus.textContent = data.wip_status;
+                }
             } catch (e) {
                 alert('Could not update WIP status.');
                 leadWipStatusSelect.value = originalWipStatus;
@@ -2164,71 +2194,50 @@
         if (leadInfoWipStatus) {
             leadInfoWipStatus.textContent = leadWipStatusSelect.value;
         }
+        const caseAssistantWipStatus = document.getElementById('caseAssistantWipStatus');
+        if (caseAssistantWipStatus) {
+            caseAssistantWipStatus.textContent = leadWipStatusSelect.value;
+        }
     })();
 
     (function initLeadSectionNavigation() {
-        const sectionIds = ['client-details-section', 'debts-section', 'income-expenditure-section'];
+        const tabLabels = {
+            'client-details': 'Client Details',
+            'financial-statement': 'Financial Statement',
+            'debts': 'Debts'
+        };
 
-        function sectionBody(sectionId) {
-            return document.getElementById(sectionId + '-body');
-        }
-
-        function setExpanded(sectionId, expanded) {
-            const body = sectionBody(sectionId);
-            const toggle = document.querySelector('[data-section-toggle="' + sectionId + '"]');
-            const sectionEl = document.getElementById(sectionId);
-            if (!body || !toggle) return;
-            body.style.display = expanded ? 'block' : 'none';
-            toggle.textContent = expanded ? 'Collapse ▲' : 'Expand ▼';
-            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-            if (sectionEl) {
-                sectionEl.classList.toggle('is-active', expanded);
+        function activateTab(tabId, updateHash) {
+            document.querySelectorAll('[data-case-tab]').forEach(function (btn) {
+                const on = btn.getAttribute('data-case-tab') === tabId;
+                btn.classList.toggle('is-active', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            document.querySelectorAll('[data-case-panel]').forEach(function (panel) {
+                panel.classList.toggle('is-active', panel.getAttribute('data-case-panel') === tabId);
+            });
+            const assistantTab = document.getElementById('caseAssistantActiveTab');
+            if (assistantTab) {
+                assistantTab.textContent = tabLabels[tabId] || tabId;
+            }
+            const scroll = document.querySelector('.lead-main-scroll');
+            if (scroll) {
+                scroll.scrollTop = 0;
+            }
+            if (updateHash) {
+                history.replaceState(null, '', '#' + tabId);
             }
         }
 
-        function getStickyOffset() {
-            const shell = document.getElementById('leadStickyShell');
-            return shell ? shell.getBoundingClientRect().height + 16 : 16;
-        }
-
-        function focusSection(sectionId) {
-            sectionIds.forEach(function (id) {
-                setExpanded(id, id === sectionId);
-            });
-            document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
-                btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === sectionId);
-            });
-
-            const section = document.getElementById(sectionId);
-            if (!section) return;
-            const top = window.scrollY + section.getBoundingClientRect().top - getStickyOffset();
-            window.scrollTo({ top, behavior: 'smooth' });
-        }
-
-        document.querySelectorAll('[data-section-toggle]').forEach(function (toggleBtn) {
-            toggleBtn.addEventListener('click', function () {
-                const sectionId = this.getAttribute('data-section-toggle');
-                const body = sectionBody(sectionId);
-                if (!body) return;
-                const nextOpen = body.style.display === 'none';
-                setExpanded(sectionId, nextOpen);
+        document.querySelectorAll('[data-case-tab]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                activateTab(this.getAttribute('data-case-tab'), true);
             });
         });
 
-        const jumpClientDetailsBtn = document.getElementById('jumpClientDetailsBtn');
-        const jumpDebtsBtn = document.getElementById('jumpDebtsBtn');
-        const jumpIncomeExpenditureBtn = document.getElementById('jumpIncomeExpenditureBtn');
-
-        if (jumpClientDetailsBtn) jumpClientDetailsBtn.addEventListener('click', function () { focusSection('client-details-section'); });
-        if (jumpDebtsBtn) jumpDebtsBtn.addEventListener('click', function () { focusSection('debts-section'); });
-        if (jumpIncomeExpenditureBtn) jumpIncomeExpenditureBtn.addEventListener('click', function () { focusSection('income-expenditure-section'); });
-
-        setExpanded('client-details-section', true);
-        setExpanded('debts-section', false);
-        setExpanded('income-expenditure-section', false);
-        document.querySelectorAll('[data-nav-section]').forEach(function (btn) {
-            btn.classList.toggle('is-active', btn.getAttribute('data-nav-section') === 'client-details-section');
-        });
+        const hash = (window.location.hash || '').replace('#', '');
+        const initial = tabLabels[hash] ? hash : 'client-details';
+        activateTab(initial, false);
     })();
 
     (function initLeadKeyboardShortcuts() {
@@ -2240,9 +2249,9 @@
         }
 
         const shortcutActions = {
-            '1': function () { const btn = document.getElementById('jumpClientDetailsBtn'); if (btn) btn.click(); },
-            '2': function () { const btn = document.getElementById('jumpDebtsBtn'); if (btn) btn.click(); },
-            '3': function () { const btn = document.getElementById('jumpIncomeExpenditureBtn'); if (btn) btn.click(); },
+            '1': function () { const btn = document.querySelector('[data-case-tab="client-details"]'); if (btn) btn.click(); },
+            '2': function () { const btn = document.querySelector('[data-case-tab="financial-statement"]'); if (btn) btn.click(); },
+            '3': function () { const btn = document.querySelector('[data-case-tab="debts"]'); if (btn) btn.click(); },
             'n': function () { if (openScribbleNotesBtn) openScribbleNotesBtn.click(); },
             'p': function () { if (openPrepNotesBtn) openPrepNotesBtn.click(); },
         };
