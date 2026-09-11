@@ -18,6 +18,11 @@ return [
 
     'playwright_browsers_path' => env('PLAYWRIGHT_BROWSERS_PATH', '/var/www/.cache/ms-playwright'),
 
+    'jinx_assistant' => [
+        'api_key' => env('JINX_ASSISTANT_API_KEY'),
+        'model' => env('JINX_ASSISTANT_MODEL'),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
