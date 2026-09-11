@@ -9,41 +9,41 @@ use App\Models\Lead;
 use App\Services\JinxAssistantService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
 use Throwable;
 
 class JinxAssistantController extends Controller
 {
-    public function index(Request $request, ?Lead $lead = null): View
+    public function bootstrap(Request $request, Lead $lead): JsonResponse
     {
-        $conversation = AssistantConversation::query()
-            ->where('user_id', $request->user()->id)
-            ->when($lead, fn ($q) => $q->where('lead_id', $lead->id), fn ($q) => $q->whereNull('lead_id'))
-            ->latest('id')
-            ->first();
+        $conversation = $this->conversationFor($request, $lead);
 
-        if (! $conversation) {
-            $conversation = AssistantConversation::create([
-                'lead_id' => $lead?->id,
-                'user_id' => $request->user()->id,
-                'title' => $lead ? 'Jinx Assistant — '.$lead->formattedName() : 'Jinx Assistant',
-                'metadata' => [],
-            ]);
-        }
-
-        $messages = $conversation->messages()->get();
-        $knowledgeCount = AssistantKnowledgeItem::active()->count();
-
-        return view('assistant.index', compact('conversation', 'messages', 'lead', 'knowledgeCount'));
+        return response()->json([
+            'ok' => true,
+            'conversation_id' => $conversation->id,
+            'knowledge_count' => AssistantKnowledgeItem::active()->count(),
+            'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
+            'messages' => $conversation->messages()
+                ->latest('id')
+                ->limit(60)
+                ->get()
+                ->reverse()
+                ->values()
+                ->map(fn (AssistantMessage $message) => [
+                    'id' => $message->id,
+                    'role' => $message->role,
+                    'content' => $message->content,
+                    'created_at' => $message->created_at?->toIso8601String(),
+                ]),
+        ]);
     }
 
-    public function send(Request $request, AssistantConversation $conversation, JinxAssistantService $assistant): JsonResponse
+    public function send(Request $request, Lead $lead, JinxAssistantService $assistant): JsonResponse
     {
-        abort_unless($conversation->user_id === $request->user()->id, 403);
-
         $validated = $request->validate([
             'message' => ['required', 'string', 'max:12000'],
         ]);
+
+        $conversation = $this->conversationFor($request, $lead);
 
         $userMessage = AssistantMessage::create([
             'conversation_id' => $conversation->id,
@@ -103,6 +103,7 @@ class JinxAssistantController extends Controller
                     'id' => $assistantMessage->id,
                     'role' => 'assistant',
                     'content' => $assistantMessage->content,
+                    'created_at' => $assistantMessage->created_at?->toIso8601String(),
                 ],
                 'knowledge_saved' => $savedKnowledge ? [
                     'id' => $savedKnowledge->id,
@@ -115,20 +116,40 @@ class JinxAssistantController extends Controller
 
             return response()->json([
                 'ok' => false,
-                'message' => 'Jinx Assistant could not respond. '.$e->getMessage(),
+                'message' => app()->environment('production')
+                    ? 'Jinx Assistant could not respond. Please try again.'
+                    : 'Jinx Assistant could not respond. '.$e->getMessage(),
             ], 500);
         }
     }
 
-    public function newConversation(Request $request, ?Lead $lead = null)
+    public function reset(Request $request, Lead $lead): JsonResponse
     {
         $conversation = AssistantConversation::create([
-            'lead_id' => $lead?->id,
+            'lead_id' => $lead->id,
             'user_id' => $request->user()->id,
-            'title' => $lead ? 'Jinx Assistant — '.$lead->formattedName() : 'Jinx Assistant',
+            'title' => 'Jinx Assistant — '.$lead->formattedName(),
             'metadata' => [],
         ]);
 
-        return redirect()->route('assistant.index', $lead ? ['lead' => $lead->id] : []);
+        return response()->json([
+            'ok' => true,
+            'conversation_id' => $conversation->id,
+        ]);
+    }
+
+    private function conversationFor(Request $request, Lead $lead): AssistantConversation
+    {
+        return AssistantConversation::query()
+            ->where('lead_id', $lead->id)
+            ->where('user_id', $request->user()->id)
+            ->latest('id')
+            ->first()
+            ?? AssistantConversation::create([
+                'lead_id' => $lead->id,
+                'user_id' => $request->user()->id,
+                'title' => 'Jinx Assistant — '.$lead->formattedName(),
+                'metadata' => [],
+            ]);
     }
 }
