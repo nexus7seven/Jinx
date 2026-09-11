@@ -20,7 +20,7 @@ return [
 
     'jinx_assistant' => [
         'api_key' => env('JINX_ASSISTANT_API_KEY'),
-        'model' => env('JINX_ASSISTANT_MODEL'),
+        'model' => env('JINX_ASSISTANT_MODEL', 'gpt-5.6-terra'),
     ],
 
     'postmark' => [
