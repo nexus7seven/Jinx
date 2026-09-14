@@ -8,6 +8,54 @@ class AssistantLeadFactSyncService
 {
     public function __construct(private readonly FinancialStatementService $financialStatements) {}
 
+    public function hasPopulatedIe(Lead $lead): bool
+    {
+        $statement = $this->financialStatements->mergeForLead($lead);
+
+        if (($statement['facts']['target_di'] ?? null) !== null) return true;
+        if (($statement['facts']['client_transport_mode'] ?? null) !== null) return true;
+        if (($statement['facts']['partner_transport_mode'] ?? null) !== null) return true;
+        if (($statement['household']['partner_exists'] ?? false) === true) return true;
+        if (!empty($statement['household']['children'] ?? [])) return true;
+
+        foreach (($statement['income'] ?? []) as $key => $value) {
+            if ($key === 'meta') continue;
+            if (is_numeric($value) && (float) $value !== 0.0) return true;
+        }
+
+        $expenditure = $statement['expenditure'] ?? [];
+        $tvLicence = data_get($expenditure, 'housing.tv_licence');
+        if (isset($expenditure['housing']['tv_licence'])) unset($expenditure['housing']['tv_licence']);
+        if ($this->containsNonZeroNumeric($expenditure)) return true;
+
+        $calc = $statement['calculation'] ?? [];
+        foreach (['income_total','expenditure_total','disposable_income','target_di','required_expenditure','variance_to_target'] as $key) {
+            if (($calc[$key] ?? null) !== null && (float) $calc[$key] !== 0.0) return true;
+        }
+
+        return false;
+    }
+
+    public function resetIe(Lead $lead): array
+    {
+        $lead->financial_statement = $this->financialStatements->emptyState();
+        $lead->monthly_income = null;
+        $lead->monthly_housing_cost = null;
+        $lead->monthly_council_tax = null;
+        $lead->monthly_utilities_cost = null;
+        $lead->monthly_food_travel_cost = null;
+        $lead->save();
+
+        return [
+            'financial_statement',
+            'monthly_income',
+            'monthly_housing_cost',
+            'monthly_council_tax',
+            'monthly_utilities_cost',
+            'monthly_food_travel_cost',
+        ];
+    }
+
     public function sync(Lead $lead, array $facts): array
     {
         if ($facts === []) return [];
@@ -131,6 +179,14 @@ class AssistantLeadFactSyncService
         $statement['household']['children_under_16']=$under16;
         $statement['household']['children_16_18']=$age1618;
         $statement['household']['size']=$adults+count($children);
+    }
+
+    private function containsNonZeroNumeric(mixed $value): bool
+    {
+        if (is_numeric($value)) return (float) $value !== 0.0;
+        if (!is_array($value)) return false;
+        foreach ($value as $child) if ($this->containsNonZeroNumeric($child)) return true;
+        return false;
     }
 
     private function set(array &$target, string $path, mixed $value): void
