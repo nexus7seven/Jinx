@@ -14,6 +14,7 @@ class JinxAssistantService
 {
     public function __construct(
         private readonly PartnerKnowledgeService $partnerKnowledge,
+        private readonly DestinationSuitabilityService $destinationSuitability,
         private readonly ZebraIeCalculatorService $zebraIe,
     ) {
     }
@@ -41,6 +42,8 @@ class JinxAssistantService
         $pendingKnowledge = data_get($conversation->metadata, 'pending_knowledge');
         $zebraApplies = ($profile['partner'] ?? null) === 'Zebra';
         $deterministicBefore = $zebraApplies ? $this->zebraIe->snapshot($facts) : [];
+        $comparisonRequested = $this->destinationSuitability->shouldCompare($message);
+        $destinationComparison = $comparisonRequested ? $this->destinationSuitability->context() : null;
 
         $instructions = <<<'PROMPT'
 You are Jinx Assistant, an expert IVA case-packaging colleague used by trained case packagers inside the Jinx CRM.
@@ -58,6 +61,17 @@ Current partner structure:
 PARTNER_CODEX is the static authoritative baseline for the current partner. ACTIVE_SCOPED_KNOWLEDGE contains later confirmed organisational rules relevant to this exact case scope. A later confirmed scoped rule may supersede the static baseline when it clearly changes the same rule.
 
 If a required partner/IP rule has not been supplied, do not invent it. State that the criterion is not yet in Jinx knowledge and ask for it only when needed.
+
+CROSS-DESTINATION SUITABILITY
+When DESTINATION_COMPARISON is present, assess the established case facts against every supplied destination independently.
+Use only that destination's codex plus its active scoped knowledge. Do not transfer a rule from one destination to another.
+For each destination use one of these statuses:
+- FIT: all material known criteria supplied by Jinx are satisfied and no material required case fact is missing;
+- NOT_FIT: at least one definite supplied criterion is failed;
+- POSSIBLE_NEEDS_INFO: no definite failure is known, but material case facts required to decide are missing;
+- INSUFFICIENT_RULES: Jinx does not hold enough destination criteria to make a safe assessment.
+
+When asked where the case fits best, rank destinations by the cleanest confirmed fit. A FIT beats POSSIBLE_NEEDS_INFO. Never rank an INSUFFICIENT_RULES destination as the best fit. Explain the decisive reasons, definite blockers and missing facts. Do not claim an IP accepts a case merely because no rejecting rule was found.
 
 TRAINING / NEW RULES
 When the packager supplies a durable new rule or changed criterion, identify its correct scope:
@@ -82,6 +96,18 @@ Return ONLY valid JSON using this exact shape:
 {
   "reply": "natural-language reply to the packager",
   "fact_updates": {},
+  "suitability_assessment": null OR {
+    "best_fit": null OR "destination name",
+    "best_fit_reason": "short explanation",
+    "destinations": [
+      {
+        "destination": "destination name",
+        "status": "FIT|NOT_FIT|POSSIBLE_NEEDS_INFO|INSUFFICIENT_RULES",
+        "reasons": ["reason"],
+        "missing": ["missing fact"]
+      }
+    ]
+  },
   "proposed_knowledge": null OR {
     "scope": "company|partner|ip",
     "scope_key": null OR "canonical partner/IP identifier",
@@ -99,6 +125,7 @@ PROMPT;
             'PARTNER_PROFILE' => $profile,
             'PARTNER_CODEX' => $profile['partner_codex'] ?? null,
             'ACTIVE_SCOPED_KNOWLEDGE' => $knowledge->values()->toArray(),
+            'DESTINATION_COMPARISON' => $destinationComparison,
             'ESTABLISHED_FACTS' => $facts,
             'DETERMINISTIC_IE' => $deterministicBefore,
             'PENDING_KNOWLEDGE_PROPOSAL' => $pendingKnowledge,
@@ -113,7 +140,7 @@ PROMPT;
                 'model' => $model,
                 'instructions' => $instructions,
                 'input' => json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'max_output_tokens' => 1800,
+                'max_output_tokens' => $comparisonRequested ? 2600 : 1800,
             ]);
 
         if (! $response->successful()) {
@@ -134,6 +161,7 @@ PROMPT;
             'reply' => trim((string) $decoded['reply']),
             'fact_updates' => $factUpdates,
             'deterministic_ie' => $deterministicAfter,
+            'suitability_assessment' => $this->normaliseSuitabilityAssessment($decoded['suitability_assessment'] ?? null),
             'proposed_knowledge' => is_array($decoded['proposed_knowledge'] ?? null)
                 ? $this->normaliseKnowledgeProposal($decoded['proposed_knowledge']) : null,
             'confirm_pending_knowledge' => (bool) ($decoded['confirm_pending_knowledge'] ?? false),
@@ -230,6 +258,39 @@ PROMPT;
             elseif (is_array($value) && count($value) <= 30) $normalised[$key] = array_values($value);
         }
         return $normalised;
+    }
+
+    private function normaliseSuitabilityAssessment(mixed $assessment): ?array
+    {
+        if (! is_array($assessment)) {
+            return null;
+        }
+
+        $allowedStatuses = ['FIT', 'NOT_FIT', 'POSSIBLE_NEEDS_INFO', 'INSUFFICIENT_RULES'];
+        $destinations = [];
+
+        foreach (array_slice($assessment['destinations'] ?? [], 0, 10) as $item) {
+            if (! is_array($item)) continue;
+            $status = strtoupper((string) ($item['status'] ?? ''));
+            if (! in_array($status, $allowedStatuses, true)) {
+                $status = 'POSSIBLE_NEEDS_INFO';
+            }
+
+            $destinations[] = [
+                'destination' => Str::limit((string) ($item['destination'] ?? ''), 120, ''),
+                'status' => $status,
+                'reasons' => collect($item['reasons'] ?? [])->filter('is_string')->take(10)->values()->all(),
+                'missing' => collect($item['missing'] ?? [])->filter('is_string')->take(10)->values()->all(),
+            ];
+        }
+
+        return [
+            'best_fit' => filled($assessment['best_fit'] ?? null)
+                ? Str::limit((string) $assessment['best_fit'], 120, '')
+                : null,
+            'best_fit_reason' => Str::limit((string) ($assessment['best_fit_reason'] ?? ''), 1000, ''),
+            'destinations' => $destinations,
+        ];
     }
 
     private function normaliseKnowledgeProposal(array $proposal): array
