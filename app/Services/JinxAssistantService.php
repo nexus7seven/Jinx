@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AssistantConversation;
 use App\Models\AssistantKnowledgeItem;
 use App\Models\AssistantMessage;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -12,7 +13,7 @@ use RuntimeException;
 class JinxAssistantService
 {
     public function __construct(
-        private readonly ZebraCodexService $zebraCodex,
+        private readonly PartnerKnowledgeService $partnerKnowledge,
         private readonly ZebraIeCalculatorService $zebraIe,
     ) {
     }
@@ -27,54 +28,55 @@ class JinxAssistantService
         }
 
         $conversation->loadMissing('lead');
-
-        $knowledge = AssistantKnowledgeItem::query()
-            ->active()
-            ->orderByDesc('updated_at')
-            ->limit(100)
-            ->get(['id', 'scope', 'scope_key', 'category', 'title', 'content', 'updated_at']);
+        $facts = $this->establishedFacts($conversation);
+        $profile = $this->partnerKnowledge->profile($conversation->lead?->source, $facts);
+        $knowledge = $this->knowledgeForProfile($profile);
 
         $history = $conversation->messages()
-            ->latest('id')
-            ->limit(24)
-            ->get()
-            ->reverse()
-            ->values()
-            ->map(fn (AssistantMessage $item) => [
-                'role' => $item->role,
-                'content' => $item->content,
-            ])
+            ->latest('id')->limit(24)->get()->reverse()->values()
+            ->map(fn (AssistantMessage $item) => ['role' => $item->role, 'content' => $item->content])
             ->all();
 
         $similarCases = $this->findSimilarCases($conversation, $message);
         $pendingKnowledge = data_get($conversation->metadata, 'pending_knowledge');
-        $facts = $this->establishedFacts($conversation);
-        $zebraApplies = $this->zebraCodex->appliesTo($conversation->lead?->source);
-        $codex = $zebraApplies ? $this->zebraCodex->load() : null;
+        $zebraApplies = ($profile['partner'] ?? null) === 'Zebra';
         $deterministicBefore = $zebraApplies ? $this->zebraIe->snapshot($facts) : [];
 
         $instructions = <<<'PROMPT'
 You are Jinx Assistant, an expert IVA case-packaging colleague used by trained case packagers inside the Jinx CRM.
 
-Your job is conversational, not form-like. Understand what the packager has already told you and only ask for information that is actually missing. You can explain IVA packaging, reason about case information, help with income and expenditure, and reference relevant previous Jinx Assistant cases when useful.
+The user is the case packager, not the IVA client. Be conversational and case-aware. Use information already known and ask only for genuinely missing facts.
 
-For Zebra cases, ZEBRA_CODEX is the authoritative baseline. Follow it exactly. Do not silently fill gaps with general IVA knowledge. If the codex says RULE_REQUIRED or CALCULATOR_REQUIRED, preserve that limitation. Active ORGANISATIONAL_KNOWLEDGE explicitly scoped to Zebra may supersede the static codex when it clearly represents a later confirmed rule change.
+KNOWLEDGE MODEL
+Jinx uses scoped organisational knowledge. The current PARTNER_PROFILE identifies the partner and, where known, the IP destination.
+Rule precedence is: IP-specific rule > partner-level rule > company-level rule. Never apply one partner's rule to another partner. Never apply one IP's criteria to another IP.
 
-Maintain ESTABLISHED_FACTS. Every answer, including negative answers, becomes a fact. Never re-ask an established fact unless the packager changes it, contradicts it, or the fact is genuinely insufficient for a supplied rule. When the latest message establishes or changes facts, return them in fact_updates using stable dot-notated keys.
+Current partner structure:
+- Zebra: uses its own IP and Zebra codex/rules.
+- Avondale: may submit to Lawson Fox, TIG, Assure or Anchorage Chambers. Each of those IPs can have distinct criteria. Avondale-wide rules apply to all four unless a more specific confirmed IP rule overrides them.
 
-For a new Zebra I&E, if calculation.target_di is not already established, the first I&E question must be exactly: "What is the target DI?" Do not begin the normal income/expenditure flow before that. Ask one question at a time except for the codex-approved grouped secondary income/benefit screen. Speak to the case packager, not the client.
+PARTNER_CODEX is the static authoritative baseline for the current partner. ACTIVE_SCOPED_KNOWLEDGE contains later confirmed organisational rules relevant to this exact case scope. A later confirmed scoped rule may supersede the static baseline when it clearly changes the same rule.
 
-Useful fact keys include calculation.target_di, income.client_salary, income.partner_salary, income.universal_credit, income.pip_dla, income.esa, income.carers_allowance, income.maintenance_received, income.pension, income.student, income.foster_guardianship, household.partner_exists, household.children_count, household.children_ages, income.child_benefit_qualifying_children, housing.rent_mortgage, housing.council_tax, transport.client.mode, transport.client.car_insurance, transport.partner.mode, transport.partner.car_insurance, other.childcare, other.maintenance_paid. Use booleans for yes/no facts, numbers for money/counts, and arrays for child ages.
+If a required partner/IP rule has not been supplied, do not invent it. State that the criterion is not yet in Jinx knowledge and ask for it only when needed.
 
-DETERMINISTIC_IE is produced by Jinx code from the supplied Zebra formulas. Treat those calculated values as authoritative and do not recalculate them differently. It currently provides TV licence, utility ranges, SFS household ranges, Child Benefit when qualifying-child count is established, transport ranges/defaults, and required expenditure when total income and target DI are known.
+TRAINING / NEW RULES
+When the packager supplies a durable new rule or changed criterion, identify its correct scope:
+- company: applies across all partners/IPs;
+- partner: applies to all cases for a named partner;
+- ip: applies only to one IP destination.
 
-Treat supplied ORGANISATIONAL_KNOWLEDGE as the current source of truth for company, partner and IP criteria outside the codex. If a packager states a new general rule or changed criterion, do not silently overwrite knowledge. Propose a concise knowledge item and ask for confirmation. On the next turn, if the packager clearly confirms, set confirm_pending_knowledge=true. If they reject or modify it, do not confirm it and create a corrected proposal if appropriate.
+For Avondale, canonical IP names are: Lawson Fox, TIG, Assure, Anchorage Chambers.
+If scope is ambiguous, ask what it applies to rather than guessing. Do not save case-specific facts as organisational knowledge.
+Do not silently save a rule. Return a proposed_knowledge item and ask the packager to confirm it. On a later clear confirmation, set confirm_pending_knowledge=true.
 
-Case-specific facts are not organisational rules. Never propose saving names, addresses, account details, health information or other client-specific facts as organisational knowledge.
+For a new Zebra I&E, if calculation.target_di is not established, the first I&E question must be exactly: "What is the target DI?"
+Maintain ESTABLISHED_FACTS. Every answer, including negative answers, becomes a fact. Never re-ask an established fact unless it changes, conflicts, or is genuinely insufficient. Return new/changed facts in fact_updates using stable dot-notated keys.
 
-For calculations, be precise and show the important result clearly. Never invent SFS limits, benefit awards, conversion methods, partner/IP criteria or missing deterministic rules.
+For Avondale I&E, PARTNER_CODEX currently requires the relevant SFS-controlled sections to be set to 65% of the applicable SFS maximum. Do not substitute Zebra-specific eligibility or packaging rules into an Avondale case.
 
-When referencing a prior case, describe the useful similarity without exposing unnecessary personal information. Refer to it by Jinx lead/case ID when available.
+DETERMINISTIC_IE contains calculations made by Jinx code. Treat those values as authoritative and do not recalculate them differently.
+
+When referencing a prior case, describe only the useful similarity and avoid unnecessary personal information.
 
 Return ONLY valid JSON using this exact shape:
 {
@@ -82,22 +84,23 @@ Return ONLY valid JSON using this exact shape:
   "fact_updates": {},
   "proposed_knowledge": null OR {
     "scope": "company|partner|ip",
-    "scope_key": null OR "partner/IP identifier if known",
+    "scope_key": null OR "canonical partner/IP identifier",
     "category": "short category",
     "title": "short rule title",
     "content": "the durable rule to remember"
   },
   "confirm_pending_knowledge": false,
-  "case_summary": "brief rolling summary of the case/conversation useful for future similar-case retrieval"
+  "case_summary": "brief rolling summary useful for similar-case retrieval"
 }
 PROMPT;
 
         $context = [
             'CURRENT_LEAD' => $this->leadContext($conversation),
+            'PARTNER_PROFILE' => $profile,
+            'PARTNER_CODEX' => $profile['partner_codex'] ?? null,
+            'ACTIVE_SCOPED_KNOWLEDGE' => $knowledge->values()->toArray(),
             'ESTABLISHED_FACTS' => $facts,
             'DETERMINISTIC_IE' => $deterministicBefore,
-            'ZEBRA_CODEX' => $codex,
-            'ORGANISATIONAL_KNOWLEDGE' => $knowledge->toArray(),
             'PENDING_KNOWLEDGE_PROPOSAL' => $pendingKnowledge,
             'POTENTIALLY_SIMILAR_PRIOR_CASES' => $similarCases,
             'CONVERSATION_HISTORY' => $history,
@@ -105,8 +108,7 @@ PROMPT;
         ];
 
         $response = Http::timeout(60)
-            ->withToken($apiKey)
-            ->acceptJson()
+            ->withToken($apiKey)->acceptJson()
             ->post('https://api.openai.com/v1/responses', [
                 'model' => $model,
                 'instructions' => $instructions,
@@ -120,7 +122,6 @@ PROMPT;
 
         $text = $this->extractOutputText($response->json());
         $decoded = json_decode($this->stripCodeFence($text), true);
-
         if (! is_array($decoded) || ! isset($decoded['reply'])) {
             throw new RuntimeException('Assistant returned an invalid response format.');
         }
@@ -134,11 +135,28 @@ PROMPT;
             'fact_updates' => $factUpdates,
             'deterministic_ie' => $deterministicAfter,
             'proposed_knowledge' => is_array($decoded['proposed_knowledge'] ?? null)
-                ? $this->normaliseKnowledgeProposal($decoded['proposed_knowledge'])
-                : null,
+                ? $this->normaliseKnowledgeProposal($decoded['proposed_knowledge']) : null,
             'confirm_pending_knowledge' => (bool) ($decoded['confirm_pending_knowledge'] ?? false),
             'case_summary' => trim((string) ($decoded['case_summary'] ?? '')),
         ];
+    }
+
+    private function knowledgeForProfile(array $profile): Collection
+    {
+        $partner = Str::lower((string) ($profile['partner'] ?? ''));
+        $ip = Str::lower((string) ($profile['ip'] ?? ''));
+
+        return AssistantKnowledgeItem::query()
+            ->active()->orderByDesc('updated_at')->limit(250)
+            ->get(['id', 'scope', 'scope_key', 'category', 'title', 'content', 'updated_at'])
+            ->filter(function (AssistantKnowledgeItem $item) use ($partner, $ip) {
+                $scope = Str::lower((string) $item->scope);
+                $key = Str::lower(trim((string) $item->scope_key));
+                if ($scope === 'company') return true;
+                if ($scope === 'partner') return $partner !== '' && $key === $partner;
+                if ($scope === 'ip') return $ip !== '' && $key === $ip;
+                return false;
+            });
     }
 
     private function establishedFacts(AssistantConversation $conversation): array
@@ -146,7 +164,6 @@ PROMPT;
         $facts = data_get($conversation->metadata, 'established_facts', []);
         $facts = is_array($facts) ? $facts : [];
         $lead = $conversation->lead;
-
         if ($lead) {
             if ($lead->monthly_housing_cost !== null && ! array_key_exists('housing.rent_mortgage', $facts)) {
                 $facts['housing.rent_mortgage'] = (float) $lead->monthly_housing_cost;
@@ -155,17 +172,13 @@ PROMPT;
                 $facts['housing.council_tax'] = (float) $lead->monthly_council_tax;
             }
         }
-
         return $facts;
     }
 
     private function leadContext(AssistantConversation $conversation): ?array
     {
         $lead = $conversation->lead;
-        if (! $lead) {
-            return null;
-        }
-
+        if (! $lead) return null;
         return [
             'id' => $lead->id,
             'name' => $lead->formattedName(),
@@ -186,73 +199,46 @@ PROMPT;
     {
         $keywords = collect(preg_split('/[^a-zA-Z0-9]+/', Str::lower($message)) ?: [])
             ->filter(fn ($word) => strlen($word) >= 5)
-            ->reject(fn ($word) => in_array($word, ['client', 'about', 'would', 'could', 'there', 'their', 'which', 'where', 'should'], true))
-            ->unique()
-            ->take(6)
-            ->values();
+            ->reject(fn ($word) => in_array($word, ['client','about','would','could','there','their','which','where','should'], true))
+            ->unique()->take(6)->values();
+        if ($keywords->isEmpty()) return [];
 
-        if ($keywords->isEmpty()) {
-            return [];
-        }
-
-        $query = AssistantMessage::query()
-            ->where('role', 'user')
+        $query = AssistantMessage::query()->where('role', 'user')
             ->where('conversation_id', '!=', $conversation->id)
             ->whereHas('conversation', fn ($q) => $q->whereNotNull('lead_id'));
-
         $query->where(function ($q) use ($keywords) {
-            foreach ($keywords as $keyword) {
-                $q->orWhere('content', 'like', '%'.$keyword.'%');
-            }
+            foreach ($keywords as $keyword) $q->orWhere('content', 'like', '%'.$keyword.'%');
         });
 
-        return $query
-            ->with('conversation:id,lead_id,summary')
-            ->latest('id')
-            ->limit(5)
-            ->get()
-            ->unique('conversation_id')
-            ->take(3)
+        return $query->with('conversation:id,lead_id,summary')->latest('id')->limit(5)->get()
+            ->unique('conversation_id')->take(3)
             ->map(fn (AssistantMessage $item) => [
                 'lead_id' => $item->conversation?->lead_id,
                 'conversation_id' => $item->conversation_id,
                 'summary' => $item->conversation?->summary,
                 'matching_message_excerpt' => Str::limit($item->content, 350),
-            ])
-            ->values()
-            ->all();
+            ])->values()->all();
     }
 
     private function normaliseFactUpdates(mixed $updates): array
     {
-        if (! is_array($updates)) {
-            return [];
-        }
-
+        if (! is_array($updates)) return [];
         $normalised = [];
         foreach (array_slice($updates, 0, 100, true) as $key => $value) {
-            if (! is_string($key) || strlen($key) > 120) {
-                continue;
-            }
-            if (is_scalar($value) || $value === null) {
-                $normalised[$key] = $value;
-            } elseif (is_array($value) && count($value) <= 30) {
-                $normalised[$key] = array_values($value);
-            }
+            if (! is_string($key) || strlen($key) > 120) continue;
+            if (is_scalar($value) || $value === null) $normalised[$key] = $value;
+            elseif (is_array($value) && count($value) <= 30) $normalised[$key] = array_values($value);
         }
-
         return $normalised;
     }
 
     private function normaliseKnowledgeProposal(array $proposal): array
     {
         $scope = in_array(($proposal['scope'] ?? null), ['company', 'partner', 'ip'], true)
-            ? $proposal['scope']
-            : 'company';
-
+            ? $proposal['scope'] : 'company';
         return [
             'scope' => $scope,
-            'scope_key' => filled($proposal['scope_key'] ?? null) ? Str::limit((string) $proposal['scope_key'], 120, '') : null,
+            'scope_key' => filled($proposal['scope_key'] ?? null) ? Str::limit(trim((string) $proposal['scope_key']), 120, '') : null,
             'category' => Str::limit((string) ($proposal['category'] ?? 'General'), 120, ''),
             'title' => Str::limit((string) ($proposal['title'] ?? 'Updated rule'), 255, ''),
             'content' => trim((string) ($proposal['content'] ?? '')),
@@ -261,18 +247,12 @@ PROMPT;
 
     private function extractOutputText(array $payload): string
     {
-        if (is_string($payload['output_text'] ?? null) && $payload['output_text'] !== '') {
-            return $payload['output_text'];
-        }
-
+        if (is_string($payload['output_text'] ?? null) && $payload['output_text'] !== '') return $payload['output_text'];
         foreach (($payload['output'] ?? []) as $item) {
             foreach (($item['content'] ?? []) as $content) {
-                if (isset($content['text']) && is_string($content['text'])) {
-                    return $content['text'];
-                }
+                if (isset($content['text']) && is_string($content['text'])) return $content['text'];
             }
         }
-
         throw new RuntimeException('Assistant provider returned no text output.');
     }
 
@@ -281,7 +261,6 @@ PROMPT;
         $value = trim($value);
         $value = preg_replace('/^```(?:json)?\s*/i', '', $value) ?? $value;
         $value = preg_replace('/\s*```$/', '', $value) ?? $value;
-
         return trim($value);
     }
 }
