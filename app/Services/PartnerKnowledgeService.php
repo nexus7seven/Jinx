@@ -31,6 +31,44 @@ class PartnerKnowledgeService
         ];
     }
 
+    public function comparisonCatalogue(): array
+    {
+        $avondale = $this->loadPartnerCodex('Avondale');
+
+        return [
+            [
+                'destination' => 'Zebra',
+                'partner' => 'Zebra',
+                'ip' => 'Zebra',
+                'codex' => $this->loadPartnerCodex('Zebra'),
+            ],
+            [
+                'destination' => 'Lawson Fox',
+                'partner' => 'Avondale',
+                'ip' => 'Lawson Fox',
+                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Lawson Fox')),
+            ],
+            [
+                'destination' => 'TIG',
+                'partner' => 'Avondale',
+                'ip' => 'TIG',
+                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('TIG')),
+            ],
+            [
+                'destination' => 'Assure',
+                'partner' => 'Avondale',
+                'ip' => 'Assure',
+                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Assure')),
+            ],
+            [
+                'destination' => 'Anchorage Chambers',
+                'partner' => 'Avondale',
+                'ip' => 'Anchorage Chambers',
+                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Anchorage Chambers')),
+            ],
+        ];
+    }
+
     public function loadPartnerCodex(string $partner): ?string
     {
         $directory = match (Str::lower($partner)) {
