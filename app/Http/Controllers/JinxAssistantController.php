@@ -8,6 +8,7 @@ use App\Models\AssistantMessage;
 use App\Models\Lead;
 use App\Services\AssistantLeadFactSyncService;
 use App\Services\JinxAssistantService;
+use App\Services\ZebraIeInterviewAnswerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -31,7 +32,7 @@ class JinxAssistantController extends Controller
         ]);
     }
 
-    public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync): JsonResponse
+    public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync, ZebraIeInterviewAnswerService $zebraAnswers): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
         $messageText = trim($validated['message']);
@@ -41,14 +42,20 @@ class JinxAssistantController extends Controller
         ]);
 
         try {
-            // Persist unambiguous household facts before calculation. This prevents the AI
-            // response format from becoming a single point of failure for SFS household bands.
             $metadata = $conversation->metadata ?? [];
-            $preFacts = $this->explicitHouseholdFacts($messageText);
+            $existingFacts = data_get($metadata, 'established_facts', []);
+            $existingFacts = is_array($existingFacts) ? $existingFacts : [];
+
+            // Persist facts that can be resolved deterministically before asking the model.
+            // This includes the answer to the exact Zebra interview question currently due,
+            // so a bare answer such as "110" cannot be lost or cause the same question to repeat.
+            $preFacts = array_replace(
+                $this->explicitHouseholdFacts($messageText),
+                $zebraAnswers->extract($lead, $existingFacts, $messageText)
+            );
+
             $syncedFields = [];
             if ($preFacts !== []) {
-                $existingFacts = data_get($metadata, 'established_facts', []);
-                $existingFacts = is_array($existingFacts) ? $existingFacts : [];
                 $metadata['established_facts'] = array_replace($existingFacts, $preFacts);
                 $conversation->metadata = $metadata;
                 $conversation->save();
