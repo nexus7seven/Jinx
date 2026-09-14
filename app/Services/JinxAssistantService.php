@@ -16,7 +16,7 @@ class JinxAssistantService
         private readonly PartnerKnowledgeService $partnerKnowledge,
         private readonly DestinationSuitabilityService $destinationSuitability,
         private readonly ProactiveRoutingService $proactiveRouting,
-        private readonly ZebraIeCalculatorService $zebraIe,
+        private readonly AssistantIeCalculationService $ieCalculator,
     ) {
     }
 
@@ -41,8 +41,7 @@ class JinxAssistantService
 
         $similarCases = $this->findSimilarCases($conversation, $message);
         $pendingKnowledge = data_get($conversation->metadata, 'pending_knowledge');
-        $zebraApplies = ($profile['partner'] ?? null) === 'Zebra';
-        $deterministicBefore = $zebraApplies ? $this->zebraIe->snapshot($facts) : [];
+        $deterministicBefore = $this->ieCalculator->snapshot($facts, $profile);
         $comparisonRequested = $this->destinationSuitability->shouldCompare($message);
         $destinationComparison = $comparisonRequested ? $this->destinationSuitability->context() : null;
 
@@ -84,12 +83,16 @@ For Avondale, canonical IP names are: Lawson Fox, TIG, Assure, Anchorage Chamber
 If scope is ambiguous, ask what it applies to rather than guessing. Do not save case-specific facts as organisational knowledge.
 Do not silently save a rule. Return a proposed_knowledge item and ask the packager to confirm it. On a later clear confirmation, set confirm_pending_knowledge=true.
 
+FACT STORAGE
+Every case fact supplied naturally in conversation should be returned in fact_updates using the stable key where one exists. This is how Jinx persists information back into CRM fields. Do not omit a clear fact merely because it was not asked as a formal question. Examples: "rent is 550" -> housing.rent_mortgage=550; "salary is 1800" -> income.client_salary=1800; "no partner" -> household.partner_exists=false.
+
 For a new Zebra I&E, if calculation.target_di is not established, the first I&E question must be exactly: "What is the target DI?"
 Maintain ESTABLISHED_FACTS. Every answer, including negative answers, becomes a fact. Never re-ask an established fact unless it changes, conflicts, or is genuinely insufficient. Return new/changed facts in fact_updates using stable dot-notated keys.
 
-For Avondale I&E, PARTNER_CODEX currently requires the relevant SFS-controlled sections to be set to 65% of the applicable SFS maximum. Do not substitute Zebra-specific eligibility or packaging rules into an Avondale case.
+For Avondale I&E, PARTNER_CODEX requires the relevant SFS-controlled sections to be set to 65% of the applicable SFS maximum. Do not substitute Zebra-specific eligibility or packaging rules into an Avondale case.
 
-DETERMINISTIC_IE contains calculations made by Jinx code. Treat those values as authoritative and do not recalculate them differently.
+DETERMINISTIC_IE is the authoritative Jinx calculation. It includes the current income lines, expenditure lines, SFS analysis, totals, DI, target DI and variance where enough facts exist. For Zebra it applies the supplied utility/SFS/transport rules and target-DI optimisation order. For Avondale it applies the 65%-of-SFS-maximum partner rule. Never recalculate these figures differently.
+When enough information has been established to present a useful I&E result, use DETERMINISTIC_IE directly in the reply and clearly show the totals/DI rather than inventing arithmetic.
 
 When referencing a prior case, describe only the useful similarity and avoid unnecessary personal information.
 
@@ -156,20 +159,27 @@ PROMPT;
 
         $factUpdates = $this->normaliseFactUpdates($decoded['fact_updates'] ?? []);
         $factsAfter = array_replace($facts, $factUpdates);
-        $deterministicAfter = $zebraApplies ? $this->zebraIe->snapshot($factsAfter) : [];
+        $profileAfter = $this->partnerKnowledge->profile($conversation->lead?->source, $factsAfter);
+        $deterministicAfter = $this->ieCalculator->snapshot($factsAfter, $profileAfter);
+        $factsForRouting = $factsAfter;
+        if (isset($deterministicAfter['calculation']['disposable_income'])) {
+            $factsForRouting['calculation.disposable_income'] = $deterministicAfter['calculation']['disposable_income'];
+        }
+        if (isset($deterministicAfter['calculation']['income_total'])) {
+            $factsForRouting['income.total'] = $deterministicAfter['calculation']['income_total'];
+        }
+
         $reply = trim((string) $decoded['reply']);
         $suitability = $this->normaliseSuitabilityAssessment($decoded['suitability_assessment'] ?? null);
         $proactiveSignature = null;
 
         if (! $comparisonRequested) {
-            $routeAlert = $this->proactiveRouting->evaluate($profile, $factsAfter, $conversation->lead);
-
+            $routeAlert = $this->proactiveRouting->evaluate($profileAfter, $factsForRouting, $conversation->lead);
             if ($routeAlert) {
                 $signature = sha1(json_encode($routeAlert, JSON_UNESCAPED_SLASHES));
                 $lastSignature = (string) data_get($conversation->metadata, 'last_proactive_route_signature', '');
-
                 if ($signature !== $lastSignature) {
-                    $proactive = $this->runProactiveComparison($apiKey, $model, $factsAfter, $routeAlert);
+                    $proactive = $this->runProactiveComparison($apiKey, $model, $factsForRouting, $routeAlert);
                     if ($proactive) {
                         $reply .= "\n\n".$proactive['reply'];
                         $suitability = $proactive['suitability_assessment'];
@@ -230,14 +240,10 @@ PROMPT;
                 'max_output_tokens' => 2400,
             ]);
 
-        if (! $response->successful()) {
-            return null;
-        }
+        if (! $response->successful()) return null;
 
         $decoded = json_decode($this->stripCodeFence($this->extractOutputText($response->json())), true);
-        if (! is_array($decoded) || ! filled($decoded['reply'] ?? null)) {
-            return null;
-        }
+        if (! is_array($decoded) || ! filled($decoded['reply'] ?? null)) return null;
 
         return [
             'reply' => trim((string) $decoded['reply']),
@@ -249,9 +255,7 @@ PROMPT;
     {
         $partner = Str::lower((string) ($profile['partner'] ?? ''));
         $ip = Str::lower((string) ($profile['ip'] ?? ''));
-
-        return AssistantKnowledgeItem::query()
-            ->active()->orderByDesc('updated_at')->limit(250)
+        return AssistantKnowledgeItem::query()->active()->orderByDesc('updated_at')->limit(250)
             ->get(['id', 'scope', 'scope_key', 'category', 'title', 'content', 'updated_at'])
             ->filter(function (AssistantKnowledgeItem $item) use ($partner, $ip) {
                 $scope = Str::lower((string) $item->scope);
@@ -269,12 +273,10 @@ PROMPT;
         $facts = is_array($facts) ? $facts : [];
         $lead = $conversation->lead;
         if ($lead) {
-            if ($lead->monthly_housing_cost !== null && ! array_key_exists('housing.rent_mortgage', $facts)) {
-                $facts['housing.rent_mortgage'] = (float) $lead->monthly_housing_cost;
-            }
-            if ($lead->monthly_council_tax !== null && ! array_key_exists('housing.council_tax', $facts)) {
-                $facts['housing.council_tax'] = (float) $lead->monthly_council_tax;
-            }
+            if ($lead->monthly_housing_cost !== null && ! array_key_exists('housing.rent_mortgage', $facts)) $facts['housing.rent_mortgage'] = (float) $lead->monthly_housing_cost;
+            if ($lead->monthly_council_tax !== null && ! array_key_exists('housing.council_tax', $facts)) $facts['housing.council_tax'] = (float) $lead->monthly_council_tax;
+            if ($lead->estimated_total_debt !== null && ! array_key_exists('case.estimated_total_debt', $facts)) $facts['case.estimated_total_debt'] = (float) $lead->estimated_total_debt;
+            if ($lead->employment_status && ! array_key_exists('client.employment_status', $facts)) $facts['client.employment_status'] = $lead->employment_status;
         }
         return $facts;
     }
@@ -284,17 +286,11 @@ PROMPT;
         $lead = $conversation->lead;
         if (! $lead) return null;
         return [
-            'id' => $lead->id,
-            'name' => $lead->formattedName(),
-            'wip_status' => $lead->wip_status,
-            'source' => $lead->source,
-            'employment_status' => $lead->employment_status,
-            'monthly_income' => $lead->monthly_income,
-            'monthly_housing_cost' => $lead->monthly_housing_cost,
-            'monthly_council_tax' => $lead->monthly_council_tax,
-            'monthly_utilities_cost' => $lead->monthly_utilities_cost,
-            'monthly_food_travel_cost' => $lead->monthly_food_travel_cost,
-            'estimated_total_debt' => $lead->estimated_total_debt,
+            'id' => $lead->id, 'name' => $lead->formattedName(), 'wip_status' => $lead->wip_status,
+            'source' => $lead->source, 'employment_status' => $lead->employment_status,
+            'monthly_income' => $lead->monthly_income, 'monthly_housing_cost' => $lead->monthly_housing_cost,
+            'monthly_council_tax' => $lead->monthly_council_tax, 'monthly_utilities_cost' => $lead->monthly_utilities_cost,
+            'monthly_food_travel_cost' => $lead->monthly_food_travel_cost, 'estimated_total_debt' => $lead->estimated_total_debt,
             'financial_statement' => $lead->financial_statement,
         ];
     }
@@ -307,20 +303,14 @@ PROMPT;
             ->unique()->take(6)->values();
         if ($keywords->isEmpty()) return [];
 
-        $query = AssistantMessage::query()->where('role', 'user')
-            ->where('conversation_id', '!=', $conversation->id)
+        $query = AssistantMessage::query()->where('role', 'user')->where('conversation_id', '!=', $conversation->id)
             ->whereHas('conversation', fn ($q) => $q->whereNotNull('lead_id'));
-        $query->where(function ($q) use ($keywords) {
-            foreach ($keywords as $keyword) $q->orWhere('content', 'like', '%'.$keyword.'%');
-        });
+        $query->where(function ($q) use ($keywords) { foreach ($keywords as $keyword) $q->orWhere('content', 'like', '%'.$keyword.'%'); });
 
-        return $query->with('conversation:id,lead_id,summary')->latest('id')->limit(5)->get()
-            ->unique('conversation_id')->take(3)
+        return $query->with('conversation:id,lead_id,summary')->latest('id')->limit(5)->get()->unique('conversation_id')->take(3)
             ->map(fn (AssistantMessage $item) => [
-                'lead_id' => $item->conversation?->lead_id,
-                'conversation_id' => $item->conversation_id,
-                'summary' => $item->conversation?->summary,
-                'matching_message_excerpt' => Str::limit($item->content, 350),
+                'lead_id' => $item->conversation?->lead_id, 'conversation_id' => $item->conversation_id,
+                'summary' => $item->conversation?->summary, 'matching_message_excerpt' => Str::limit($item->content, 350),
             ])->values()->all();
     }
 
@@ -338,32 +328,21 @@ PROMPT;
 
     private function normaliseSuitabilityAssessment(mixed $assessment): ?array
     {
-        if (! is_array($assessment)) {
-            return null;
-        }
-
+        if (! is_array($assessment)) return null;
         $allowedStatuses = ['FIT', 'NOT_FIT', 'POSSIBLE_NEEDS_INFO', 'INSUFFICIENT_RULES'];
         $destinations = [];
-
         foreach (array_slice($assessment['destinations'] ?? [], 0, 10) as $item) {
             if (! is_array($item)) continue;
             $status = strtoupper((string) ($item['status'] ?? ''));
-            if (! in_array($status, $allowedStatuses, true)) {
-                $status = 'POSSIBLE_NEEDS_INFO';
-            }
-
+            if (! in_array($status, $allowedStatuses, true)) $status = 'POSSIBLE_NEEDS_INFO';
             $destinations[] = [
-                'destination' => Str::limit((string) ($item['destination'] ?? ''), 120, ''),
-                'status' => $status,
+                'destination' => Str::limit((string) ($item['destination'] ?? ''), 120, ''), 'status' => $status,
                 'reasons' => collect($item['reasons'] ?? [])->filter('is_string')->take(10)->values()->all(),
                 'missing' => collect($item['missing'] ?? [])->filter('is_string')->take(10)->values()->all(),
             ];
         }
-
         return [
-            'best_fit' => filled($assessment['best_fit'] ?? null)
-                ? Str::limit((string) $assessment['best_fit'], 120, '')
-                : null,
+            'best_fit' => filled($assessment['best_fit'] ?? null) ? Str::limit((string) $assessment['best_fit'], 120, '') : null,
             'best_fit_reason' => Str::limit((string) ($assessment['best_fit_reason'] ?? ''), 1000, ''),
             'destinations' => $destinations,
         ];
@@ -371,8 +350,7 @@ PROMPT;
 
     private function normaliseKnowledgeProposal(array $proposal): array
     {
-        $scope = in_array(($proposal['scope'] ?? null), ['company', 'partner', 'ip'], true)
-            ? $proposal['scope'] : 'company';
+        $scope = in_array(($proposal['scope'] ?? null), ['company', 'partner', 'ip'], true) ? $proposal['scope'] : 'company';
         return [
             'scope' => $scope,
             'scope_key' => filled($proposal['scope_key'] ?? null) ? Str::limit(trim((string) $proposal['scope_key']), 120, '') : null,
@@ -385,11 +363,7 @@ PROMPT;
     private function extractOutputText(array $payload): string
     {
         if (is_string($payload['output_text'] ?? null) && $payload['output_text'] !== '') return $payload['output_text'];
-        foreach (($payload['output'] ?? []) as $item) {
-            foreach (($item['content'] ?? []) as $content) {
-                if (isset($content['text']) && is_string($content['text'])) return $content['text'];
-            }
-        }
+        foreach (($payload['output'] ?? []) as $item) foreach (($item['content'] ?? []) as $content) if (isset($content['text']) && is_string($content['text'])) return $content['text'];
         throw new RuntimeException('Assistant provider returned no text output.');
     }
 
