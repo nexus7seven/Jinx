@@ -23,6 +23,7 @@ class JinxAssistantController extends Controller
             'knowledge_count' => AssistantKnowledgeItem::active()->count(),
             'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
             'established_facts' => data_get($conversation->metadata, 'established_facts', []),
+            'last_suitability_assessment' => data_get($conversation->metadata, 'last_suitability_assessment'),
             'messages' => $conversation->messages()
                 ->latest('id')
                 ->limit(60)
@@ -66,6 +67,10 @@ class JinxAssistantController extends Controller
                 $metadata['deterministic_ie'] = $result['deterministic_ie'] ?? [];
             }
 
+            if (is_array($result['suitability_assessment'] ?? null)) {
+                $metadata['last_suitability_assessment'] = $result['suitability_assessment'];
+            }
+
             if (($result['confirm_pending_knowledge'] ?? false) && is_array($pending) && filled($pending['content'] ?? null)) {
                 $savedKnowledge = AssistantKnowledgeItem::create([
                     'scope' => $pending['scope'] ?? 'company',
@@ -105,6 +110,7 @@ class JinxAssistantController extends Controller
                     'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
                     'fact_updates' => $result['fact_updates'] ?? [],
                     'deterministic_ie' => $result['deterministic_ie'] ?? [],
+                    'suitability_assessment' => $result['suitability_assessment'] ?? null,
                 ],
             ]);
 
@@ -121,6 +127,7 @@ class JinxAssistantController extends Controller
                     'title' => $savedKnowledge->title,
                 ] : null,
                 'knowledge_proposed' => $result['proposed_knowledge'] ?? null,
+                'suitability_assessment' => $result['suitability_assessment'] ?? null,
                 'established_facts' => data_get($metadata, 'established_facts', []),
             ]);
         } catch (Throwable $e) {
