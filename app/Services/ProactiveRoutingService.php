@@ -8,39 +8,38 @@ class ProactiveRoutingService
 {
     public function evaluate(array $profile, array $facts, ?Lead $lead = null): ?array
     {
-        // Capturing income/housing/transport facts is not the same as running an I&E.
-        // Routing must never act on a provisional deterministic snapshot before the
-        // packager has explicitly started the I&E and the required income stage is complete.
-        if (! $this->ieIsActive($facts) || ! $this->incomeStageComplete($facts)) return null;
+        // Never interrupt an I&E with routing advice. Finish the complete I&E first,
+        // including all required income/manual questions and target optimisation.
+        // Only consider another destination when the finished I&E cannot reach target DI.
+        if (! $this->ieIsComplete($facts)) return null;
+
+        $di = $this->number($facts, ['calculation.disposable_income', 'calculation.di']);
+        $targetDi = $this->number($facts, ['calculation.target_di', 'target_di']);
+        if ($di === null || $targetDi === null || $di >= $targetDi) return null;
 
         $destination = $this->currentDestination($profile);
         if (! $destination) return null;
         $rules = $this->hardRules($destination);
         if ($rules === []) return null;
 
-        $failures = [];
-        $di = $this->number($facts, ['calculation.disposable_income', 'calculation.di']);
+        $failures = ["Completed I&E disposable income £{$this->money($di)} is below the requested target DI of £{$this->money($targetDi)}."];
         $debt = $this->number($facts, ['debt.total', 'case.total_debt']) ?? $this->numeric($lead?->estimated_total_debt);
         $income = $this->number($facts, ['income.client_total', 'income.total_client']) ?? $this->numeric($lead?->monthly_income);
         $repayment = $this->number($facts, ['calculation.total_repayment', 'calculation.term_repayment']);
 
-        if (isset($rules['min_di']) && $di !== null && $di < $rules['min_di']) $failures[] = "Disposable income £{$this->money($di)} is below {$destination}'s £{$this->money($rules['min_di'])} minimum.";
+        if (isset($rules['min_di']) && $di < $rules['min_di']) $failures[] = "Disposable income £{$this->money($di)} is below {$destination}'s £{$this->money($rules['min_di'])} minimum.";
         if (isset($rules['min_debt']) && $debt !== null && $debt < $rules['min_debt']) $failures[] = "Total debt £{$this->money($debt)} is below {$destination}'s £{$this->money($rules['min_debt'])} minimum.";
         if (isset($rules['min_income']) && $income !== null && $income < $rules['min_income']) $failures[] = "Client income £{$this->money($income)} is below {$destination}'s £{$this->money($rules['min_income'])} minimum.";
         if (isset($rules['min_repayment']) && $repayment !== null && $repayment <= $rules['min_repayment']) $failures[] = "Total proposed repayment £{$this->money($repayment)} does not exceed {$destination}'s £{$this->money($rules['min_repayment'])} requirement.";
-        if ($failures === []) return null;
 
-        return ['current_destination'=>$destination,'hard_failures'=>$failures,'action'=>'Run a cross-destination suitability comparison and surface a better fit if one is supported by the known criteria.'];
+        return ['current_destination'=>$destination,'hard_failures'=>$failures,'action'=>'The I&E is complete and target DI was not reached. Now run a cross-destination suitability comparison and surface a better fit if supported by the known criteria.'];
     }
 
-    private function ieIsActive(array $facts): bool
+    private function ieIsComplete(array $facts): bool
     {
-        return ($facts['workflow.ie_active'] ?? false) === true;
-    }
-
-    private function incomeStageComplete(array $facts): bool
-    {
-        return ($facts['workflow.income_complete'] ?? false) === true;
+        return ($facts['workflow.ie_active'] ?? false) === true
+            && ($facts['workflow.income_complete'] ?? false) === true
+            && ($facts['workflow.ie_complete'] ?? false) === true;
     }
 
     private function currentDestination(array $profile): ?string
