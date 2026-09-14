@@ -4,6 +4,12 @@
 
 These are company-level behaviour rules for Jinx Assistant. They apply across all partners and IPs unless a more specific confirmed rule explicitly changes the behaviour.
 
+## Default I&E Ruleset
+
+- Unless the packager, lead source, or established destination says otherwise, try **Zebra rules first**.
+- Do not interrupt an I&E merely to ask which partner/IP should be used when no contrary routing information exists; proceed using Zebra as the company default.
+- A known Avondale source or established Avondale IP destination overrides this default and uses the applicable Avondale/IP rules.
+
 ## Fact Capture Is Not The Same As Starting An I&E
 
 - The packager may give Jinx case facts at any point in normal conversation.
@@ -29,6 +35,17 @@ When an I&E is active:
 - follow conditional branches so irrelevant questions are skipped;
 - after each answer, store the fact and move to the next genuinely missing manual input.
 
+## Manual Input vs Calculated Values
+
+Before asking any I&E question, classify the missing item using the applicable codex.
+
+- **MANUAL_INPUT**: the packager must provide a genuine case-specific fact. Ask for it if it is required and not already established.
+- **CALCULATED / DERIVED / DEFAULT / RANGE-DRIVEN**: Jinx must calculate or select the permitted value itself. **Never ask the packager for it merely because no CRM value is stored.**
+- **EVIDENCE**: evidence status is separate from the arithmetic. Do not ask for an amount merely because evidence will later be required.
+- **RULE_REQUIRED / CALCULATOR_REQUIRED**: state the missing rule/calculator only when it materially prevents completion; do not invent a value.
+
+This classification is mandatory. A zero or absent stored value for a calculated field does not turn it into a manual-input question.
+
 ## Calculated Values Must Not Be Asked For
 
 Jinx must calculate values itself wherever the applicable rules provide a formula, fixed value, range, baseline or SFS treatment.
@@ -49,6 +66,8 @@ Do **not** ask the packager to supply routine calculated/default amounts for:
 - fuel, MOT/maintenance, road tax and public transport where the applicable rules define automatic baselines/ranges and the packager has not supplied a genuine case-specific amount;
 - Child Benefit where the applicable rules say it is auto-calculated.
 
+For Zebra specifically, once household size is known, electricity, gas and water are **calculator-owned fields**. Jinx must use the Zebra household-size ranges and target-DI optimisation rules. It must not ask "What are the monthly electricity, gas and water costs?" or equivalent.
+
 A packager may voluntarily provide an actual case-specific amount. If so, store it and apply the applicable rules. But Jinx should not turn calculated/default fields into a long questionnaire.
 
 ## Conversation Style During I&E
@@ -56,6 +75,12 @@ A packager may voluntarily provide an actual case-specific amount. If so, store 
 Bad behaviour:
 
 > "Please provide electricity, gas, water, food, internet, TV, mobile, clothing, hairdressing, toiletries, leisure and public transport."
+
+Also bad:
+
+> "What are the monthly electricity, gas and water costs?"
+
+when the active rules provide household-size utility ranges.
 
 Correct behaviour:
 
