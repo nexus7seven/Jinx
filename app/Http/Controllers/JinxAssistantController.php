@@ -46,13 +46,25 @@ class JinxAssistantController extends Controller
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
 
-            // Persist facts that can be resolved deterministically before asking the model.
-            // This includes the answer to the exact Zebra interview question currently due,
-            // so a bare answer such as "110" cannot be lost or cause the same question to repeat.
-            $preFacts = array_replace(
-                $this->explicitHouseholdFacts($messageText),
-                $zebraAnswers->extract($lead, $existingFacts, $messageText)
-            );
+            // Starting an I&E is deterministic. Do this before the model sees the turn so
+            // "run an i and e" cannot be interpreted as a request to inspect stale FS data.
+            $startFacts = $this->isIeStartRequest($messageText) ? $zebraAnswers->start($existingFacts) : [];
+            $householdFacts = $this->explicitHouseholdFacts($messageText);
+            $factsForAnswer = array_replace($existingFacts, $startFacts, $householdFacts);
+
+            // If explicit household facts were supplied outside the one-question flow, sign
+            // them as established so the deterministic state machine can legitimately skip them.
+            if (($factsForAnswer['workflow.ie_active'] ?? false) === true && $householdFacts !== []) {
+                $factsForAnswer = array_replace($factsForAnswer, $zebraAnswers->start(array_replace($existingFacts, $householdFacts)), [
+                    'workflow.ie_active' => true,
+                    'workflow.income_complete' => $startFacts['workflow.income_complete'] ?? ($existingFacts['workflow.income_complete'] ?? false),
+                    'workflow.ie_complete' => false,
+                ]);
+            }
+
+            // Persist the answer to the exact current Zebra checkpoint before asking the model.
+            $answerFacts = $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
+            $preFacts = array_replace($startFacts, $householdFacts, $answerFacts);
 
             $syncedFields = [];
             if ($preFacts !== []) {
@@ -70,8 +82,21 @@ class JinxAssistantController extends Controller
             if (is_array($result['fact_updates'] ?? null) && $result['fact_updates'] !== []) {
                 $existingFacts = data_get($metadata, 'established_facts', []);
                 $existingFacts = is_array($existingFacts) ? $existingFacts : [];
-                $metadata['established_facts'] = array_replace($existingFacts, $result['fact_updates']);
-                $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $result['fact_updates']));
+                $updates = $result['fact_updates'];
+
+                // During an active deterministic I&E the model is not allowed to establish
+                // manual checkpoints. Only the answer service above may do that. This prevents
+                // stale Financial Statement values or model guesses from skipping income/questions.
+                if (($existingFacts['workflow.ie_active'] ?? false) === true) {
+                    foreach ($zebraAnswers->manualKeys() as $manualKey) {
+                        if (!array_key_exists($manualKey, $preFacts)) unset($updates[$manualKey]);
+                    }
+                    if (!array_key_exists('workflow.ie_confirmations', $preFacts)) unset($updates['workflow.ie_confirmations']);
+                }
+
+                $metadata['established_facts'] = array_replace($existingFacts, $updates);
+                $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $updates));
+                $result['fact_updates'] = $updates;
             }
 
             if (is_array($result['deterministic_ie'] ?? null) && $result['deterministic_ie'] !== []) {
@@ -140,6 +165,11 @@ class JinxAssistantController extends Controller
     {
         return AssistantConversation::query()->where('lead_id', $lead->id)->where('user_id', $request->user()->id)->latest('id')->first()
             ?? AssistantConversation::create(['lead_id' => $lead->id, 'user_id' => $request->user()->id, 'title' => 'Jinx Assistant — '.$lead->formattedName(), 'metadata' => []]);
+    }
+
+    private function isIeStartRequest(string $message): bool
+    {
+        return preg_match('/\b(?:run|start|carry\s*out|calculate|complete|do)\b.*\b(?:i\s*(?:&|and)\s*e|income\s*(?:&|and)\s*expenditure)\b/i', $message) === 1;
     }
 
     private function explicitHouseholdFacts(string $message): array
