@@ -15,6 +15,7 @@ class JinxAssistantService
     public function __construct(
         private readonly PartnerKnowledgeService $partnerKnowledge,
         private readonly DestinationSuitabilityService $destinationSuitability,
+        private readonly ProactiveRoutingService $proactiveRouting,
         private readonly ZebraIeCalculatorService $zebraIe,
     ) {
     }
@@ -156,16 +157,91 @@ PROMPT;
         $factUpdates = $this->normaliseFactUpdates($decoded['fact_updates'] ?? []);
         $factsAfter = array_replace($facts, $factUpdates);
         $deterministicAfter = $zebraApplies ? $this->zebraIe->snapshot($factsAfter) : [];
+        $reply = trim((string) $decoded['reply']);
+        $suitability = $this->normaliseSuitabilityAssessment($decoded['suitability_assessment'] ?? null);
+        $proactiveSignature = null;
+
+        if (! $comparisonRequested) {
+            $routeAlert = $this->proactiveRouting->evaluate($profile, $factsAfter, $conversation->lead);
+
+            if ($routeAlert) {
+                $signature = sha1(json_encode($routeAlert, JSON_UNESCAPED_SLASHES));
+                $lastSignature = (string) data_get($conversation->metadata, 'last_proactive_route_signature', '');
+
+                if ($signature !== $lastSignature) {
+                    $proactive = $this->runProactiveComparison($apiKey, $model, $factsAfter, $routeAlert);
+                    if ($proactive) {
+                        $reply .= "\n\n".$proactive['reply'];
+                        $suitability = $proactive['suitability_assessment'];
+                        $proactiveSignature = $signature;
+                    }
+                }
+            }
+        }
 
         return [
-            'reply' => trim((string) $decoded['reply']),
+            'reply' => $reply,
             'fact_updates' => $factUpdates,
             'deterministic_ie' => $deterministicAfter,
-            'suitability_assessment' => $this->normaliseSuitabilityAssessment($decoded['suitability_assessment'] ?? null),
+            'suitability_assessment' => $suitability,
+            'proactive_route_signature' => $proactiveSignature,
             'proposed_knowledge' => is_array($decoded['proposed_knowledge'] ?? null)
                 ? $this->normaliseKnowledgeProposal($decoded['proposed_knowledge']) : null,
             'confirm_pending_knowledge' => (bool) ($decoded['confirm_pending_knowledge'] ?? false),
             'case_summary' => trim((string) ($decoded['case_summary'] ?? '')),
+        ];
+    }
+
+    private function runProactiveComparison(string $apiKey, string $model, array $facts, array $routeAlert): ?array
+    {
+        $instructions = <<<'PROMPT'
+You are Jinx Assistant performing a proactive IVA destination check during an I&E.
+A deterministic Jinx rule has identified a hard failure for the case's current destination.
+Assess the same established case facts against every destination in DESTINATION_COMPARISON independently.
+Do not transfer criteria between destinations and do not invent missing rules.
+Use statuses FIT, NOT_FIT, POSSIBLE_NEEDS_INFO or INSUFFICIENT_RULES.
+A destination is FIT only where all material supplied criteria are satisfied and no material decision fact is missing.
+Explain the current hard failure first. If another destination is a supported FIT, say so clearly and explain why. If none is a confirmed FIT, say which are possible and what is missing.
+Keep the packager-facing reply concise.
+
+Return ONLY valid JSON:
+{
+  "reply": "concise proactive routing warning/recommendation",
+  "suitability_assessment": {
+    "best_fit": null OR "destination name",
+    "best_fit_reason": "short explanation",
+    "destinations": [
+      {"destination":"name","status":"FIT|NOT_FIT|POSSIBLE_NEEDS_INFO|INSUFFICIENT_RULES","reasons":["reason"],"missing":["fact"]}
+    ]
+  }
+}
+PROMPT;
+
+        $response = Http::timeout(60)
+            ->withToken($apiKey)->acceptJson()
+            ->post('https://api.openai.com/v1/responses', [
+                'model' => $model,
+                'instructions' => $instructions,
+                'input' => json_encode([
+                    'ROUTE_ALERT' => $routeAlert,
+                    'ESTABLISHED_FACTS' => $facts,
+                    'DESTINATION_COMPARISON' => $this->destinationSuitability->context(),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'max_output_tokens' => 2400,
+            ]);
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $decoded = json_decode($this->stripCodeFence($this->extractOutputText($response->json())), true);
+        if (! is_array($decoded) || ! filled($decoded['reply'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'reply' => trim((string) $decoded['reply']),
+            'suitability_assessment' => $this->normaliseSuitabilityAssessment($decoded['suitability_assessment'] ?? null),
         ];
     }
 
