@@ -34,17 +34,31 @@ class JinxAssistantController extends Controller
     public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
+        $messageText = trim($validated['message']);
         $conversation = $this->conversationFor($request, $lead);
         $userMessage = AssistantMessage::create([
-            'conversation_id' => $conversation->id, 'role' => 'user', 'content' => trim($validated['message']),
+            'conversation_id' => $conversation->id, 'role' => 'user', 'content' => $messageText,
         ]);
 
         try {
-            $result = $assistant->reply($conversation->fresh(), $userMessage->content);
+            // Persist unambiguous household facts before calculation. This prevents the AI
+            // response format from becoming a single point of failure for SFS household bands.
             $metadata = $conversation->metadata ?? [];
+            $preFacts = $this->explicitHouseholdFacts($messageText);
+            $syncedFields = [];
+            if ($preFacts !== []) {
+                $existingFacts = data_get($metadata, 'established_facts', []);
+                $existingFacts = is_array($existingFacts) ? $existingFacts : [];
+                $metadata['established_facts'] = array_replace($existingFacts, $preFacts);
+                $conversation->metadata = $metadata;
+                $conversation->save();
+                $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $preFacts));
+            }
+
+            $result = $assistant->reply($conversation->fresh(), $userMessage->content);
+            $metadata = $conversation->fresh()->metadata ?? [];
             $pending = data_get($metadata, 'pending_knowledge');
             $savedKnowledge = null;
-            $syncedFields = [];
 
             if (is_array($result['fact_updates'] ?? null) && $result['fact_updates'] !== []) {
                 $existingFacts = data_get($metadata, 'established_facts', []);
@@ -82,7 +96,7 @@ class JinxAssistantController extends Controller
                 'conversation_id' => $conversation->id, 'role' => 'assistant', 'content' => $result['reply'],
                 'metadata' => [
                     'knowledge_saved_id' => $savedKnowledge?->id, 'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
-                    'fact_updates' => $result['fact_updates'] ?? [], 'synced_fields' => $syncedFields,
+                    'fact_updates' => array_replace($preFacts, $result['fact_updates'] ?? []), 'synced_fields' => $syncedFields,
                     'deterministic_ie' => $result['deterministic_ie'] ?? [], 'suitability_assessment' => $result['suitability_assessment'] ?? null,
                 ],
             ]);
@@ -94,6 +108,7 @@ class JinxAssistantController extends Controller
                 'knowledge_proposed' => $result['proposed_knowledge'] ?? null,
                 'suitability_assessment' => $result['suitability_assessment'] ?? null,
                 'synced_fields' => $syncedFields,
+                'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
                 'established_facts' => data_get($metadata, 'established_facts', []),
             ]);
         } catch (Throwable $e) {
@@ -118,5 +133,32 @@ class JinxAssistantController extends Controller
     {
         return AssistantConversation::query()->where('lead_id', $lead->id)->where('user_id', $request->user()->id)->latest('id')->first()
             ?? AssistantConversation::create(['lead_id' => $lead->id, 'user_id' => $request->user()->id, 'title' => 'Jinx Assistant — '.$lead->formattedName(), 'metadata' => []]);
+    }
+
+    private function explicitHouseholdFacts(string $message): array
+    {
+        $facts = [];
+        $text = strtolower($message);
+
+        if (preg_match('/\bno\s+partner\b/', $text)) $facts['household.partner_exists'] = false;
+        elseif (preg_match('/\b(?:has|with)\s+(?:a\s+)?partner\b/', $text)) $facts['household.partner_exists'] = true;
+
+        if (preg_match('/\b(\d+)\s+(?:resident\s+)?children?\b/', $text, $m)) {
+            $facts['household.children_count'] = (int) $m[1];
+        } elseif (preg_match('/\bno\s+(?:resident\s+)?children\b/', $text)) {
+            $facts['household.children_count'] = 0;
+            $facts['household.children_ages'] = [];
+        }
+
+        if (preg_match('/\bchildren?\s+aged?\s+([0-9,\s&and]+)/', $text, $m)) {
+            preg_match_all('/\d+/', $m[1], $ages);
+            $parsed = array_map('intval', $ages[0] ?? []);
+            if ($parsed !== []) {
+                $facts['household.children_ages'] = $parsed;
+                $facts['household.children_count'] = count($parsed);
+            }
+        }
+
+        return $facts;
     }
 }
