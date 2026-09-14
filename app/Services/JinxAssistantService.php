@@ -29,9 +29,6 @@ class JinxAssistantService
         $facts=$this->establishedFacts($conversation);
         $profile=$this->partnerKnowledge->profile($conversation->lead?->source,$facts);
 
-        // Defensive second pass: the controller normally captures the answer before this service
-        // runs, but the interview service also applies it here so a valid answer can never be lost
-        // and cause the exact same Zebra question to be repeated.
         if($conversation->lead && ($profile['partner']??null)==='Zebra') {
             $direct=$this->zebraAnswers->extract($conversation->lead,$facts,$message);
             if($direct!==[]) $facts=array_replace($facts,$direct);
@@ -76,14 +73,9 @@ PROMPT;
         if(!is_array($decoded)||!isset($decoded['reply']))throw new RuntimeException('Assistant returned an invalid response format.');
 
         $factUpdates=$this->normaliseFactUpdates($decoded['fact_updates']??[]);
-
-        // Re-include direct deterministic answers in the returned update set so the controller
-        // persists them even if the model omits or contradicts them.
         if(isset($direct) && $direct!==[]) $factUpdates=array_replace($factUpdates,$direct);
 
-        if(!(($facts['workflow.ie_active']??false)===true) && $this->acceptedIeOffer($history,$message)) {
-            $factUpdates['workflow.ie_active']=true;
-        }
+        if(!(($facts['workflow.ie_active']??false)===true) && $this->acceptedIeOffer($history,$message)) $factUpdates['workflow.ie_active']=true;
 
         $factsAfter=array_replace($facts,$factUpdates);
         $profileAfter=$this->partnerKnowledge->profile($conversation->lead?->source,$factsAfter);
@@ -91,8 +83,11 @@ PROMPT;
         $suitability=$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null);
 
         if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
-            $next=$this->nextZebraIeQuestion($factsAfter);
-            $incomeComplete=$this->zebraIncomeComplete($factsAfter);
+            // The signed deterministic state machine is the sole authority for progression.
+            // A model-added manual fact (for example interpreting target DI as salary as well)
+            // must never skip the next checkpoint.
+            $next=$this->zebraAnswers->nextQuestion($factsAfter);
+            $incomeComplete=$this->zebraAnswers->incomeComplete($factsAfter);
             $factUpdates['workflow.income_complete']=$incomeComplete;
             $factsAfter['workflow.income_complete']=$incomeComplete;
 
@@ -109,99 +104,26 @@ PROMPT;
 
         $deterministicAfter=$this->ieCalculator->snapshot($factsAfter,$profileAfter);
 
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)) {
-            $reply=$this->conciseIeCompletion($deterministicAfter);
-            $suitability=null;
-        }
+        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)) {$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
 
         $factsForRouting=$factsAfter;
-        if(($factsAfter['workflow.ie_complete']??false)===true){
-            $factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;
-            $factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;
-            $factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;
-        }
+        if(($factsAfter['workflow.ie_complete']??false)===true){$factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;$factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;$factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;}
 
         $proactiveSignature=null;
-        if(!$comparisonRequested){
-            $routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);
-            if($routeAlert){
-                $signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));
-                if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){
-                    $proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);
-                    if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}
-                }
-            }
-        }
+        if(!$comparisonRequested){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
 
         return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'case_summary'=>trim((string)($decoded['case_summary']??''))];
     }
 
     private function acceptedIeOffer(array $history,string $message): bool
     {
-        $answer=Str::lower(trim($message));
-        $explicit=preg_match('/\b(carry out|run|start|calculate|complete)\b.*\bi\s*&\s*e\b/i',$message)===1;
-        if($explicit)return true;
-        if(!in_array($answer,['yes','y','yeah','yep','please','go ahead','do it'],true))return false;
-        $last=collect($history)->reverse()->first(fn($item)=>($item['role']??null)==='assistant');
-        return is_array($last) && Str::contains(Str::lower((string)($last['content']??'')),['would you like me to carry out','carry out the zebra i&e','carry out the i&e']);
-    }
-
-    private function nextZebraIeQuestion(array $facts): ?string
-    {
-        if(!$this->hasFact($facts,'calculation.target_di'))return 'What is the target DI?';
-        if(!$this->hasFact($facts,'income.client_salary'))return "What is the client's monthly take-home salary?";
-        if(!$this->hasFact($facts,'household.partner_exists'))return 'Does the client have a partner?';
-        if($this->factBool($facts,'household.partner_exists')===true && !$this->hasFact($facts,'income.partner_salary'))return "What is the partner's monthly take-home salary?";
-        if(!$this->hasFact($facts,'household.children_count'))return 'How many children live with the client?';
-        $children=(int)($facts['household.children_count']??0);
-        if($children>0){$ages=$facts['household.children_ages']??[];if(!is_array($ages)||count($ages)!==$children)return "What are the ages of the {$children} children living with the client?";}
-        if(!$this->hasFact($facts,'income.universal_credit'))return "What is the client's monthly Universal Credit? Enter 0 if none.";
-        if(!$this->secondaryIncomeScreenComplete($facts))return "Does the client or their partner receive any of the following? If yes, state which and the monthly amount: PIP/DLA, ESA, Carer's Allowance, maintenance income, pension income, student loan/grant/bursary, or Foster/Guardianship Allowance. If none, enter 0.";
-        if(!$this->hasFact($facts,'housing.rent_mortgage'))return 'What is the monthly rent or mortgage?';
-        if(!$this->hasFact($facts,'housing.council_tax'))return 'What is the monthly Council Tax?';
-        if(!$this->hasFact($facts,'transport.client.mode'))return 'Does the client have a car or use public transport?';
-        if($this->isCarMode($facts['transport.client.mode']??null) && !$this->hasFact($facts,'transport.client.car_insurance'))return "What is the client's monthly car insurance?";
-        if($this->factBool($facts,'household.partner_exists')===true){
-            if(!$this->hasFact($facts,'transport.partner.mode'))return 'Does the partner have a car or use public transport?';
-            if($this->isCarMode($facts['transport.partner.mode']??null) && !$this->hasFact($facts,'transport.partner.car_insurance'))return "What is the partner's monthly car insurance?";
-        }
-        if(!$this->hasFact($facts,'other.childcare'))return 'Does the client have any monthly childcare costs? Enter 0 if none.';
-        if(!$this->hasFact($facts,'other.maintenance_paid'))return 'Does the client pay monthly maintenance for children who do not live with them? Enter 0 if none.';
-        return null;
-    }
-
-    private function zebraIncomeComplete(array $facts): bool
-    {
-        if(!$this->hasFact($facts,'income.client_salary'))return false;
-        if(!$this->hasFact($facts,'household.partner_exists'))return false;
-        if($this->factBool($facts,'household.partner_exists')===true && !$this->hasFact($facts,'income.partner_salary'))return false;
-        if(!$this->hasFact($facts,'household.children_count'))return false;
-        $children=(int)($facts['household.children_count']??0);
-        if($children>0 && (!isset($facts['household.children_ages'])||!is_array($facts['household.children_ages'])||count($facts['household.children_ages'])!==$children))return false;
-        if(!$this->hasFact($facts,'income.universal_credit'))return false;
-        return $this->secondaryIncomeScreenComplete($facts);
-    }
-
-    private function secondaryIncomeScreenComplete(array $facts): bool
-    {
-        foreach(['income.pip_dla','income.esa','income.carers_allowance','income.maintenance_received','income.pension','income.student','income.foster_guardianship'] as $key){
-            if(!$this->hasFact($facts,$key))return false;
-        }
-        return true;
+        $answer=Str::lower(trim($message));$explicit=preg_match('/\b(carry out|run|start|calculate|complete)\b.*\bi\s*&\s*e\b/i',$message)===1;if($explicit)return true;if(!in_array($answer,['yes','y','yeah','yep','please','go ahead','do it'],true))return false;$last=collect($history)->reverse()->first(fn($item)=>($item['role']??null)==='assistant');return is_array($last) && Str::contains(Str::lower((string)($last['content']??'')),['would you like me to carry out','carry out the zebra i&e','carry out the i&e']);
     }
 
     private function conciseIeCompletion(array $snapshot): string
     {
-        $calc=$snapshot['calculation']??[];
-        $income=(float)($calc['income_total']??0);$exp=(float)($calc['expenditure_total']??0);$di=(float)($calc['disposable_income']??0);$target=$calc['target_di']??null;
-        $text='I&E complete. Income £'.number_format($income,0).', expenditure £'.number_format($exp,0).', DI £'.number_format($di,0).'.';
-        if($target!==null){$target=(float)$target;$text.=' Target £'.number_format($target,0).($di>=$target?' achieved.':' not achieved — £'.number_format($target-$di,0).' short.');}
-        return $text;
+        $calc=$snapshot['calculation']??[];$income=(float)($calc['income_total']??0);$exp=(float)($calc['expenditure_total']??0);$di=(float)($calc['disposable_income']??0);$target=$calc['target_di']??null;$text='I&E complete. Income £'.number_format($income,0).', expenditure £'.number_format($exp,0).', DI £'.number_format($di,0).'.';if($target!==null){$target=(float)$target;$text.=' Target £'.number_format($target,0).($di>=$target?' achieved.':' not achieved — £'.number_format($target-$di,0).' short.');}return $text;
     }
-
-    private function hasFact(array $facts,string $key): bool { return array_key_exists($key,$facts) && $facts[$key]!==null && $facts[$key]!==''; }
-    private function factBool(array $facts,string $key): ?bool { return $this->hasFact($facts,$key)?filter_var($facts[$key],FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE):null; }
-    private function isCarMode(mixed $value): bool { return in_array(Str::lower(trim((string)$value)),['car','vehicle'],true); }
 
     private function runProactiveComparison(string $apiKey,string $model,array $facts,array $routeAlert): ?array {$response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>'Perform a proactive IVA destination check only after a completed I&E has failed its target. Assess each destination independently. Keep the reply concise. Return only JSON with reply and suitability_assessment.','input'=>json_encode(['ROUTE_ALERT'=>$routeAlert,'ESTABLISHED_FACTS'=>$facts,'DESTINATION_COMPARISON'=>$this->destinationSuitability->context()],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>1200]);if(!$response->successful())return null;$decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);if(!is_array($decoded)||!filled($decoded['reply']??null))return null;return ['reply'=>trim((string)$decoded['reply']),'suitability_assessment'=>$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null)];}
     private function knowledgeForProfile(array $profile): Collection {$partner=Str::lower((string)($profile['partner']??''));$ip=Str::lower((string)($profile['ip']??''));return AssistantKnowledgeItem::query()->active()->orderByDesc('updated_at')->limit(250)->get(['id','scope','scope_key','category','title','content','updated_at'])->filter(function(AssistantKnowledgeItem $item)use($partner,$ip){$scope=Str::lower((string)$item->scope);$key=Str::lower(trim((string)$item->scope_key));if($scope==='company')return true;if($scope==='partner')return$partner!==''&&$key===$partner;if($scope==='ip')return$ip!==''&&$key===$ip;return false;});}
