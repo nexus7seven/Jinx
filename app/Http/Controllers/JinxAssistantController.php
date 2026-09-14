@@ -22,6 +22,7 @@ class JinxAssistantController extends Controller
             'conversation_id' => $conversation->id,
             'knowledge_count' => AssistantKnowledgeItem::active()->count(),
             'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
+            'established_facts' => data_get($conversation->metadata, 'established_facts', []),
             'messages' => $conversation->messages()
                 ->latest('id')
                 ->limit(60)
@@ -58,6 +59,13 @@ class JinxAssistantController extends Controller
             $pending = data_get($metadata, 'pending_knowledge');
             $savedKnowledge = null;
 
+            if (is_array($result['fact_updates'] ?? null) && $result['fact_updates'] !== []) {
+                $existingFacts = data_get($metadata, 'established_facts', []);
+                $existingFacts = is_array($existingFacts) ? $existingFacts : [];
+                $metadata['established_facts'] = array_replace($existingFacts, $result['fact_updates']);
+                $metadata['deterministic_ie'] = $result['deterministic_ie'] ?? [];
+            }
+
             if (($result['confirm_pending_knowledge'] ?? false) && is_array($pending) && filled($pending['content'] ?? null)) {
                 $savedKnowledge = AssistantKnowledgeItem::create([
                     'scope' => $pending['scope'] ?? 'company',
@@ -70,6 +78,7 @@ class JinxAssistantController extends Controller
                     'metadata' => [
                         'source' => 'jinx_assistant_chat',
                         'conversation_id' => $conversation->id,
+                        'lead_id' => $lead->id,
                     ],
                 ]);
 
@@ -94,6 +103,8 @@ class JinxAssistantController extends Controller
                 'metadata' => [
                     'knowledge_saved_id' => $savedKnowledge?->id,
                     'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
+                    'fact_updates' => $result['fact_updates'] ?? [],
+                    'deterministic_ie' => $result['deterministic_ie'] ?? [],
                 ],
             ]);
 
@@ -110,6 +121,7 @@ class JinxAssistantController extends Controller
                     'title' => $savedKnowledge->title,
                 ] : null,
                 'knowledge_proposed' => $result['proposed_knowledge'] ?? null,
+                'established_facts' => data_get($metadata, 'established_facts', []),
             ]);
         } catch (Throwable $e) {
             report($e);
