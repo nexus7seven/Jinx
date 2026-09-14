@@ -71,6 +71,10 @@ class JinxAssistantController extends Controller
                 $metadata['last_suitability_assessment'] = $result['suitability_assessment'];
             }
 
+            if (filled($result['proactive_route_signature'] ?? null)) {
+                $metadata['last_proactive_route_signature'] = $result['proactive_route_signature'];
+            }
+
             if (($result['confirm_pending_knowledge'] ?? false) && is_array($pending) && filled($pending['content'] ?? null)) {
                 $savedKnowledge = AssistantKnowledgeItem::create([
                     'scope' => $pending['scope'] ?? 'company',
@@ -111,6 +115,7 @@ class JinxAssistantController extends Controller
                     'fact_updates' => $result['fact_updates'] ?? [],
                     'deterministic_ie' => $result['deterministic_ie'] ?? [],
                     'suitability_assessment' => $result['suitability_assessment'] ?? null,
+                    'proactive_route_signature' => $result['proactive_route_signature'] ?? null,
                 ],
             ]);
 
