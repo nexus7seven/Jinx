@@ -22,4 +22,5 @@ jobs:
             git fetch origin
             git checkout main
             git pull origin main
+            php artisan migrate --force
             php artisan optimize:clear
