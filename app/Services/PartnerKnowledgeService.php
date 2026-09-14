@@ -19,13 +19,15 @@ class PartnerKnowledgeService
         }
 
         $ip = $this->canonicalIp($facts['case.ip_destination'] ?? $facts['case.ip'] ?? null);
+        $companyCodex = $this->loadCompanyCodex();
         $partnerCodex = $partner ? $this->loadPartnerCodex($partner) : null;
         $ipCodex = ($partner === 'Avondale' && $ip) ? $this->loadAvondaleIpCodex($ip) : null;
 
         return [
             'partner' => $partner,
             'ip' => $ip,
-            'partner_codex' => $this->combineCodex($partnerCodex, $ipCodex),
+            'partner_codex' => $this->combineCodex($companyCodex, $partnerCodex, $ipCodex),
+            'company_codex' => $companyCodex,
             'ip_codex' => $ipCodex,
             'precedence' => ['ip', 'partner', 'company'],
         ];
@@ -33,6 +35,7 @@ class PartnerKnowledgeService
 
     public function comparisonCatalogue(): array
     {
+        $company = $this->loadCompanyCodex();
         $avondale = $this->loadPartnerCodex('Avondale');
 
         return [
@@ -40,33 +43,44 @@ class PartnerKnowledgeService
                 'destination' => 'Zebra',
                 'partner' => 'Zebra',
                 'ip' => 'Zebra',
-                'codex' => $this->loadPartnerCodex('Zebra'),
+                'codex' => $this->combineCodex($company, $this->loadPartnerCodex('Zebra')),
             ],
             [
                 'destination' => 'Lawson Fox',
                 'partner' => 'Avondale',
                 'ip' => 'Lawson Fox',
-                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Lawson Fox')),
+                'codex' => $this->combineCodex($company, $avondale, $this->loadAvondaleIpCodex('Lawson Fox')),
             ],
             [
                 'destination' => 'TIG',
                 'partner' => 'Avondale',
                 'ip' => 'TIG',
-                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('TIG')),
+                'codex' => $this->combineCodex($company, $avondale, $this->loadAvondaleIpCodex('TIG')),
             ],
             [
                 'destination' => 'Assure',
                 'partner' => 'Avondale',
                 'ip' => 'Assure',
-                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Assure')),
+                'codex' => $this->combineCodex($company, $avondale, $this->loadAvondaleIpCodex('Assure')),
             ],
             [
                 'destination' => 'Anchorage Chambers',
                 'partner' => 'Avondale',
                 'ip' => 'Anchorage Chambers',
-                'codex' => $this->combineCodex($avondale, $this->loadAvondaleIpCodex('Anchorage Chambers')),
+                'codex' => $this->combineCodex($company, $avondale, $this->loadAvondaleIpCodex('Anchorage Chambers')),
             ],
         ];
+    }
+
+    public function loadCompanyCodex(): ?string
+    {
+        $directory = resource_path('assistant/knowledge/company');
+
+        if (! File::isDirectory($directory)) {
+            return null;
+        }
+
+        return $this->loadMarkdownDirectory($directory);
     }
 
     public function loadPartnerCodex(string $partner): ?string
@@ -106,12 +120,15 @@ class PartnerKnowledgeService
         return $this->loadMarkdownDirectory($directory);
     }
 
-    private function combineCodex(?string $partnerCodex, ?string $ipCodex): ?string
+    private function combineCodex(?string ...$codices): ?string
     {
-        $parts = array_values(array_filter([
-            $partnerCodex ? "===== PARTNER-LEVEL CODEX =====\n\n{$partnerCodex}" : null,
-            $ipCodex ? "===== IP-SPECIFIC CODEX =====\n\n{$ipCodex}" : null,
-        ]));
+        $labels = ['COMPANY-LEVEL CODEX', 'PARTNER-LEVEL CODEX', 'IP-SPECIFIC CODEX'];
+        $parts = [];
+
+        foreach (array_values(array_filter($codices)) as $index => $codex) {
+            $label = $labels[$index] ?? 'SCOPED CODEX';
+            $parts[] = "===== {$label} =====\n\n{$codex}";
+        }
 
         return $parts === [] ? null : implode("\n\n", $parts);
     }
