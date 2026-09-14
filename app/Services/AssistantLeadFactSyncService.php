@@ -15,12 +15,11 @@ class AssistantLeadFactSyncService
         $changed = [];
 
         $direct = [
-            'client.first_name' => 'first_name', 'client.last_name' => 'last_name',
-            'client.email' => 'email', 'client.phone_number' => 'phone_number',
-            'client.postcode' => 'postcode', 'client.address_line_1' => 'address_line_1',
-            'client.employment_status' => 'employment_status',
-            'case.estimated_total_debt' => 'estimated_total_debt',
-            'housing.rent_mortgage' => 'monthly_housing_cost',
+            'client.title' => 'title', 'client.first_name' => 'first_name', 'client.middle_name' => 'middle_name', 'client.last_name' => 'last_name',
+            'client.dob' => 'dob', 'client.email' => 'email', 'client.phone_number' => 'phone_number',
+            'client.house_number' => 'house_number', 'client.house_name' => 'house_name', 'client.building_number' => 'building_number',
+            'client.postcode' => 'postcode', 'client.address_line_1' => 'address_line_1', 'client.employment_status' => 'employment_status',
+            'case.estimated_total_debt' => 'estimated_total_debt', 'housing.rent_mortgage' => 'monthly_housing_cost',
             'housing.council_tax' => 'monthly_council_tax',
         ];
         foreach ($direct as $factKey => $field) {
@@ -71,14 +70,11 @@ class AssistantLeadFactSyncService
     {
         if (!isset($snapshot['expenditure'], $snapshot['income'])) return [];
         $statement = $this->financialStatements->mergeForLead($lead);
-
         foreach ($snapshot['income'] as $code=>$value) if (array_key_exists($code,$statement['income']) && is_numeric($value)) $statement['income'][$code]=(float)$value;
         $statement['expenditure'] = array_replace_recursive($statement['expenditure'], $snapshot['expenditure']);
-
         $household=$snapshot['household']??[];
         foreach (['adults','children_under_16','children_16_18','size'] as $key) if (($household[$key]??null)!==null) $statement['household'][$key]=$household[$key];
         if (($snapshot['calculation']['target_di']??null)!==null) $statement['facts']['target_di']=$snapshot['calculation']['target_di'];
-
         $persisted=$this->financialStatements->persistForLead($lead,$statement);
         $lead->monthly_utilities_cost = round(array_sum($persisted['expenditure']['utilities'] ?? []),2);
         $lead->save();
