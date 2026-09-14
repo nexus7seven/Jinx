@@ -1,0 +1,202 @@
+<?php
+
+namespace App\Services;
+
+class AssistantIeCalculationService
+{
+    public function __construct(
+        private readonly ZebraIeCalculatorService $zebra,
+        private readonly SpendingGuidelineService $sfs,
+    ) {}
+
+    public function snapshot(array $facts, array $profile): array
+    {
+        $partner = $profile['partner'] ?? null;
+        $partnerExists = $this->bool($facts, 'household.partner_exists');
+        $childrenCount = $this->num($facts, 'household.children_count');
+        $ages = $this->arr($facts, 'household.children_ages');
+        $adults = $partnerExists === null ? null : ($partnerExists ? 2 : 1);
+        $under16 = null; $age1618 = null; $householdSize = null;
+
+        if ($adults !== null && $childrenCount !== null) $householdSize = $adults + (int)$childrenCount;
+        if ($childrenCount !== null && count($ages) === (int)$childrenCount) {
+            $under16 = count(array_filter($ages, fn($a)=>is_numeric($a) && (int)$a < 16));
+            $age1618 = count(array_filter($ages, fn($a)=>is_numeric($a) && (int)$a >= 16 && (int)$a <= 18));
+        }
+
+        $income = $this->income($facts);
+        if (array_key_exists('income.child_benefit_qualifying_children',$facts)) {
+            $income['child_benefit'] = $this->zebra->childBenefit((int)$facts['income.child_benefit_qualifying_children']);
+        }
+
+        $exp = [
+            'housing'=>[
+                'rent_mortgage'=>$this->money($facts,'housing.rent_mortgage'),
+                'council_tax'=>$this->money($facts,'housing.council_tax'),
+                'tv_licence'=>15.0,
+            ],
+            'utilities'=>[
+                'electricity'=>$this->money($facts,'utilities.electricity'),
+                'gas'=>$this->money($facts,'utilities.gas'),
+                'water'=>$this->money($facts,'utilities.water'),
+            ],
+            'sfs'=>[
+                'housekeeping'=>0.0,
+                'comms'=>['home_internet_tv'=>0.0,'mobile'=>0.0,'leisure'=>0.0,'total'=>0.0],
+                'personal'=>['clothing'=>0.0,'hairdressing'=>0.0,'toiletries'=>0.0,'total'=>0.0],
+            ],
+            'transport'=>['client'=>[],'partner'=>[]],
+            'other'=>[
+                'childcare'=>$this->money($facts,'other.childcare'),
+                'maintenance_paid'=>$this->money($facts,'other.maintenance_paid'),
+                'dla_care'=>$this->money($facts,'other.dla_care'),
+                'pip_care'=>$this->money($facts,'other.pip_care'),
+                'student_offset'=>$this->money($facts,'other.student_offset'),
+            ],
+        ];
+
+        $ranges = ['utilities'=>null,'sfs'=>null];
+        if ($partner === 'Zebra' && $householdSize !== null) {
+            $ranges['utilities'] = $this->zebra->utilityRanges($householdSize);
+            foreach (['electricity','gas','water'] as $k) if ($exp['utilities'][$k] <= 0) $exp['utilities'][$k]=(float)$ranges['utilities'][$k]['min'];
+        }
+
+        if ($adults !== null && $under16 !== null && $age1618 !== null) {
+            $ranges['sfs'] = [
+                'housekeeping'=>$this->sfs->bounds('housekeeping',$adults,$under16,$age1618),
+                'comms'=>$this->sfs->bounds('comms',$adults,$under16,$age1618),
+                'personal'=>$this->sfs->bounds('personal',$adults,$under16,$age1618),
+            ];
+            if ($partner === 'Avondale') {
+                $hk = ceil($ranges['sfs']['housekeeping']['max']*0.65);
+                $co = ceil($ranges['sfs']['comms']['max']*0.65);
+                $pe = ceil($ranges['sfs']['personal']['max']*0.65);
+            } else {
+                $hk = ceil($ranges['sfs']['housekeeping']['min']);
+                $co = ceil($ranges['sfs']['comms']['min']);
+                $pe = ceil($ranges['sfs']['personal']['min']);
+            }
+            $exp['sfs']['housekeeping'] = $this->moneyOr($facts,'sfs.housekeeping',$hk);
+            $exp['sfs']['comms'] = $this->allocateComms($facts,$co);
+            $exp['sfs']['personal'] = $this->allocatePersonal($facts,$pe);
+        }
+
+        $exp['transport']['client'] = $this->transport($facts,'client',$partner);
+        if ($partnerExists === true) $exp['transport']['partner'] = $this->transport($facts,'partner',$partner);
+
+        $target = $this->num($facts,'calculation.target_di');
+        $incomeTotal = round(array_sum($income),2);
+        $expTotal = $this->sumExpenditure($exp);
+
+        if ($partner === 'Zebra' && $target !== null && $ranges['sfs'] !== null) {
+            $needed = max(0, ($incomeTotal - $target) - $expTotal);
+            if ($needed > 0) {
+                $needed = $this->increaseSfs($exp,$ranges['sfs'],$needed);
+                if ($needed > 0 && is_array($ranges['utilities'])) $needed = $this->increaseUtilities($exp,$ranges['utilities'],$needed);
+                $needed = $this->increaseTransportFlex($exp,$facts,$needed);
+                $expTotal = $this->sumExpenditure($exp);
+            }
+        }
+
+        $di = round($incomeTotal-$expTotal,2);
+        $analysis = $this->sfsAnalysis($exp,$ranges['sfs']);
+
+        return [
+            'partner'=>$partner,
+            'household'=>['adults'=>$adults,'children_count'=>$childrenCount,'children_under_16'=>$under16,'children_16_18'=>$age1618,'size'=>$householdSize],
+            'income'=>$income,
+            'expenditure'=>$exp,
+            'calculation'=>[
+                'income_total'=>$incomeTotal,
+                'expenditure_total'=>$expTotal,
+                'disposable_income'=>$di,
+                'target_di'=>$target,
+                'required_expenditure'=>$target===null?null:round($incomeTotal-$target,2),
+                'variance_to_target'=>$target===null?null:round($di-$target,2),
+            ],
+            'sfs_analysis'=>$analysis,
+            'ranges'=>$ranges,
+        ];
+    }
+
+    private function income(array $facts): array
+    {
+        $map=['client_salary','partner_salary','self_employed','universal_credit','child_benefit','maintenance_received','pension','pip_dla','esa','carers_allowance','student','foster_guardianship','other_income','uc_advance_add_back'];
+        $out=[]; foreach($map as $k) $out[$k]=$this->money($facts,'income.'.$k); return $out;
+    }
+
+    private function transport(array $facts,string $who,?string $partner): array
+    {
+        $mode=strtolower((string)($facts["transport.$who.mode"]??''));
+        if ($mode==='car') return [
+            'fuel'=>$this->moneyOr($facts,"transport.$who.fuel",$partner==='Zebra'?150:0),
+            'mot_maintenance'=>$this->moneyOr($facts,"transport.$who.mot_maintenance",$partner==='Zebra'?15:0),
+            'road_tax'=>$this->moneyOr($facts,"transport.$who.road_tax",$partner==='Zebra'?15:0),
+            'car_insurance'=>$this->money($facts,"transport.$who.car_insurance"),
+            'public_transport'=>0.0,
+        ];
+        if ($mode==='public transport' || $mode==='public') return ['fuel'=>0.0,'mot_maintenance'=>0.0,'road_tax'=>0.0,'car_insurance'=>0.0,'public_transport'=>$this->money($facts,"transport.$who.public_transport")];
+        return [];
+    }
+
+    private function allocateComms(array $facts,float $total): array
+    {
+        $a=$this->money($facts,'sfs.comms.home_internet_tv'); $b=$this->money($facts,'sfs.comms.mobile'); $c=$this->money($facts,'sfs.comms.leisure');
+        if (($a+$b+$c)<=0) { $a=ceil($total*0.4); $b=ceil($total*0.3); $c=max(0,$total-$a-$b); }
+        return ['home_internet_tv'=>$a,'mobile'=>$b,'leisure'=>$c,'total'=>round($a+$b+$c,2)];
+    }
+
+    private function allocatePersonal(array $facts,float $total): array
+    {
+        $a=$this->money($facts,'sfs.personal.clothing'); $b=$this->money($facts,'sfs.personal.hairdressing'); $c=$this->money($facts,'sfs.personal.toiletries');
+        if (($a+$b+$c)<=0) { $a=ceil($total*0.5); $b=ceil($total*0.25); $c=max(0,$total-$a-$b); }
+        return ['clothing'=>$a,'hairdressing'=>$b,'toiletries'=>$c,'total'=>round($a+$b+$c,2)];
+    }
+
+    private function increaseSfs(array &$exp,array $ranges,float $needed): float
+    {
+        foreach ([['housekeeping',null],['comms','total'],['personal','total']] as [$section,$sub]) {
+            $current=$sub ? $exp['sfs'][$section][$sub] : $exp['sfs'][$section];
+            $room=max(0,ceil($ranges[$section]['max'])-$current); $add=min($room,$needed);
+            if ($add<=0) continue;
+            if ($sub===null) $exp['sfs'][$section]+=$add;
+            elseif ($section==='comms') $exp['sfs'][$section]=$this->scaleLines($exp['sfs'][$section],$add,['home_internet_tv','mobile','leisure']);
+            else $exp['sfs'][$section]=$this->scaleLines($exp['sfs'][$section],$add,['clothing','hairdressing','toiletries']);
+            $needed-=$add; if ($needed<=0) return 0.0;
+        }
+        return $needed;
+    }
+
+    private function increaseUtilities(array &$exp,array $ranges,float $needed): float
+    {
+        foreach(['electricity','gas','water'] as $k){$room=max(0,$ranges[$k]['max']-$exp['utilities'][$k]);$add=min($room,$needed);$exp['utilities'][$k]+=$add;$needed-=$add;if($needed<=0)return 0.0;} return $needed;
+    }
+
+    private function increaseTransportFlex(array &$exp,array $facts,float $needed): float
+    {
+        foreach(['client','partner'] as $who){if(!isset($exp['transport'][$who]))continue;$mode=strtolower((string)($facts["transport.$who.mode"]??''));if($mode==='car'){foreach(['mot_maintenance','road_tax'] as $k){$room=max(0,25-($exp['transport'][$who][$k]??0));$add=min($room,$needed);$exp['transport'][$who][$k]+=$add;$needed-=$add;if($needed<=0)return 0.0;}} elseif(in_array($mode,['public transport','public'],true)){$room=max(0,120-($exp['transport'][$who]['public_transport']??0));$add=min($room,$needed);$exp['transport'][$who]['public_transport']+=$add;$needed-=$add;if($needed<=0)return 0.0;}} return $needed;
+    }
+
+    private function scaleLines(array $bucket,float $add,array $keys): array
+    {
+        $bucket[$keys[count($keys)-1]] += $add; $bucket['total']=round(array_sum(array_map(fn($k)=>$bucket[$k]??0,$keys)),2); return $bucket;
+    }
+
+    private function sfsAnalysis(array $exp,?array $ranges): array
+    {
+        if(!$ranges)return [];$actual=['housekeeping'=>$exp['sfs']['housekeeping'],'comms'=>$exp['sfs']['comms']['total'],'personal'=>$exp['sfs']['personal']['total']];$out=[];
+        foreach($actual as $k=>$v){$min=$ranges[$k]['min'];$max=$ranges[$k]['max'];$out[$k]=['actual'=>$v,'min'=>$min,'max'=>$max,'pct_min'=>$min>0?round($v/$min*100,1):null,'pct_max'=>$max>0?round($v/$max*100,1):null,'headroom'=>round(max(0,$max-$v),2)];}return $out;
+    }
+
+    private function sumExpenditure(array $e): float
+    {
+        $sum=array_sum($e['housing'])+array_sum($e['utilities'])+$e['sfs']['housekeeping']+$e['sfs']['comms']['total']+$e['sfs']['personal']['total'];
+        foreach($e['transport'] as $bucket) if(is_array($bucket)) $sum+=array_sum($bucket); $sum+=array_sum($e['other']); return round($sum,2);
+    }
+
+    private function money(array $f,string $k): float { return isset($f[$k])&&is_numeric($f[$k])?(float)$f[$k]:0.0; }
+    private function moneyOr(array $f,string $k,float $d): float { return array_key_exists($k,$f)&&is_numeric($f[$k])?(float)$f[$k]:$d; }
+    private function num(array $f,string $k): ?float { return array_key_exists($k,$f)&&is_numeric($f[$k])?(float)$f[$k]:null; }
+    private function arr(array $f,string $k): array { return isset($f[$k])&&is_array($f[$k])?array_values($f[$k]):[]; }
+    private function bool(array $f,string $k): ?bool { return array_key_exists($k,$f)?filter_var($f[$k],FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE):null; }
+}
