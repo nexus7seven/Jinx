@@ -19,12 +19,14 @@ class PartnerKnowledgeService
         }
 
         $ip = $this->canonicalIp($facts['case.ip_destination'] ?? $facts['case.ip'] ?? null);
+        $partnerCodex = $partner ? $this->loadPartnerCodex($partner) : null;
+        $ipCodex = ($partner === 'Avondale' && $ip) ? $this->loadAvondaleIpCodex($ip) : null;
 
         return [
             'partner' => $partner,
             'ip' => $ip,
-            'partner_codex' => $partner ? $this->loadPartnerCodex($partner) : null,
-            'ip_codex' => ($partner === 'Avondale' && $ip) ? $this->loadAvondaleIpCodex($ip) : null,
+            'partner_codex' => $this->combineCodex($partnerCodex, $ipCodex),
+            'ip_codex' => $ipCodex,
             'precedence' => ['ip', 'partner', 'company'],
         ];
     }
@@ -64,6 +66,16 @@ class PartnerKnowledgeService
         }
 
         return $this->loadMarkdownDirectory($directory);
+    }
+
+    private function combineCodex(?string $partnerCodex, ?string $ipCodex): ?string
+    {
+        $parts = array_values(array_filter([
+            $partnerCodex ? "===== PARTNER-LEVEL CODEX =====\n\n{$partnerCodex}" : null,
+            $ipCodex ? "===== IP-SPECIFIC CODEX =====\n\n{$ipCodex}" : null,
+        ]));
+
+        return $parts === [] ? null : implode("\n\n", $parts);
     }
 
     private function loadMarkdownDirectory(string $directory): ?string
