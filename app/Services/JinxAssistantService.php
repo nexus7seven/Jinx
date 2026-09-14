@@ -12,7 +12,13 @@ use RuntimeException;
 
 class JinxAssistantService
 {
-    public function __construct(private readonly PartnerKnowledgeService $partnerKnowledge,private readonly DestinationSuitabilityService $destinationSuitability,private readonly ProactiveRoutingService $proactiveRouting,private readonly AssistantIeCalculationService $ieCalculator) {}
+    public function __construct(
+        private readonly PartnerKnowledgeService $partnerKnowledge,
+        private readonly DestinationSuitabilityService $destinationSuitability,
+        private readonly ProactiveRoutingService $proactiveRouting,
+        private readonly AssistantIeCalculationService $ieCalculator,
+        private readonly ZebraIeInterviewAnswerService $zebraAnswers,
+    ) {}
 
     public function reply(AssistantConversation $conversation,string $message): array
     {
@@ -22,6 +28,15 @@ class JinxAssistantService
         $conversation->loadMissing('lead');
         $facts=$this->establishedFacts($conversation);
         $profile=$this->partnerKnowledge->profile($conversation->lead?->source,$facts);
+
+        // Defensive second pass: the controller normally captures the answer before this service
+        // runs, but the interview service also applies it here so a valid answer can never be lost
+        // and cause the exact same Zebra question to be repeated.
+        if($conversation->lead && ($profile['partner']??null)==='Zebra') {
+            $direct=$this->zebraAnswers->extract($conversation->lead,$facts,$message);
+            if($direct!==[]) $facts=array_replace($facts,$direct);
+        }
+
         $knowledge=$this->knowledgeForProfile($profile);
         $history=$conversation->messages()->latest('id')->limit(24)->get()->reverse()->values()->map(fn(AssistantMessage $item)=>['role'=>$item->role,'content'=>$item->content])->all();
         $similarCases=$this->findSimilarCases($conversation,$message);
@@ -62,7 +77,10 @@ PROMPT;
 
         $factUpdates=$this->normaliseFactUpdates($decoded['fact_updates']??[]);
 
-        // Starting an I&E is a workflow decision, not something left to model discretion.
+        // Re-include direct deterministic answers in the returned update set so the controller
+        // persists them even if the model omits or contradicts them.
+        if(isset($direct) && $direct!==[]) $factUpdates=array_replace($factUpdates,$direct);
+
         if(!(($facts['workflow.ie_active']??false)===true) && $this->acceptedIeOffer($history,$message)) {
             $factUpdates['workflow.ie_active']=true;
         }
@@ -72,8 +90,6 @@ PROMPT;
         $reply=trim((string)$decoded['reply']);
         $suitability=$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null);
 
-        // The Zebra interview is deterministic. The markdown defines what must be
-        // established; the model extracts answers, but it does not decide to skip steps.
         if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
             $next=$this->nextZebraIeQuestion($factsAfter);
             $incomeComplete=$this->zebraIncomeComplete($factsAfter);
@@ -93,8 +109,6 @@ PROMPT;
 
         $deterministicAfter=$this->ieCalculator->snapshot($factsAfter,$profileAfter);
 
-        // Completed-I&E replies should be concise because the full detail is already visible
-        // in the Financial Statement. Routing is allowed only after the interview is complete.
         if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)) {
             $reply=$this->conciseIeCompletion($deterministicAfter);
             $suitability=null;
@@ -141,22 +155,16 @@ PROMPT;
         if(!$this->hasFact($facts,'household.children_count'))return 'How many children live with the client?';
         $children=(int)($facts['household.children_count']??0);
         if($children>0){$ages=$facts['household.children_ages']??[];if(!is_array($ages)||count($ages)!==$children)return "What are the ages of the {$children} children living with the client?";}
-
-        // UC is intentionally its own checkpoint and must be resolved before the grouped screen.
         if(!$this->hasFact($facts,'income.universal_credit'))return "What is the client's monthly Universal Credit? Enter 0 if none.";
-
         if(!$this->secondaryIncomeScreenComplete($facts))return "Does the client or their partner receive any of the following? If yes, state which and the monthly amount: PIP/DLA, ESA, Carer's Allowance, maintenance income, pension income, student loan/grant/bursary, or Foster/Guardianship Allowance. If none, enter 0.";
-
         if(!$this->hasFact($facts,'housing.rent_mortgage'))return 'What is the monthly rent or mortgage?';
         if(!$this->hasFact($facts,'housing.council_tax'))return 'What is the monthly Council Tax?';
         if(!$this->hasFact($facts,'transport.client.mode'))return 'Does the client have a car or use public transport?';
         if($this->isCarMode($facts['transport.client.mode']??null) && !$this->hasFact($facts,'transport.client.car_insurance'))return "What is the client's monthly car insurance?";
-
         if($this->factBool($facts,'household.partner_exists')===true){
             if(!$this->hasFact($facts,'transport.partner.mode'))return 'Does the partner have a car or use public transport?';
             if($this->isCarMode($facts['transport.partner.mode']??null) && !$this->hasFact($facts,'transport.partner.car_insurance'))return "What is the partner's monthly car insurance?";
         }
-
         if(!$this->hasFact($facts,'other.childcare'))return 'Does the client have any monthly childcare costs? Enter 0 if none.';
         if(!$this->hasFact($facts,'other.maintenance_paid'))return 'Does the client pay monthly maintenance for children who do not live with them? Enter 0 if none.';
         return null;
