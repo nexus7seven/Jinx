@@ -18,13 +18,13 @@ class PartnerKnowledgeService
             $partner = 'Avondale';
         }
 
-        $ip = $facts['case.ip_destination'] ?? $facts['case.ip'] ?? null;
-        $ip = is_string($ip) && trim($ip) !== '' ? trim($ip) : null;
+        $ip = $this->canonicalIp($facts['case.ip_destination'] ?? $facts['case.ip'] ?? null);
 
         return [
             'partner' => $partner,
             'ip' => $ip,
             'partner_codex' => $partner ? $this->loadPartnerCodex($partner) : null,
+            'ip_codex' => ($partner === 'Avondale' && $ip) ? $this->loadAvondaleIpCodex($ip) : null,
             'precedence' => ['ip', 'partner', 'company'],
         ];
     }
@@ -41,6 +41,33 @@ class PartnerKnowledgeService
             return null;
         }
 
+        return $this->loadMarkdownDirectory($directory);
+    }
+
+    public function loadAvondaleIpCodex(string $ip): ?string
+    {
+        $slug = match ($this->canonicalIp($ip)) {
+            'Lawson Fox' => 'lawson-fox',
+            'TIG' => 'tig',
+            'Assure' => 'assure',
+            'Anchorage Chambers' => 'anchorage-chambers',
+            default => null,
+        };
+
+        if (! $slug) {
+            return null;
+        }
+
+        $directory = resource_path('assistant/knowledge/avondale/ips/'.$slug);
+        if (! File::isDirectory($directory)) {
+            return null;
+        }
+
+        return $this->loadMarkdownDirectory($directory);
+    }
+
+    private function loadMarkdownDirectory(string $directory): ?string
+    {
         $parts = [];
         foreach (collect(File::files($directory))->sortBy(fn ($file) => $file->getFilename()) as $file) {
             if (Str::lower($file->getExtension()) !== 'md') {
@@ -49,6 +76,24 @@ class PartnerKnowledgeService
             $parts[] = "\n\n===== {$file->getFilename()} =====\n\n".File::get($file->getPathname());
         }
 
-        return trim(implode('', $parts));
+        $content = trim(implode('', $parts));
+        return $content !== '' ? $content : null;
+    }
+
+    private function canonicalIp(mixed $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        $normalised = Str::lower(trim($value));
+
+        return match (true) {
+            str_contains($normalised, 'lawson') => 'Lawson Fox',
+            $normalised === 'tig' || str_contains($normalised, 'tig ') || str_contains($normalised, ' tig') => 'TIG',
+            str_contains($normalised, 'assure') => 'Assure',
+            str_contains($normalised, 'anchorage') || $normalised === 'ac' => 'Anchorage Chambers',
+            default => trim($value),
+        };
     }
 }
