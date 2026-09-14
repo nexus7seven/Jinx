@@ -46,6 +46,61 @@ class JinxAssistantController extends Controller
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
 
+            // Hard fresh-start guard: if the Financial Statement already contains meaningful
+            // I&E data, do not silently reuse or overwrite it. Ask the packager first.
+            if (($metadata['pending_ie_reset_confirmation'] ?? false) === true) {
+                $answer = strtolower(trim($messageText));
+                if (in_array($answer, ['yes','y','yeah','yep','reset','start fresh','fresh'], true)) {
+                    $syncedFields = $factSync->resetIe($lead->fresh());
+                    $cleanFacts = $this->withoutIeFacts($existingFacts);
+                    $startFacts = $zebraAnswers->start($cleanFacts);
+                    $metadata['established_facts'] = array_replace($cleanFacts, $startFacts);
+                    unset($metadata['pending_ie_reset_confirmation'], $metadata['deterministic_ie'], $metadata['last_suitability_assessment'], $metadata['last_proactive_route_signature']);
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+
+                    return $this->directAssistantReply(
+                        $conversation,
+                        'Financial Statement cleared. '.$zebraAnswers->nextQuestion($metadata['established_facts']),
+                        $metadata['established_facts'],
+                        $syncedFields
+                    );
+                }
+
+                if (in_array($answer, ['no','n','nope','keep it','keep','use existing'], true)) {
+                    unset($metadata['pending_ie_reset_confirmation']);
+                    $startFacts = $zebraAnswers->start($existingFacts);
+                    $metadata['established_facts'] = array_replace($existingFacts, $startFacts);
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+
+                    $next = $zebraAnswers->nextQuestion($metadata['established_facts']);
+                    $reply = $next !== null
+                        ? 'Okay, I’ll keep the existing Financial Statement. '.$next
+                        : 'Okay, I’ll keep the existing Financial Statement and use the recorded I&E figures.';
+
+                    return $this->directAssistantReply($conversation, $reply, $metadata['established_facts']);
+                }
+
+                return $this->directAssistantReply(
+                    $conversation,
+                    'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.',
+                    $existingFacts
+                );
+            }
+
+            if ($this->isIeStartRequest($messageText) && $factSync->hasPopulatedIe($lead->fresh())) {
+                $metadata['pending_ie_reset_confirmation'] = true;
+                $conversation->metadata = $metadata;
+                $conversation->save();
+
+                return $this->directAssistantReply(
+                    $conversation,
+                    'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.',
+                    $existingFacts
+                );
+            }
+
             // Starting an I&E is deterministic. Do this before the model sees the turn so
             // "run an i and e" cannot be interpreted as a request to inspect stale FS data.
             $startFacts = $this->isIeStartRequest($messageText) ? $zebraAnswers->start($existingFacts) : [];
@@ -161,6 +216,32 @@ class JinxAssistantController extends Controller
         return response()->json(['ok' => true, 'conversation_id' => $conversation->id]);
     }
 
+    private function directAssistantReply(AssistantConversation $conversation, string $content, array $facts, array $syncedFields = []): JsonResponse
+    {
+        $assistantMessage = AssistantMessage::create([
+            'conversation_id' => $conversation->id,
+            'role' => 'assistant',
+            'content' => $content,
+            'metadata' => ['fact_updates' => [], 'synced_fields' => $syncedFields],
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => [
+                'id' => $assistantMessage->id,
+                'role' => 'assistant',
+                'content' => $assistantMessage->content,
+                'created_at' => $assistantMessage->created_at?->toIso8601String(),
+            ],
+            'knowledge_saved' => null,
+            'knowledge_proposed' => null,
+            'suitability_assessment' => null,
+            'synced_fields' => $syncedFields,
+            'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
+            'established_facts' => $facts,
+        ]);
+    }
+
     private function conversationFor(Request $request, Lead $lead): AssistantConversation
     {
         return AssistantConversation::query()->where('lead_id', $lead->id)->where('user_id', $request->user()->id)->latest('id')->first()
@@ -170,6 +251,14 @@ class JinxAssistantController extends Controller
     private function isIeStartRequest(string $message): bool
     {
         return preg_match('/\b(?:run|start|carry\s*out|calculate|complete|do)\b.*\b(?:i\s*(?:&|and)\s*e|income\s*(?:&|and)\s*expenditure)\b/i', $message) === 1;
+    }
+
+    private function withoutIeFacts(array $facts): array
+    {
+        foreach (array_keys($facts) as $key) {
+            if (preg_match('/^(?:workflow|calculation|income|household|housing|transport|utilities|sfs|other)\./', (string) $key)) unset($facts[$key]);
+        }
+        return $facts;
     }
 
     private function explicitHouseholdFacts(string $message): array
