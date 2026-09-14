@@ -54,11 +54,20 @@ class AssistantLeadFactSyncService
         ];
         foreach ($paths as $factKey=>$path) if (array_key_exists($factKey,$facts)) $this->set($statement,$path,$facts[$factKey]);
 
-        if (isset($facts['household.children_ages']) && is_array($facts['household.children_ages'])) {
-            $statement['household']['children'] = array_map(fn($age)=>['age'=>(int)$age], $facts['household.children_ages']);
+        if (array_key_exists('household.children_ages', $facts) && is_array($facts['household.children_ages'])) {
+            $statement['household']['children'] = array_map(fn($age)=>['age'=>(int)$age], array_values($facts['household.children_ages']));
         }
+        if (array_key_exists('household.children_count', $facts) && is_numeric($facts['household.children_count'])) {
+            $count = max(0, (int) $facts['household.children_count']);
+            $children = $statement['household']['children'] ?? [];
+            while (count($children) < $count) $children[] = ['age'=>null];
+            $statement['household']['children'] = array_slice($children, 0, $count);
+        }
+        $this->refreshHouseholdCounts($statement);
+
         if (array_key_exists('transport.client.mode',$facts)) $statement['facts']['client_transport_mode']=$facts['transport.client.mode'];
         if (array_key_exists('transport.partner.mode',$facts)) $statement['facts']['partner_transport_mode']=$facts['transport.partner.mode'];
+        if (array_key_exists('housing.type',$facts)) $statement['facts']['housing_type']=$facts['housing.type'];
 
         $this->financialStatements->persistForLead($lead, $statement);
         if (isset($statement['income']['client_salary'])) $lead->monthly_income = $statement['income']['client_salary'];
@@ -70,15 +79,58 @@ class AssistantLeadFactSyncService
     {
         if (!isset($snapshot['expenditure'], $snapshot['income'])) return [];
         $statement = $this->financialStatements->mergeForLead($lead);
-        foreach ($snapshot['income'] as $code=>$value) if (array_key_exists($code,$statement['income']) && is_numeric($value)) $statement['income'][$code]=(float)$value;
+
+        foreach ($snapshot['income'] as $code=>$value) {
+            if (array_key_exists($code,$statement['income']) && is_numeric($value)) $statement['income'][$code]=(float)$value;
+        }
         $statement['expenditure'] = array_replace_recursive($statement['expenditure'], $snapshot['expenditure']);
+
         $household=$snapshot['household']??[];
-        foreach (['adults','children_under_16','children_16_18','size'] as $key) if (($household[$key]??null)!==null) $statement['household'][$key]=$household[$key];
-        if (($snapshot['calculation']['target_di']??null)!==null) $statement['facts']['target_di']=$snapshot['calculation']['target_di'];
+        foreach (['adults','children_under_16','children_16_18','size'] as $key) {
+            if (($household[$key]??null)!==null) $statement['household'][$key]=$household[$key];
+        }
+        if (($household['children_count'] ?? null) !== null) {
+            $count = max(0, (int) $household['children_count']);
+            $children = $statement['household']['children'] ?? [];
+            while (count($children) < $count) $children[] = ['age'=>null];
+            $statement['household']['children'] = array_slice($children, 0, $count);
+        }
+
+        $calc = $snapshot['calculation'] ?? [];
+        if (($calc['target_di']??null)!==null) {
+            $statement['facts']['target_di']=$calc['target_di'];
+            $statement['calculation']['target_di']=$calc['target_di'];
+        }
+        foreach (['income_total','expenditure_total','disposable_income','required_expenditure','variance_to_target'] as $key) {
+            if (array_key_exists($key, $calc) && $calc[$key] !== null) $statement['calculation'][$key]=$calc[$key];
+        }
+        if (isset($snapshot['sfs_analysis']) && is_array($snapshot['sfs_analysis'])) {
+            $statement['calculation']['sfs']=$snapshot['sfs_analysis'];
+        }
+
         $persisted=$this->financialStatements->persistForLead($lead,$statement);
         $lead->monthly_utilities_cost = round(array_sum($persisted['expenditure']['utilities'] ?? []),2);
+        if (isset($persisted['income']['client_salary'])) $lead->monthly_income = $persisted['income']['client_salary'];
         $lead->save();
-        return ['financial_statement','monthly_utilities_cost'];
+        return ['financial_statement','monthly_utilities_cost','monthly_income'];
+    }
+
+    private function refreshHouseholdCounts(array &$statement): void
+    {
+        $children = is_array($statement['household']['children'] ?? null) ? $statement['household']['children'] : [];
+        $under16 = 0; $age1618 = 0;
+        foreach ($children as $child) {
+            $age = $child['age'] ?? null;
+            if (!is_numeric($age)) continue;
+            if ((int)$age < 16) $under16++;
+            elseif ((int)$age <= 18) $age1618++;
+        }
+        $partner = (bool)($statement['household']['partner_exists'] ?? false);
+        $adults = $partner ? 2 : 1;
+        $statement['household']['adults']=$adults;
+        $statement['household']['children_under_16']=$under16;
+        $statement['household']['children_16_18']=$age1618;
+        $statement['household']['size']=$adults+count($children);
     }
 
     private function set(array &$target, string $path, mixed $value): void
