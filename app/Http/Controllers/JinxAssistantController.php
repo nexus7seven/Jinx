@@ -46,8 +46,6 @@ class JinxAssistantController extends Controller
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
 
-            // Hard fresh-start guard: if the Financial Statement already contains meaningful
-            // I&E data, do not silently reuse or overwrite it. Ask the packager first.
             if (($metadata['pending_ie_reset_confirmation'] ?? false) === true) {
                 $answer = strtolower(trim($messageText));
                 if (in_array($answer, ['yes','y','yeah','yep','reset','start fresh','fresh'], true)) {
@@ -58,57 +56,32 @@ class JinxAssistantController extends Controller
                     unset($metadata['pending_ie_reset_confirmation'], $metadata['deterministic_ie'], $metadata['last_suitability_assessment'], $metadata['last_proactive_route_signature']);
                     $conversation->metadata = $metadata;
                     $conversation->save();
-
-                    return $this->directAssistantReply(
-                        $conversation,
-                        'Financial Statement cleared. '.$zebraAnswers->nextQuestion($metadata['established_facts']),
-                        $metadata['established_facts'],
-                        $syncedFields
-                    );
+                    return $this->directAssistantReply($conversation, 'Financial Statement cleared. '.$zebraAnswers->nextQuestion($metadata['established_facts']), $metadata['established_facts'], $syncedFields);
                 }
-
                 if (in_array($answer, ['no','n','nope','keep it','keep','use existing'], true)) {
                     unset($metadata['pending_ie_reset_confirmation']);
                     $startFacts = $zebraAnswers->start($existingFacts);
                     $metadata['established_facts'] = array_replace($existingFacts, $startFacts);
                     $conversation->metadata = $metadata;
                     $conversation->save();
-
                     $next = $zebraAnswers->nextQuestion($metadata['established_facts']);
-                    $reply = $next !== null
-                        ? 'Okay, I’ll keep the existing Financial Statement. '.$next
-                        : 'Okay, I’ll keep the existing Financial Statement and use the recorded I&E figures.';
-
+                    $reply = $next !== null ? 'Okay, I’ll keep the existing Financial Statement. '.$next : 'Okay, I’ll keep the existing Financial Statement and use the recorded I&E figures.';
                     return $this->directAssistantReply($conversation, $reply, $metadata['established_facts']);
                 }
-
-                return $this->directAssistantReply(
-                    $conversation,
-                    'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.',
-                    $existingFacts
-                );
+                return $this->directAssistantReply($conversation, 'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.', $existingFacts);
             }
 
             if ($this->isIeStartRequest($messageText) && $factSync->hasPopulatedIe($lead->fresh())) {
                 $metadata['pending_ie_reset_confirmation'] = true;
                 $conversation->metadata = $metadata;
                 $conversation->save();
-
-                return $this->directAssistantReply(
-                    $conversation,
-                    'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.',
-                    $existingFacts
-                );
+                return $this->directAssistantReply($conversation, 'The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no.', $existingFacts);
             }
 
-            // Starting an I&E is deterministic. Do this before the model sees the turn so
-            // "run an i and e" cannot be interpreted as a request to inspect stale FS data.
             $startFacts = $this->isIeStartRequest($messageText) ? $zebraAnswers->start($existingFacts) : [];
             $householdFacts = $this->explicitHouseholdFacts($messageText);
             $factsForAnswer = array_replace($existingFacts, $startFacts, $householdFacts);
 
-            // If explicit household facts were supplied outside the one-question flow, sign
-            // them as established so the deterministic state machine can legitimately skip them.
             if (($factsForAnswer['workflow.ie_active'] ?? false) === true && $householdFacts !== []) {
                 $factsForAnswer = array_replace($factsForAnswer, $zebraAnswers->start(array_replace($existingFacts, $householdFacts)), [
                     'workflow.ie_active' => true,
@@ -117,7 +90,6 @@ class JinxAssistantController extends Controller
                 ]);
             }
 
-            // Persist the answer to the exact current Zebra checkpoint before asking the model.
             $answerFacts = $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
             $preFacts = array_replace($startFacts, $householdFacts, $answerFacts);
 
@@ -129,7 +101,15 @@ class JinxAssistantController extends Controller
                 $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $preFacts));
             }
 
-            $result = $assistant->reply($conversation->fresh(), $userMessage->content);
+            // The controller has already parsed and persisted the exact current checkpoint.
+            // Never let the assistant service parse the same raw answer again against the NEXT
+            // checkpoint (e.g. target DI 110 becoming salary 110, or rent 600 becoming council tax 600).
+            $activeFacts = data_get($conversation->fresh()->metadata, 'established_facts', []);
+            $assistantInput = (($activeFacts['workflow.ie_active'] ?? false) === true && $answerFacts !== [])
+                ? '[Current I&E checkpoint answer already persisted deterministically. Advance to the next unresolved checkpoint.]'
+                : $userMessage->content;
+            $result = $assistant->reply($conversation->fresh(), $assistantInput);
+
             $metadata = $conversation->fresh()->metadata ?? [];
             $pending = data_get($metadata, 'pending_knowledge');
             $savedKnowledge = null;
@@ -138,17 +118,12 @@ class JinxAssistantController extends Controller
                 $existingFacts = data_get($metadata, 'established_facts', []);
                 $existingFacts = is_array($existingFacts) ? $existingFacts : [];
                 $updates = $result['fact_updates'];
-
-                // During an active deterministic I&E the model is not allowed to establish
-                // manual checkpoints. Only the answer service above may do that. This prevents
-                // stale Financial Statement values or model guesses from skipping income/questions.
                 if (($existingFacts['workflow.ie_active'] ?? false) === true) {
                     foreach ($zebraAnswers->manualKeys() as $manualKey) {
                         if (!array_key_exists($manualKey, $preFacts)) unset($updates[$manualKey]);
                     }
                     if (!array_key_exists('workflow.ie_confirmations', $preFacts)) unset($updates['workflow.ie_confirmations']);
                 }
-
                 $metadata['established_facts'] = array_replace($existingFacts, $updates);
                 $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $updates));
                 $result['fact_updates'] = $updates;
@@ -159,7 +134,6 @@ class JinxAssistantController extends Controller
                 $syncedFields = array_merge($syncedFields, $factSync->syncDeterministicIe($lead->fresh(), $result['deterministic_ie']));
             }
             $syncedFields = array_values(array_unique($syncedFields));
-
             if (is_array($result['suitability_assessment'] ?? null)) $metadata['last_suitability_assessment'] = $result['suitability_assessment'];
             if (filled($result['proactive_route_signature'] ?? null)) $metadata['last_proactive_route_signature'] = $result['proactive_route_signature'];
 
@@ -172,10 +146,8 @@ class JinxAssistantController extends Controller
                 ]);
                 unset($metadata['pending_knowledge']);
             }
-
             if (is_array($result['proposed_knowledge'] ?? null) && filled($result['proposed_knowledge']['content'] ?? null)) $metadata['pending_knowledge'] = $result['proposed_knowledge'];
             if (filled($result['case_summary'] ?? null)) $conversation->summary = $result['case_summary'];
-
             $conversation->metadata = $metadata;
             $conversation->save();
 
@@ -200,45 +172,24 @@ class JinxAssistantController extends Controller
             ]);
         } catch (Throwable $e) {
             report($e);
-            return response()->json([
-                'ok' => false,
-                'message' => app()->environment('production') ? 'Jinx Assistant could not respond. Please try again.' : 'Jinx Assistant could not respond. '.$e->getMessage(),
-            ], 500);
+            return response()->json(['ok' => false, 'message' => app()->environment('production') ? 'Jinx Assistant could not respond. Please try again.' : 'Jinx Assistant could not respond. '.$e->getMessage()], 500);
         }
     }
 
     public function reset(Request $request, Lead $lead): JsonResponse
     {
-        $conversation = AssistantConversation::create([
-            'lead_id' => $lead->id, 'user_id' => $request->user()->id,
-            'title' => 'Jinx Assistant — '.$lead->formattedName(), 'metadata' => [],
-        ]);
+        $conversation = AssistantConversation::create(['lead_id' => $lead->id, 'user_id' => $request->user()->id, 'title' => 'Jinx Assistant — '.$lead->formattedName(), 'metadata' => []]);
         return response()->json(['ok' => true, 'conversation_id' => $conversation->id]);
     }
 
     private function directAssistantReply(AssistantConversation $conversation, string $content, array $facts, array $syncedFields = []): JsonResponse
     {
-        $assistantMessage = AssistantMessage::create([
-            'conversation_id' => $conversation->id,
-            'role' => 'assistant',
-            'content' => $content,
-            'metadata' => ['fact_updates' => [], 'synced_fields' => $syncedFields],
-        ]);
-
+        $assistantMessage = AssistantMessage::create(['conversation_id' => $conversation->id, 'role' => 'assistant', 'content' => $content, 'metadata' => ['fact_updates' => [], 'synced_fields' => $syncedFields]]);
         return response()->json([
             'ok' => true,
-            'message' => [
-                'id' => $assistantMessage->id,
-                'role' => 'assistant',
-                'content' => $assistantMessage->content,
-                'created_at' => $assistantMessage->created_at?->toIso8601String(),
-            ],
-            'knowledge_saved' => null,
-            'knowledge_proposed' => null,
-            'suitability_assessment' => null,
-            'synced_fields' => $syncedFields,
-            'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
-            'established_facts' => $facts,
+            'message' => ['id' => $assistantMessage->id, 'role' => 'assistant', 'content' => $assistantMessage->content, 'created_at' => $assistantMessage->created_at?->toIso8601String()],
+            'knowledge_saved' => null, 'knowledge_proposed' => null, 'suitability_assessment' => null,
+            'synced_fields' => $syncedFields, 'financial_statement_changed' => in_array('financial_statement', $syncedFields, true), 'established_facts' => $facts,
         ]);
     }
 
@@ -255,9 +206,7 @@ class JinxAssistantController extends Controller
 
     private function withoutIeFacts(array $facts): array
     {
-        foreach (array_keys($facts) as $key) {
-            if (preg_match('/^(?:workflow|calculation|income|household|housing|transport|utilities|sfs|other)\./', (string) $key)) unset($facts[$key]);
-        }
+        foreach (array_keys($facts) as $key) if (preg_match('/^(?:workflow|calculation|income|household|housing|transport|utilities|sfs|other)\./', (string) $key)) unset($facts[$key]);
         return $facts;
     }
 
@@ -265,26 +214,15 @@ class JinxAssistantController extends Controller
     {
         $facts = [];
         $text = strtolower($message);
-
         if (preg_match('/\bno\s+partner\b/', $text)) $facts['household.partner_exists'] = false;
         elseif (preg_match('/\b(?:has|with)\s+(?:a\s+)?partner\b/', $text)) $facts['household.partner_exists'] = true;
-
-        if (preg_match('/\b(\d+)\s+(?:resident\s+)?children?\b/', $text, $m)) {
-            $facts['household.children_count'] = (int) $m[1];
-        } elseif (preg_match('/\bno\s+(?:resident\s+)?children\b/', $text)) {
-            $facts['household.children_count'] = 0;
-            $facts['household.children_ages'] = [];
-        }
-
+        if (preg_match('/\b(\d+)\s+(?:resident\s+)?children?\b/', $text, $m)) $facts['household.children_count'] = (int) $m[1];
+        elseif (preg_match('/\bno\s+(?:resident\s+)?children\b/', $text)) { $facts['household.children_count'] = 0; $facts['household.children_ages'] = []; }
         if (preg_match('/\bchildren?\s+aged?\s+([0-9,\s&and]+)/', $text, $m)) {
             preg_match_all('/\d+/', $m[1], $ages);
             $parsed = array_map('intval', $ages[0] ?? []);
-            if ($parsed !== []) {
-                $facts['household.children_ages'] = $parsed;
-                $facts['household.children_count'] = count($parsed);
-            }
+            if ($parsed !== []) { $facts['household.children_ages'] = $parsed; $facts['household.children_count'] = count($parsed); }
         }
-
         return $facts;
     }
 }
