@@ -11,20 +11,37 @@ class PartnerKnowledgeService
     {
         $sourceText = Str::lower((string) $source);
         $partner = null;
+        $partnerBasis = null;
 
         if (str_contains($sourceText, 'zebra')) {
             $partner = 'Zebra';
+            $partnerBasis = 'lead_source';
         } elseif (str_contains($sourceText, 'avondale')) {
             $partner = 'Avondale';
+            $partnerBasis = 'lead_source';
         }
 
         $ip = $this->canonicalIp($facts['case.ip_destination'] ?? $facts['case.ip'] ?? null);
+
+        // A specifically established Avondale IP is an explicit routing instruction.
+        if (! $partner && in_array($ip, ['Lawson Fox', 'TIG', 'Assure', 'Anchorage Chambers'], true)) {
+            $partner = 'Avondale';
+            $partnerBasis = 'established_ip';
+        }
+
+        // Company workflow default: try Zebra rules first unless the case/source/IP says otherwise.
+        if (! $partner) {
+            $partner = 'Zebra';
+            $partnerBasis = 'company_default';
+        }
+
         $companyCodex = $this->loadCompanyCodex();
-        $partnerCodex = $partner ? $this->loadPartnerCodex($partner) : null;
+        $partnerCodex = $this->loadPartnerCodex($partner);
         $ipCodex = ($partner === 'Avondale' && $ip) ? $this->loadAvondaleIpCodex($ip) : null;
 
         return [
             'partner' => $partner,
+            'partner_basis' => $partnerBasis,
             'ip' => $ip,
             'partner_codex' => $this->combineCodex($companyCodex, $partnerCodex, $ipCodex),
             'company_codex' => $companyCodex,
