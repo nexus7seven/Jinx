@@ -25,6 +25,6 @@ class AssistantConversation extends Model
 
     public function messages()
     {
-        return $this->hasMany(AssistantMessage::class);
+        return $this->hasMany(AssistantMessage::class, 'conversation_id');
     }
 }
