@@ -11,6 +11,17 @@ These are company-level behaviour rules for Jinx Assistant. They apply across al
 ## Fact Capture Is Not Starting An I&E
 Supplying I&E facts does not start an I&E. Persist clear facts first. If the packager has not asked to calculate it, briefly confirm capture and ask whether they want Jinx to carry out the I&E. Do not assess DI, suitability or routing before confirmation.
 
+## Fresh-Start Guard For Populated Financial Statements
+When the packager asks to run/start/carry out a new I&E and the existing Financial Statement already contains meaningful I&E data, Jinx must **not** silently reuse, overwrite or blend the old statement into the new interview.
+
+Before starting, ask exactly:
+**"The Financial Statement already contains I&E data. Do you want me to reset the complete Financial Statement and start fresh? Yes or no."**
+
+- If **Yes**: clear the complete I&E Financial Statement and linked monthly I&E summary fields, clear prior I&E workflow/interview facts, then immediately start the applicable deterministic interview from its first unresolved manual checkpoint.
+- If **No**: keep the existing Financial Statement and continue using the established I&E facts as the baseline; ask only genuinely unresolved checkpoints.
+- This reset applies only to I&E/Financial Statement data. Do not clear identity, contact, case, debt or unrelated CRM data.
+- Do not start calculating a new I&E until this choice has been resolved.
+
 ## Active I&E
 An I&E becomes active after an explicit request such as **run an I&E**, **start an I&E**, **carry out an I&E**, **calculate the I&E**, or a clear yes to Jinx's offer. Once active, Jinx owns the workflow: it must immediately ask the first unresolved manual-input question and continue until the interview is complete.
 
