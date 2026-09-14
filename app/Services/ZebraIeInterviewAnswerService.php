@@ -10,10 +10,30 @@ class ZebraIeInterviewAnswerService
     public function __construct(private readonly PartnerKnowledgeService $partnerKnowledge) {}
 
     /**
-     * The Zebra I&E chatbot is an explicit state machine.
-     * The current state is always the first unresolved required MANUAL_INPUT checkpoint.
-     * A checkpoint is resolved only when it has been explicitly confirmed by the chatbot
-     * workflow, not merely because the language model returned a similarly named fact.
+     * Start/restart the deterministic interview. Facts already established in the chat are
+     * signed as resolved checkpoints; stale CRM/calculator values that were never established
+     * in this conversation cannot silently satisfy a checkpoint.
+     */
+    public function start(array $facts): array
+    {
+        $confirmations = [];
+        foreach ($this->manualKeys() as $key) {
+            if ($this->has($facts, $key)) $confirmations[$key] = $this->confirmation($key, $facts[$key]);
+        }
+
+        return [
+            'workflow.ie_active' => true,
+            'workflow.income_complete' => false,
+            'workflow.ie_complete' => false,
+            'workflow.ie_confirmations' => $confirmations,
+        ];
+    }
+
+    /**
+     * The Zebra I&E chatbot is an explicit state machine. A manual checkpoint is resolved
+     * only when its value carries a valid server-generated confirmation token. The language
+     * model cannot manufacture these tokens, so it cannot skip interview questions by
+     * returning guessed/stale fact_updates.
      */
     public function currentStep(array $facts): ?array
     {
@@ -83,11 +103,11 @@ class ZebraIeInterviewAnswerService
         $parsed = $this->parseStep($step, $facts, $message);
         if ($parsed === []) return [];
 
-        $confirmed = $this->confirmedKeys($facts);
-        foreach (array_keys($parsed) as $key) {
-            if (!str_starts_with($key, 'workflow.')) $confirmed[] = $key;
+        $confirmations = $this->validConfirmations($facts);
+        foreach ($parsed as $key => $value) {
+            if (!str_starts_with($key, 'workflow.')) $confirmations[$key] = $this->confirmation($key, $value);
         }
-        $parsed['workflow.ie_confirmed_keys'] = array_values(array_unique($confirmed));
+        $parsed['workflow.ie_confirmations'] = $confirmations;
 
         return $parsed;
     }
@@ -152,18 +172,27 @@ class ZebraIeInterviewAnswerService
         }
 
         if ($type === 'secondary_income') {
-            if ($this->isNo($lower)) {
-                return [
-                    'income.pip_dla' => 0,
-                    'income.esa' => 0,
-                    'income.carers_allowance' => 0,
-                    'income.maintenance_received' => 0,
-                    'income.pension' => 0,
-                    'income.student' => 0,
-                    'income.foster_guardianship' => 0,
-                ];
+            if ($this->isNo($lower)) return $this->emptySecondaryIncome();
+
+            $values = $this->emptySecondaryIncome();
+            $patterns = [
+                'income.pip_dla' => '/\b(?:pip\s*\/\s*dla|pip|dla)\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.esa' => '/\besa\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.carers_allowance' => '/\bcarer(?:\x27|’)?s?(?:\s+allowance)?\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.maintenance_received' => '/\bmaintenance(?:\s+income|\s+received)?\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.pension' => '/\bpension(?:\s+income)?\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.student' => '/\bstudent(?:\s+(?:loan|grant|bursary|income))?\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+                'income.foster_guardianship' => '/\b(?:foster|guardianship)(?:\s+allowance)?\b[^0-9]{0,30}([0-9]+(?:\.[0-9]{1,2})?)/i',
+            ];
+
+            $matched = false;
+            foreach ($patterns as $field => $pattern) {
+                if (preg_match($pattern, $text, $m)) {
+                    $values[$field] = (float) $m[1];
+                    $matched = true;
+                }
             }
-            return [];
+            return $matched ? $values : [];
         }
 
         if ($type === 'transport') {
@@ -175,6 +204,19 @@ class ZebraIeInterviewAnswerService
         return [];
     }
 
+    private function emptySecondaryIncome(): array
+    {
+        return [
+            'income.pip_dla' => 0,
+            'income.esa' => 0,
+            'income.carers_allowance' => 0,
+            'income.maintenance_received' => 0,
+            'income.pension' => 0,
+            'income.student' => 0,
+            'income.foster_guardianship' => 0,
+        ];
+    }
+
     private function step(string $key, string $type, string $question): array
     {
         return ['key' => $key, 'type' => $type, 'question' => $question];
@@ -182,27 +224,39 @@ class ZebraIeInterviewAnswerService
 
     private function secondaryComplete(array $facts): bool
     {
-        foreach (['income.pip_dla','income.esa','income.carers_allowance','income.maintenance_received','income.pension','income.student','income.foster_guardianship'] as $key) {
+        foreach (array_keys($this->emptySecondaryIncome()) as $key) {
             if (!$this->resolved($facts, $key)) return false;
         }
         return true;
     }
 
-    private function confirmedKeys(array $facts): array
+    private function validConfirmations(array $facts): array
     {
-        $keys = $facts['workflow.ie_confirmed_keys'] ?? [];
-        return is_array($keys) ? array_values(array_filter($keys, 'is_string')) : [];
+        $raw = $facts['workflow.ie_confirmations'] ?? [];
+        if (!is_array($raw)) return [];
+
+        $valid = [];
+        foreach ($this->manualKeys() as $key) {
+            if ($this->has($facts, $key) && isset($raw[$key]) && is_string($raw[$key]) && hash_equals($this->confirmation($key, $facts[$key]), $raw[$key])) {
+                $valid[$key] = $raw[$key];
+            }
+        }
+        return $valid;
     }
 
     private function resolved(array $facts, string $key): bool
     {
         if (!$this->has($facts, $key)) return false;
         if (($facts['workflow.ie_active'] ?? false) !== true) return true;
+        $confirmations = $facts['workflow.ie_confirmations'] ?? [];
+        if (!is_array($confirmations) || !isset($confirmations[$key]) || !is_string($confirmations[$key])) return false;
+        return hash_equals($this->confirmation($key, $facts[$key]), $confirmations[$key]);
+    }
 
-        // During an active I&E, only facts explicitly confirmed by the deterministic
-        // interview are allowed to satisfy a manual checkpoint. This prevents the model
-        // or stale Financial Statement data from silently skipping questions.
-        return in_array($key, $this->confirmedKeys($facts), true);
+    private function confirmation(string $key, mixed $value): string
+    {
+        $payload = $key.'|'.json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return hash_hmac('sha256', $payload, (string) config('app.key'));
     }
 
     private function number(string $value): ?float
