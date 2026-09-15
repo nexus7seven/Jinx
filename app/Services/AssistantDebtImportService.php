@@ -20,10 +20,6 @@ class AssistantDebtImportService
     {
         $items = $this->parse($message);
         if ($items === []) return ['handled' => false];
-
-        // Process the complete parsed list in order. We deliberately pause whenever a
-        // creditor already exists on this client's debt list so a duplicate is never
-        // silently created.
         $pending = ['remaining' => array_values($items), 'added_count' => 0, 'added_total' => 0.0];
         $result = $this->processNext($lead, $pending);
         return ['handled' => true, 'pending' => $result['pending'], 'reply' => $result['reply']];
@@ -45,6 +41,36 @@ class AssistantDebtImportService
             return $this->processNext($lead, $pending);
         }
 
+        if (($pending['stage'] ?? '') === 'creditor_resolution') {
+            $value = trim($answer);
+            if ($value === '') return ['pending' => $pending, 'reply' => $this->question($pending)];
+
+            if ($this->wantsNewCreditor($value)) {
+                $pending['stage'] = 'voting_house';
+                return ['pending' => $pending, 'reply' => $this->question($pending)];
+            }
+
+            $match = $this->matchCreditor($value);
+            if ($match['status'] !== 'matched') {
+                return ['pending' => $pending, 'reply' => 'I still can’t find an existing creditor matching “'.$value.'”. Tell me the existing creditor name, or say “add new” to create “'.$current['creditor'].'”.'];
+            }
+
+            $creditor = $match['creditor'];
+            // The supplied debt wording is now explicitly confirmed as an alias of the
+            // selected canonical creditor, so future imports resolve automatically.
+            $this->rememberAlias($creditor, $current['creditor']);
+
+            if ($this->clientAlreadyHasCreditor($lead, $creditor)) {
+                $pending['creditor_id'] = $creditor->id;
+                $pending['stage'] = 'duplicate_confirmation';
+                return ['pending' => $pending, 'reply' => $this->question($pending)];
+            }
+
+            $this->addAndCount($lead, $creditor, $current, $pending);
+            unset($pending['current'], $pending['stage'], $pending['creditor_id']);
+            return $this->processNext($lead, $pending);
+        }
+
         if (($pending['stage'] ?? '') === 'voting_house') {
             $value = trim($answer);
             if ($value === '') return ['pending' => $pending, 'reply' => $this->question($pending)];
@@ -56,7 +82,6 @@ class AssistantDebtImportService
         if (($pending['stage'] ?? '') === 'voting_practice1') {
             $practice = $this->normalisePractice($answer);
             if ($practice === null) return ['pending' => $pending, 'reply' => $this->question($pending)];
-
             $creditor = Creditor::create([
                 'name' => $current['creditor'],
                 'voting_house' => $pending['voting_house'],
@@ -81,33 +106,26 @@ class AssistantDebtImportService
 
             if ($match['status'] !== 'matched') {
                 $pending['current'] = $item;
-                $pending['stage'] = 'voting_house';
+                $pending['stage'] = 'creditor_resolution';
                 return ['pending' => $pending, 'reply' => $this->question($pending)];
             }
 
             $creditor = $match['creditor'];
             $this->rememberAlias($creditor, $item['creditor']);
-
             if ($this->clientAlreadyHasCreditor($lead, $creditor)) {
                 $pending['current'] = $item;
                 $pending['creditor_id'] = $creditor->id;
                 $pending['stage'] = 'duplicate_confirmation';
                 return ['pending' => $pending, 'reply' => $this->question($pending)];
             }
-
             $this->addAndCount($lead, $creditor, $item, $pending);
         }
-
         return ['pending' => null, 'reply' => $this->doneReply((int)($pending['added_count'] ?? 0), (float)($pending['added_total'] ?? 0))];
     }
 
     private function parse(string $message): array
     {
         $items = [];
-
-        // Remove the instruction before the first list item, then recognise every
-        // "CREDITOR — £BALANCE" occurrence. This works whether the user pasted one
-        // debt per line or the whole list on a single line separated by " - ".
         $body = preg_replace('/^.*?\bdebts?\b\s*[-:]*\s*/is', '', trim($message), 1) ?? trim($message);
         $pattern = '/(?:^|\s+-\s+|\R|[•*]\s*)(.+?)\s*(?:—|–|\s-\s)\s*£\s*([\d,]+(?:\.\d{1,2})?)(?:\s*\([^)]*\))?/u';
         if (preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
@@ -117,8 +135,6 @@ class AssistantDebtImportService
                 $items[] = ['creditor' => $name, 'balance' => (float) str_replace(',', '', $m[2])];
             }
         }
-
-        // Backwards-compatible line parser for simple hyphen-only lists.
         if ($items === []) {
             foreach (preg_split('/\R/', $body) ?: [] as $line) {
                 $line = trim(preg_replace('/^[\s\-*•]+/u', '', $line) ?? $line);
@@ -189,6 +205,11 @@ class AssistantDebtImportService
         };
     }
 
+    private function wantsNewCreditor(string $answer): bool
+    {
+        return in_array(Str::lower(trim($answer)), ['add new', 'new', 'create new', 'new creditor', 'add as new', 'create'], true);
+    }
+
     private function normalisePractice(string $answer): ?string
     {
         return match (Str::lower(trim($answer))) {
@@ -206,7 +227,10 @@ class AssistantDebtImportService
         if (($pending['stage'] ?? '') === 'duplicate_confirmation') {
             return 'This client already has a debt with '.$name.'. Do you want to add another debt with '.$name.' for £'.number_format((float)($current['balance'] ?? 0), 2).'? Yes or no.';
         }
-        if (($pending['stage'] ?? '') === 'voting_house') return 'I can’t find a creditor matching “'.$name.'”. What voting house should I use for the new creditor?';
+        if (($pending['stage'] ?? '') === 'creditor_resolution') {
+            return 'I can’t confidently match “'.$name.'” to an existing creditor. If it belongs under an existing creditor, tell me that creditor name and I’ll link it and save “'.$name.'” as an alias for future imports. Otherwise say “add new”.';
+        }
+        if (($pending['stage'] ?? '') === 'voting_house') return 'What voting house should I use for the new creditor “'.$name.'”?';
         return 'For '.$name.', what should voting_practice1 be? Enter accept, reject or non_vote.';
     }
 
