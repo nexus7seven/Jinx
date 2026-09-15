@@ -15,10 +15,12 @@
             <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Reject %</div>
             <div id="rejectPercentValue" style="font-size:22px; font-weight:700;">0.0%</div>
         </div>
-        <div style="background:#020617; border:1px solid #374151; border-radius:10px; padding:14px;">
-            <div style="font-size:12px; color:#9ca3af; margin-bottom:6px;">Dominant House</div>
-            <div id="dominantHouseValue" style="font-size:22px; font-weight:700;">-</div>
-        </div>
+    </div>
+
+    <div id="votingHouseExposure" style="display:none; margin-bottom:16px; background:#020617; border:1px solid #374151; border-radius:12px; padding:14px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:10px;">Voting House Exposure</div>
+        <div id="votingHouseExposureRows" style="display:grid; gap:8px;"></div>
+        <div id="independentRejectScenario" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #374151; font-size:13px; color:#cbd5e1;"></div>
     </div>
 
     <div id="warningBox" style="display:none; margin-bottom:16px; background:#3f1d1d; border:1px solid #7f1d1d; color:#fecaca; border-radius:10px; padding:14px;"></div>
@@ -65,7 +67,7 @@
         'accept' => 'background:#14532d; color:#dcfce7;',
         'reject' => 'background:#7f1d1d; color:#fecaca;',
         'cbc' => 'background:#92400e; color:#fde68a;',
-        'non vote', 'non-vote', 'nonvote' => 'background:#3f3f46; color:#f4f4f5;',
+        'non vote', 'non-vote', 'nonvote', 'non_vote' => 'background:#3f3f46; color:#f4f4f5;',
         default => 'background:#1f2937; color:#e5e7eb;',
     };
 
@@ -73,7 +75,7 @@
         'accept' => 'ACCEPT',
         'reject' => 'REJECT',
         'cbc' => 'CBC',
-        'non vote', 'non-vote', 'nonvote' => 'NON VOTE',
+        'non vote', 'non-vote', 'nonvote', 'non_vote' => 'NON VOTE',
         default => strtoupper($initialVotingType),
     };
 @endphp
