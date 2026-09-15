@@ -1249,7 +1249,9 @@
     let eligibleBalanceValue = document.getElementById('eligibleBalanceValue');
     let acceptPercentValue = document.getElementById('acceptPercentValue');
     let rejectPercentValue = document.getElementById('rejectPercentValue');
-    let dominantHouseValue = document.getElementById('dominantHouseValue');
+    let votingHouseExposure = document.getElementById('votingHouseExposure');
+    let votingHouseExposureRows = document.getElementById('votingHouseExposureRows');
+    let independentRejectScenario = document.getElementById('independentRejectScenario');
     const leadInfoTotalDebt = document.getElementById('leadInfoTotalDebt');
     const leadInfoWipStatus = document.getElementById('leadInfoWipStatus');
 
@@ -1260,7 +1262,9 @@
         eligibleBalanceValue = document.getElementById('eligibleBalanceValue');
         acceptPercentValue = document.getElementById('acceptPercentValue');
         rejectPercentValue = document.getElementById('rejectPercentValue');
-        dominantHouseValue = document.getElementById('dominantHouseValue');
+        votingHouseExposure = document.getElementById('votingHouseExposure');
+        votingHouseExposureRows = document.getElementById('votingHouseExposureRows');
+        independentRejectScenario = document.getElementById('independentRejectScenario');
     }
 
     const runCreditCheckV3Btn = document.getElementById('runCreditCheckV3Btn');
@@ -1634,7 +1638,7 @@
     }
 
     function refreshDebtInterpretation() {
-        if (!practiceSelect || !totalDebtValue || !eligibleBalanceValue || !acceptPercentValue || !rejectPercentValue || !dominantHouseValue || !warningBox) {
+        if (!practiceSelect || !totalDebtValue || !eligibleBalanceValue || !acceptPercentValue || !rejectPercentValue || !warningBox) {
             return;
         }
 
@@ -1646,9 +1650,10 @@
         let acceptTotal = 0;
         let rejectTotal = 0;
         const houseTotals = {};
+        const houseRejectTotals = {};
 
         rows.forEach(row => {
-            const votingType = getVotingTypeForPractice(row, practiceKey);
+            const votingType = normaliseVotingType(getVotingTypeForPractice(row, practiceKey));
             const votingTypeEl = row.querySelector('.debt-voting-type');
 
             if (votingTypeEl) {
@@ -1657,65 +1662,81 @@
             }
 
             const balance = parseFloat(row.dataset.balance || '0');
-            const house = row.dataset.votingHouse || '';
-
+            const house = String(row.dataset.votingHouse || 'Independent').trim() || 'Independent';
             totalDebt += balance;
 
             if (votingType === 'accept' || votingType === 'reject') {
                 eligibleTotal += balance;
+                houseTotals[house] = (houseTotals[house] || 0) + balance;
 
-                if (votingType === 'accept') {
-                    acceptTotal += balance;
-                }
-
+                if (votingType === 'accept') acceptTotal += balance;
                 if (votingType === 'reject') {
                     rejectTotal += balance;
+                    houseRejectTotals[house] = (houseRejectTotals[house] || 0) + balance;
                 }
-
-                houseTotals[house] = (houseTotals[house] || 0) + balance;
             }
         });
 
         const acceptPercent = eligibleTotal > 0 ? (acceptTotal / eligibleTotal) * 100 : 0;
         const rejectPercent = eligibleTotal > 0 ? (rejectTotal / eligibleTotal) * 100 : 0;
-
-        let dominantHouse = '-';
-        let dominantHousePercent = 0;
-
-        Object.entries(houseTotals).forEach(([house, total]) => {
-            const percent = eligibleTotal > 0 ? (total / eligibleTotal) * 100 : 0;
-            if (percent > dominantHousePercent) {
-                dominantHousePercent = percent;
-                dominantHouse = house;
-            }
-        });
-
         totalDebtValue.textContent = formatMoney(totalDebt);
-        if (leadInfoTotalDebt) {
-            leadInfoTotalDebt.textContent = totalDebtValue.textContent;
-        }
+        if (leadInfoTotalDebt) leadInfoTotalDebt.textContent = totalDebtValue.textContent;
         eligibleBalanceValue.textContent = formatMoney(eligibleTotal);
         acceptPercentValue.textContent = acceptPercent.toFixed(1) + '%';
         rejectPercentValue.textContent = rejectPercent.toFixed(1) + '%';
-        dominantHouseValue.textContent = dominantHouse === '-' ? '-' : dominantHouse + ' (' + dominantHousePercent.toFixed(1) + '%)';
 
+        const independentKey = Object.keys(houseTotals).find(h => h.trim().toLowerCase() === 'independent');
+        const independentReject = independentKey ? (houseRejectTotals[independentKey] || 0) : 0;
+        const independentRejectPercent = eligibleTotal > 0 ? (independentReject / eligibleTotal) * 100 : 0;
         const warnings = [];
 
-        if (eligibleTotal > 0 && acceptPercent < 75) {
-            warnings.push('Accept voting is below 75%.');
+        if (votingHouseExposure && votingHouseExposureRows) {
+            const houses = Object.entries(houseTotals).sort((a, b) => b[1] - a[1]);
+            votingHouseExposure.style.display = houses.length ? 'block' : 'none';
+            votingHouseExposureRows.innerHTML = '';
+
+            houses.forEach(([house, total]) => {
+                const housePercent = eligibleTotal > 0 ? (total / eligibleTotal) * 100 : 0;
+                const isIndependent = house.trim().toLowerCase() === 'independent';
+                const currentHouseReject = houseRejectTotals[house] || 0;
+                // Scenario = all voting debt controlled by this house rejects, plus rejects
+                // already sitting outside that house. For a voting house this naturally
+                // includes independent rejects without double-counting existing house rejects.
+                const outsideRejects = Math.max(0, rejectTotal - currentHouseReject);
+                const scenarioReject = isIndependent ? rejectTotal : Math.min(eligibleTotal, total + outsideRejects);
+                const scenarioPercent = eligibleTotal > 0 ? (scenarioReject / eligibleTotal) * 100 : 0;
+
+                const row = document.createElement('div');
+                row.style.cssText = 'display:grid; grid-template-columns:minmax(120px,1.3fr) minmax(105px,1fr) minmax(90px,.8fr) minmax(150px,1.4fr); gap:10px; align-items:center; background:#0f172a; border:1px solid #1e293b; border-radius:9px; padding:10px 12px; font-size:13px;';
+                const riskStyle = scenarioPercent >= 25 ? 'color:#fecaca; font-weight:700;' : 'color:#d1fae5; font-weight:700;';
+                row.innerHTML = '<div style="font-weight:700; color:#f8fafc;">' + house + '</div>' +
+                    '<div style="color:#cbd5e1;">' + formatMoney(total) + '</div>' +
+                    '<div style="font-weight:700;">' + housePercent.toFixed(1) + '%</div>' +
+                    '<div style="' + riskStyle + '">' + (isIndependent ? 'Current reject: ' : 'If house rejects: ') + scenarioPercent.toFixed(1) + '%</div>';
+                votingHouseExposureRows.appendChild(row);
+
+                if (!isIndependent && scenarioPercent >= 25) {
+                    warnings.push('If ' + house + ' rejects, total rejection would be ' + scenarioPercent.toFixed(1) + '%.');
+                }
+            });
+
+            if (independentRejectScenario) {
+                if (independentReject > 0) {
+                    independentRejectScenario.style.display = 'block';
+                    independentRejectScenario.textContent = 'Independent creditors already rejecting: ' + formatMoney(independentReject) + ' (' + independentRejectPercent.toFixed(1) + '% of voting debt). These rejects are included in every house rejection scenario.';
+                } else {
+                    independentRejectScenario.style.display = 'none';
+                    independentRejectScenario.textContent = '';
+                }
+            }
         }
 
-        if (eligibleTotal > 0 && dominantHouse !== '-' && dominantHousePercent > 25) {
-            warnings.push(dominantHouse + ' controls more than 25% of voting debt.');
-        }
-
-        if (eligibleTotal > 0 && rejectPercent >= 25) {
-            warnings.push('Reject-heavy mix detected.');
-        }
+        if (eligibleTotal > 0 && acceptPercent < 75) warnings.push('Accept voting is below 75%.');
+        if (eligibleTotal > 0 && rejectPercent >= 25) warnings.push('Reject-heavy mix detected.');
 
         if (warnings.length) {
             warningBox.style.display = 'block';
-            warningBox.innerHTML = warnings.map(w => '<div style="margin-bottom:6px;">• ' + w + '</div>').join('');
+            warningBox.innerHTML = [...new Set(warnings)].map(w => '<div style="margin-bottom:6px;">• ' + w + '</div>').join('');
         } else {
             warningBox.style.display = 'none';
             warningBox.innerHTML = '';
