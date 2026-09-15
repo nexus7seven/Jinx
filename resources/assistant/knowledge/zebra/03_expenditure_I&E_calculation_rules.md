@@ -560,18 +560,17 @@ relevant treatment separately.
 
 Fuel is CALCULATED.
 
-The supplied Zebra baseline is £150 per month.
+Fuel is a flexible calculated cost of £50 to £150 per month per applicable car.
 
 The assistant must not ask the case packager for fuel expenditure in the
 normal flow.
 
-Use £150 as the current deterministic baseline where the applicable car
-rule is triggered.
+Use £50 as the deterministic starting amount. Fuel is secondary to SFS
+guideline allocation: use all appropriate SFS headroom first, then fuel
+may be increased as flexible non-SFS expenditure up to £150 where spend
+is needed to reach the target DI.
 
-The supplied rules do not define a deterministic method for adjusting
-the £150 baseline.
-
-Therefore do not adjust it solely through AI judgement.
+Do not increase fuel above £150 solely to manufacture the target DI.
 
 If an adjustment is explicitly required but no further rule exists,
 flag:
@@ -1080,6 +1079,8 @@ electricity;
 gas;
 
 water;
+
+fuel, from £50 up to £150 per applicable car;
 
 MOT/maintenance;
 
