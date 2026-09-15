@@ -873,7 +873,7 @@ Whenever household composition changes, recalculate all applicable SFS sections.
 
 20. SFS Guideline Figures
 
-These are additive monthly section figures, not minimum/maximum ranges.
+These are additive monthly MAXIMUM section figures. Zebra expenditure must be at least 70% of the calculated household maximum for each SFS-controlled section.
 
 SFS Section              1 Adult   Each Additional Adult   Each Child Under 16   Each Child 16+
 Communication & Leisure  £250      £179                    £87                   £140
@@ -890,15 +890,19 @@ Communication & Leisure = £250 + £179 + £87 + £87 = £603
 Food & Housekeeping = £454 + £333 + £197 + £197 = £1,181
 Personal Costs = £95 + £67 + £47 + £47 = £256
 
-Use these exact section guidelines in the deterministic I&E calculation.
+Use these figures to calculate the household SFS maximum. For Zebra, the minimum acceptable section amount is 70% of that calculated maximum.
 
 21. SFS Guideline Treatment
 
-The supplied SFS table defines one household guideline for each SFS-controlled section.
+The supplied SFS table defines the maximum household guideline for each SFS-controlled section.
 
-Do not create a separate SFS minimum or maximum from these figures.
-Do not apply the previous 70% minimum figures.
-The target DI does not permit a section to exceed its calculated SFS guideline.
+For Zebra:
+
+SFS minimum = calculated SFS maximum x 70%
+
+SFS maximum = the full calculated household guideline from the supplied table.
+
+The base I&E must use at least the 70% minimum. Target-DI optimisation may increase a section from 70% up to 100% of its calculated maximum. The target DI does not permit a section to exceed 100% of the calculated SFS maximum.
 
 22. SFS Section-Level Limits
 
