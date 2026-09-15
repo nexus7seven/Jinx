@@ -18,14 +18,37 @@ class JinxAssistantService
         private readonly ProactiveRoutingService $proactiveRouting,
         private readonly AssistantIeCalculationService $ieCalculator,
         private readonly ZebraIeInterviewAnswerService $zebraAnswers,
+        private readonly AssistantDebtImportService $debtImporter,
     ) {}
 
     public function reply(AssistantConversation $conversation,string $message): array
     {
+        $conversation->loadMissing('lead');
+
+        // Debt imports are deterministic CRM actions. The model never chooses creditor IDs or
+        // claims a debt was written. Missing creditors are completed conversationally first.
+        $metadata=$conversation->metadata??[];
+        $pendingDebt=data_get($metadata,'pending_debt_import');
+        if($conversation->lead && is_array($pendingDebt)) {
+            $debtResult=$this->debtImporter->continue($conversation->lead,$pendingDebt,$message);
+            if(is_array($debtResult['pending']??null)) $metadata['pending_debt_import']=$debtResult['pending'];
+            else unset($metadata['pending_debt_import']);
+            $conversation->metadata=$metadata;$conversation->save();
+            return $this->directActionResult((string)$debtResult['reply']);
+        }
+        if($conversation->lead && $this->debtImporter->looksLikeImport($message)) {
+            $debtResult=$this->debtImporter->begin($conversation->lead,$message);
+            if(($debtResult['handled']??false)===true) {
+                if(is_array($debtResult['pending']??null)) $metadata['pending_debt_import']=$debtResult['pending'];
+                else unset($metadata['pending_debt_import']);
+                $conversation->metadata=$metadata;$conversation->save();
+                return $this->directActionResult((string)$debtResult['reply']);
+            }
+        }
+
         $apiKey=(string)config('services.jinx_assistant.api_key');$model=(string)config('services.jinx_assistant.model');
         if($apiKey===''||$model==='')throw new RuntimeException('Jinx Assistant is not configured. Set JINX_ASSISTANT_API_KEY and JINX_ASSISTANT_MODEL.');
 
-        $conversation->loadMissing('lead');
         $facts=$this->establishedFacts($conversation);
         $profile=$this->partnerKnowledge->profile($conversation->lead?->source,$facts);
 
@@ -74,7 +97,6 @@ PROMPT;
 
         $factUpdates=$this->normaliseFactUpdates($decoded['fact_updates']??[]);
         if(isset($direct) && $direct!==[]) $factUpdates=array_replace($factUpdates,$direct);
-
         if(!(($facts['workflow.ie_active']??false)===true) && $this->acceptedIeOffer($history,$message)) $factUpdates['workflow.ie_active']=true;
 
         $factsAfter=array_replace($facts,$factUpdates);
@@ -83,48 +105,25 @@ PROMPT;
         $suitability=$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null);
 
         if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
-            // The signed deterministic state machine is the sole authority for progression.
-            // A model-added manual fact (for example interpreting target DI as salary as well)
-            // must never skip the next checkpoint.
             $next=$this->zebraAnswers->nextQuestion($factsAfter);
             $incomeComplete=$this->zebraAnswers->incomeComplete($factsAfter);
-            $factUpdates['workflow.income_complete']=$incomeComplete;
-            $factsAfter['workflow.income_complete']=$incomeComplete;
-
-            if($next!==null) {
-                $factUpdates['workflow.ie_complete']=false;
-                $factsAfter['workflow.ie_complete']=false;
-                $reply=$next;
-                $suitability=null;
-            } else {
-                $factUpdates['workflow.ie_complete']=true;
-                $factsAfter['workflow.ie_complete']=true;
-            }
+            $factUpdates['workflow.income_complete']=$incomeComplete;$factsAfter['workflow.income_complete']=$incomeComplete;
+            if($next!==null){$factUpdates['workflow.ie_complete']=false;$factsAfter['workflow.ie_complete']=false;$reply=$next;$suitability=null;}
+            else{$factUpdates['workflow.ie_complete']=true;$factsAfter['workflow.ie_complete']=true;}
         }
 
         $deterministicAfter=$this->ieCalculator->snapshot($factsAfter,$profileAfter);
-
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)) {$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
-
+        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)){$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
         $factsForRouting=$factsAfter;
         if(($factsAfter['workflow.ie_complete']??false)===true){$factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;$factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;$factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;}
-
         $proactiveSignature=null;
         if(!$comparisonRequested){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
-
         return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'case_summary'=>trim((string)($decoded['case_summary']??''))];
     }
 
-    private function acceptedIeOffer(array $history,string $message): bool
-    {
-        $answer=Str::lower(trim($message));$explicit=preg_match('/\b(carry out|run|start|calculate|complete)\b.*\bi\s*&\s*e\b/i',$message)===1;if($explicit)return true;if(!in_array($answer,['yes','y','yeah','yep','please','go ahead','do it'],true))return false;$last=collect($history)->reverse()->first(fn($item)=>($item['role']??null)==='assistant');return is_array($last) && Str::contains(Str::lower((string)($last['content']??'')),['would you like me to carry out','carry out the zebra i&e','carry out the i&e']);
-    }
-
-    private function conciseIeCompletion(array $snapshot): string
-    {
-        $calc=$snapshot['calculation']??[];$income=(float)($calc['income_total']??0);$exp=(float)($calc['expenditure_total']??0);$di=(float)($calc['disposable_income']??0);$target=$calc['target_di']??null;$text='I&E complete. Income £'.number_format($income,0).', expenditure £'.number_format($exp,0).', DI £'.number_format($di,0).'.';if($target!==null){$target=(float)$target;$text.=' Target £'.number_format($target,0).($di>=$target?' achieved.':' not achieved — £'.number_format($target-$di,0).' short.');}return $text;
-    }
-
+    private function directActionResult(string $reply): array {return ['reply'=>$reply,'fact_updates'=>[],'deterministic_ie'=>[],'suitability_assessment'=>null,'proactive_route_signature'=>null,'proposed_knowledge'=>null,'confirm_pending_knowledge'=>false,'case_summary'=>''];}
+    private function acceptedIeOffer(array $history,string $message): bool {$answer=Str::lower(trim($message));$explicit=preg_match('/\b(carry out|run|start|calculate|complete)\b.*\bi\s*&\s*e\b/i',$message)===1;if($explicit)return true;if(!in_array($answer,['yes','y','yeah','yep','please','go ahead','do it'],true))return false;$last=collect($history)->reverse()->first(fn($item)=>($item['role']??null)==='assistant');return is_array($last)&&Str::contains(Str::lower((string)($last['content']??'')),['would you like me to carry out','carry out the zebra i&e','carry out the i&e']);}
+    private function conciseIeCompletion(array $snapshot): string {$calc=$snapshot['calculation']??[];$income=(float)($calc['income_total']??0);$exp=(float)($calc['expenditure_total']??0);$di=(float)($calc['disposable_income']??0);$target=$calc['target_di']??null;$text='I&E complete. Income £'.number_format($income,0).', expenditure £'.number_format($exp,0).', DI £'.number_format($di,0).'.';if($target!==null){$target=(float)$target;$text.=' Target £'.number_format($target,0).($di>=$target?' achieved.':' not achieved — £'.number_format($target-$di,0).' short.');}return$text;}
     private function runProactiveComparison(string $apiKey,string $model,array $facts,array $routeAlert): ?array {$response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>'Perform a proactive IVA destination check only after a completed I&E has failed its target. Assess each destination independently. Keep the reply concise. Return only JSON with reply and suitability_assessment.','input'=>json_encode(['ROUTE_ALERT'=>$routeAlert,'ESTABLISHED_FACTS'=>$facts,'DESTINATION_COMPARISON'=>$this->destinationSuitability->context()],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>1200]);if(!$response->successful())return null;$decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);if(!is_array($decoded)||!filled($decoded['reply']??null))return null;return ['reply'=>trim((string)$decoded['reply']),'suitability_assessment'=>$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null)];}
     private function knowledgeForProfile(array $profile): Collection {$partner=Str::lower((string)($profile['partner']??''));$ip=Str::lower((string)($profile['ip']??''));return AssistantKnowledgeItem::query()->active()->orderByDesc('updated_at')->limit(250)->get(['id','scope','scope_key','category','title','content','updated_at'])->filter(function(AssistantKnowledgeItem $item)use($partner,$ip){$scope=Str::lower((string)$item->scope);$key=Str::lower(trim((string)$item->scope_key));if($scope==='company')return true;if($scope==='partner')return$partner!==''&&$key===$partner;if($scope==='ip')return$ip!==''&&$key===$ip;return false;});}
     private function establishedFacts(AssistantConversation $conversation): array {$facts=data_get($conversation->metadata,'established_facts',[]);$facts=is_array($facts)?$facts:[];$lead=$conversation->lead;if($lead){if($lead->monthly_housing_cost!==null&&!array_key_exists('housing.rent_mortgage',$facts))$facts['housing.rent_mortgage']=(float)$lead->monthly_housing_cost;if($lead->monthly_council_tax!==null&&!array_key_exists('housing.council_tax',$facts))$facts['housing.council_tax']=(float)$lead->monthly_council_tax;if($lead->estimated_total_debt!==null&&!array_key_exists('case.estimated_total_debt',$facts))$facts['case.estimated_total_debt']=(float)$lead->estimated_total_debt;if($lead->employment_status&&!array_key_exists('client.employment_status',$facts))$facts['client.employment_status']=$lead->employment_status;}return$facts;}
