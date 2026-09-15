@@ -860,66 +860,45 @@ it cannot be calculated.
 
 19. SFS Household Calculation
 
-For every applicable SFS section, calculate household minimum and
-maximum dynamically.
+For every applicable SFS section, calculate the household guideline dynamically.
 
-Use:
+Use the 1 Adult figure once as the standard amount for one adult applicant.
+Then add the applicable increase for every additional adult and every resident child.
 
-1 x First Adult;
+Household SFS section total = 1 Adult + (Additional Adults x additional-adult figure) + (Children Under 16 x under-16 figure) + (Children 16+ x over-16 figure)
 
-1 x Additional Adult for every additional adult;
+The 1 Adult figure is used once only.
 
-1 x Child Under 16 for each qualifying child under 16;
+Whenever household composition changes, recalculate all applicable SFS sections.
 
-1 x Child 16-18 for each qualifying child aged 16-18.
+20. SFS Guideline Figures
 
-The First Adult allowance is used once only.
+These are additive monthly section figures, not minimum/maximum ranges.
 
-Whenever household composition changes, recalculate all applicable SFS
-sections.
+SFS Section              1 Adult   Each Additional Adult   Each Child Under 16   Each Child 16+
+Communication & Leisure  £250      £179                    £87                   £140
+Food & Housekeeping      £454      £333                    £197                  £235
+Personal Costs           £95       £67                     £47                   £105
 
-20. SFS Trigger Figures - April 2026
+Examples:
 
-20.1 Housekeeping / Groceries
+For 1 adult, use £250 Communication & Leisure, £454 Food & Housekeeping and £95 Personal Costs.
 
-Household member     Minimum   Maximum
+For 2 adults and 2 children under 16:
 
-First Adult          £317.80   £454.00
-Additional Adult     £233.10   £333.00
-Child Under 16       £137.90   £197.00
-Child 16-18          £164.50   £235.00
+Communication & Leisure = £250 + £179 + £87 + £87 = £603
+Food & Housekeeping = £454 + £333 + £197 + £197 = £1,181
+Personal Costs = £95 + £67 + £47 + £47 = £256
 
-20.2 Communication & Leisure
+Use these exact section guidelines in the deterministic I&E calculation.
 
-Household member     Minimum   Maximum
+21. SFS Guideline Treatment
 
-First Adult          £175.00   £250.00
-Additional Adult     £125.30   £179.00
-Child Under 16        £60.90    £87.00
-Child 16-18           £98.00   £140.00
+The supplied SFS table defines one household guideline for each SFS-controlled section.
 
-20.3 Personal
-
-Household member     Minimum   Maximum
-
-First Adult           £66.50    £95.00
-Additional Adult      £46.90    £67.00
-Child Under 16        £32.90    £47.00
-Child 16-18           £73.50   £105.00
-
-Use source precision when calculating household totals.
-
-Round the final displayed household section figure up to the nearest £1.
-
-21. SFS Minimums and Maximums
-
-SFS minimums are mandatory floors.
-
-SFS maximums are ceilings.
-
-The target DI cannot override either.
-
-The maximum is not an automatic spending target.
+Do not create a separate SFS minimum or maximum from these figures.
+Do not apply the previous 70% minimum figures.
+The target DI does not permit a section to exceed its calculated SFS guideline.
 
 22. SFS Section-Level Limits
 
@@ -1105,7 +1084,7 @@ invent expenditure;
 
 alter fixed expenditure arbitrarily;
 
-breach SFS minimums or maximums;
+exceed the calculated SFS section guidelines;
 
 exceed a flexible expenditure maximum;
 
@@ -1113,7 +1092,7 @@ increase flexible non-SFS expenditure while usable SFS headroom
 remains solely to achieve the target another way.
 
 If current DI is below target, do not reduce genuine fixed expenditure
-or breach SFS minimums merely to manufacture the target.
+or alter the supplied SFS guideline merely to manufacture the target.
 
 Flexible expenditure may only be reduced within its explicitly permitted
 range.
@@ -1128,7 +1107,7 @@ reasonably across Housekeeping, Communication & Leisure and Personal.
 
 Rules:
 
-never take a section above its SFS maximum;
+never take a section above its calculated SFS guideline;
 
 do not increase a section more than is required to reach target DI;
 
@@ -1210,7 +1189,7 @@ no utility questions have been asked during the normal flow;
 
 calculated items have not been requested manually;
 
-SFS minimums and maximums are calculated;
+SFS household section guidelines are calculated;
 
 fixed costs have not been manipulated;
 
@@ -1403,9 +1382,7 @@ For each SFS-controlled section show:
 
 actual;
 
-SFS minimum;
-
-SFS maximum;
+calculated SFS guideline;
 
 % of minimum;
 
@@ -1594,7 +1571,7 @@ never ask broad other-expenditure questions;
 
 calculate SFS dynamically;
 
-protect SFS minimums and maximums;
+protect the calculated SFS section guidelines;
 
 preserve fixed expenditure;
 
