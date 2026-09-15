@@ -129,7 +129,7 @@ class AssistantDebtImportService
         if (preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $m) {
                 $name = trim(preg_replace('/^[\s\-*•]+/u', '', $m[1]) ?? $m[1]);
-                if ($name === '') continue;
+                if ($name === '' || $this->isSummaryLine($name)) continue;
                 $items[] = ['creditor' => $name, 'balance' => (float) str_replace(',', '', $m[2])];
             }
         }
@@ -137,10 +137,17 @@ class AssistantDebtImportService
             foreach (preg_split('/\R/', $body) ?: [] as $line) {
                 $line = trim(preg_replace('/^[\s\-*•]+/u', '', $line) ?? $line);
                 if (!preg_match('/^(.+?)\s*(?:—|–|:|-)\s*£\s*([\d,]+(?:\.\d{1,2})?)/u', $line, $m)) continue;
-                $items[] = ['creditor' => trim($m[1]), 'balance' => (float) str_replace(',', '', $m[2])];
+                $name = trim($m[1]);
+                if ($this->isSummaryLine($name)) continue;
+                $items[] = ['creditor' => $name, 'balance' => (float) str_replace(',', '', $m[2])];
             }
         }
         return $items;
+    }
+
+    private function isSummaryLine(string $name): bool
+    {
+        return preg_match('/^(?:grand\s+)?total(?:\s+(?:debt|debts|balance|owed))?$/i', trim($name)) === 1;
     }
 
     private function matchCreditor(string $supplied): array
