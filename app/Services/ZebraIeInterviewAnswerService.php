@@ -55,10 +55,12 @@ class ZebraIeInterviewAnswerService
         if (!$this->resolved($facts, 'housing.rent_mortgage')) return $this->step('housing.rent_mortgage', 'money', 'What is the monthly rent or mortgage?');
         if (!$this->resolved($facts, 'housing.council_tax')) return $this->step('housing.council_tax', 'money', 'What is the monthly Council Tax?');
         if (!$this->resolved($facts, 'transport.client.mode')) return $this->step('transport.client.mode', 'transport', 'Does the client have a car or use public transport?');
+        if ($this->isCar($facts['transport.client.mode'] ?? null) && !$this->resolved($facts, 'transport.client.car_finance')) return $this->step('transport.client.car_finance', 'money', "What is the client's monthly car finance payment? Enter 0 if there is no car finance.");
         if ($this->isCar($facts['transport.client.mode'] ?? null) && !$this->resolved($facts, 'transport.client.car_insurance')) return $this->step('transport.client.car_insurance', 'money', "What is the client's monthly car insurance?");
 
         if ($this->bool($facts, 'household.partner_exists') === true) {
             if (!$this->resolved($facts, 'transport.partner.mode')) return $this->step('transport.partner.mode', 'transport', 'Does the partner have a car or use public transport?');
+            if ($this->isCar($facts['transport.partner.mode'] ?? null) && !$this->resolved($facts, 'transport.partner.car_finance')) return $this->step('transport.partner.car_finance', 'money', "What is the partner's monthly car finance payment? Enter 0 if there is no car finance.");
             if ($this->isCar($facts['transport.partner.mode'] ?? null) && !$this->resolved($facts, 'transport.partner.car_insurance')) return $this->step('transport.partner.car_insurance', 'money', "What is the partner's monthly car insurance?");
         }
 
@@ -132,8 +134,10 @@ class ZebraIeInterviewAnswerService
             'housing.rent_mortgage',
             'housing.council_tax',
             'transport.client.mode',
+            'transport.client.car_finance',
             'transport.client.car_insurance',
             'transport.partner.mode',
+            'transport.partner.car_finance',
             'transport.partner.car_insurance',
             'other.childcare',
             'other.maintenance_paid',

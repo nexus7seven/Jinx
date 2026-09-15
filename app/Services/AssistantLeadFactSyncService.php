@@ -93,9 +93,9 @@ class AssistantLeadFactSyncService
             'sfs.personal.clothing'=>'expenditure.sfs.personal.clothing','sfs.personal.hairdressing'=>'expenditure.sfs.personal.hairdressing',
             'sfs.personal.toiletries'=>'expenditure.sfs.personal.toiletries','transport.client.fuel'=>'expenditure.transport.client.fuel',
             'transport.client.mot_maintenance'=>'expenditure.transport.client.mot_maintenance','transport.client.road_tax'=>'expenditure.transport.client.road_tax',
-            'transport.client.car_insurance'=>'expenditure.transport.client.car_insurance','transport.client.public_transport'=>'expenditure.transport.client.public_transport',
+            'transport.client.car_finance'=>'expenditure.transport.client.car_finance','transport.client.car_insurance'=>'expenditure.transport.client.car_insurance','transport.client.public_transport'=>'expenditure.transport.client.public_transport',
             'transport.partner.fuel'=>'expenditure.transport.partner.fuel','transport.partner.mot_maintenance'=>'expenditure.transport.partner.mot_maintenance',
-            'transport.partner.road_tax'=>'expenditure.transport.partner.road_tax','transport.partner.car_insurance'=>'expenditure.transport.partner.car_insurance',
+            'transport.partner.road_tax'=>'expenditure.transport.partner.road_tax','transport.partner.car_finance'=>'expenditure.transport.partner.car_finance','transport.partner.car_insurance'=>'expenditure.transport.partner.car_insurance',
             'transport.partner.public_transport'=>'expenditure.transport.partner.public_transport','other.childcare'=>'expenditure.other.childcare',
             'other.maintenance_paid'=>'expenditure.other.maintenance_paid','other.dla_care'=>'expenditure.other.dla_care',
             'other.pip_care'=>'expenditure.other.pip_care','other.student_offset'=>'expenditure.other.student_offset',
@@ -132,6 +132,17 @@ class AssistantLeadFactSyncService
             if (array_key_exists($code,$statement['income']) && is_numeric($value)) $statement['income'][$code]=(float)$value;
         }
         $statement['expenditure'] = array_replace_recursive($statement['expenditure'], $snapshot['expenditure']);
+
+        // The existing I&E card reads the household transport bucket. Keep it in sync
+        // with the deterministic per-person transport calculation so travel never looks blank.
+        $clientTransport = is_array($snapshot['expenditure']['transport']['client'] ?? null) ? $snapshot['expenditure']['transport']['client'] : [];
+        $partnerTransport = is_array($snapshot['expenditure']['transport']['partner'] ?? null) ? $snapshot['expenditure']['transport']['partner'] : [];
+        foreach (['public_transport','car_finance','car_insurance','road_tax','mot_maintenance','fuel'] as $transportKey) {
+            $statement['expenditure']['transport']['household'][$transportKey] = round(
+                (float) ($clientTransport[$transportKey] ?? 0) + (float) ($partnerTransport[$transportKey] ?? 0),
+                2
+            );
+        }
 
         $household=$snapshot['household']??[];
         foreach (['adults','children_under_16','children_16_18','size'] as $key) {

@@ -64,6 +64,7 @@ class FinancialStatementService
             'fuel' => 0.0,
             'mot_maintenance' => 0.0,
             'road_tax' => 0.0,
+            'car_finance' => 0.0,
             'car_insurance' => 0.0,
             'public_transport' => 0.0,
         ];
@@ -341,11 +342,13 @@ class FinancialStatementService
         $rules['expenditure.transport.client.fuel'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.client.mot_maintenance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.client.road_tax'] = ['nullable', 'numeric', 'min:0'];
+        $rules['expenditure.transport.client.car_finance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.client.car_insurance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.client.public_transport'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.partner.fuel'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.partner.mot_maintenance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.partner.road_tax'] = ['nullable', 'numeric', 'min:0'];
+        $rules['expenditure.transport.partner.car_finance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.partner.car_insurance'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.transport.partner.public_transport'] = ['nullable', 'numeric', 'min:0'];
         $rules['expenditure.other.dla_care'] = ['nullable', 'numeric', 'min:0'];

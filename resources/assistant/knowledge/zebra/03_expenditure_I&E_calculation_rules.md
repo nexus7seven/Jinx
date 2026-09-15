@@ -502,6 +502,10 @@ Does the client have a car or use public transport?
 
 If the client has a car
 
+If car finance is not already established, ask:
+
+What is the client's monthly car finance payment? Enter 0 if there is no car finance.
+
 If car insurance is not already established, ask:
 
 What is the client's monthly car insurance?
@@ -524,6 +528,10 @@ If the partner's transport mode is not known, ask:
 Does the partner have a car or use public transport?
 
 If the partner has a car
+
+If partner car finance is not already established, ask:
+
+What is the partner's monthly car finance payment? Enter 0 if there is no car finance.
 
 If partner car insurance is not already established, ask:
 
@@ -633,7 +641,7 @@ Do not arbitrarily alter it to achieve target DI.
 
 Public transport is CALCULATED / FLEXIBLE.
 
-For an adult using public transport rather than a car, allow £0 to
+For an adult using public transport rather than a car, allow £60 to
 £120 per month per applicable adult.
 
 Rules:
@@ -641,7 +649,7 @@ Rules:
 do not ask the case packager for the public transport amount in the
 normal flow;
 
-base calculated public transport = £0;
+base calculated public transport = £60 per applicable adult;
 
 maximum = £120 per applicable adult;
 
