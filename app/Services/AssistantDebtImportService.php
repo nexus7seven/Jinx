@@ -21,32 +21,29 @@ class AssistantDebtImportService
         $items = $this->parse($message);
         if ($items === []) return ['handled' => false];
 
-        $added = [];
-        $unresolved = [];
-        foreach ($items as $item) {
-            $match = $this->matchCreditor($item['creditor']);
-            if ($match['status'] === 'matched') {
-                $this->addDebt($lead, $match['creditor'], $item['balance']);
-                $this->rememberAlias($match['creditor'], $item['creditor']);
-                $added[] = $item;
-            } else {
-                $unresolved[] = $item;
-            }
-        }
-
-        if ($unresolved === []) {
-            return ['handled' => true, 'pending' => null, 'reply' => $this->doneReply(count($added), $items)];
-        }
-
-        $pending = ['remaining' => array_values($unresolved), 'added_count' => count($added), 'current' => array_shift($unresolved), 'stage' => 'voting_house'];
-        $pending['remaining'] = array_values($unresolved);
-        return ['handled' => true, 'pending' => $pending, 'reply' => $this->question($pending)];
+        // Process the complete parsed list in order. We deliberately pause whenever a
+        // creditor already exists on this client's debt list so a duplicate is never
+        // silently created.
+        $pending = ['remaining' => array_values($items), 'added_count' => 0, 'added_total' => 0.0];
+        $result = $this->processNext($lead, $pending);
+        return ['handled' => true, 'pending' => $result['pending'], 'reply' => $result['reply']];
     }
 
     public function continue(Lead $lead, array $pending, string $answer): array
     {
         $current = $pending['current'] ?? null;
         if (!is_array($current)) return ['pending' => null, 'reply' => 'The pending debt import could not be resumed. Please paste the debts again.'];
+
+        if (($pending['stage'] ?? '') === 'duplicate_confirmation') {
+            $yes = $this->yesNo($answer);
+            if ($yes === null) return ['pending' => $pending, 'reply' => $this->question($pending)];
+            if ($yes) {
+                $creditor = Creditor::find($pending['creditor_id'] ?? null);
+                if ($creditor) $this->addAndCount($lead, $creditor, $current, $pending);
+            }
+            unset($pending['current'], $pending['stage'], $pending['creditor_id']);
+            return $this->processNext($lead, $pending);
+        }
 
         if (($pending['stage'] ?? '') === 'voting_house') {
             $value = trim($answer);
@@ -58,7 +55,7 @@ class AssistantDebtImportService
 
         if (($pending['stage'] ?? '') === 'voting_practice1') {
             $practice = $this->normalisePractice($answer);
-            if ($practice === null) return ['pending' => $pending, 'reply' => 'For '.$current['creditor'].', what should voting_practice1 be? Enter accept, reject or non_vote.'];
+            if ($practice === null) return ['pending' => $pending, 'reply' => $this->question($pending)];
 
             $creditor = Creditor::create([
                 'name' => $current['creditor'],
@@ -66,30 +63,68 @@ class AssistantDebtImportService
                 'voting_practice1' => $practice,
             ]);
             $this->rememberAlias($creditor, $current['creditor']);
-            $this->addDebt($lead, $creditor, (float) $current['balance']);
-            $pending['added_count'] = ((int) ($pending['added_count'] ?? 0)) + 1;
-
-            $remaining = $pending['remaining'] ?? [];
-            if ($remaining === []) {
-                return ['pending' => null, 'reply' => 'Done. Added '.((int) $pending['added_count']).' debt'.(((int) $pending['added_count']) === 1 ? '' : 's').' to this client.'];
-            }
-
-            $pending = ['remaining' => array_values(array_slice($remaining, 1)), 'added_count' => $pending['added_count'], 'current' => $remaining[0], 'stage' => 'voting_house'];
-            return ['pending' => $pending, 'reply' => $this->question($pending)];
+            $this->addAndCount($lead, $creditor, $current, $pending);
+            unset($pending['current'], $pending['stage'], $pending['voting_house']);
+            return $this->processNext($lead, $pending);
         }
 
         return ['pending' => null, 'reply' => 'The pending debt import could not be resumed. Please paste the debts again.'];
     }
 
+    private function processNext(Lead $lead, array $pending): array
+    {
+        $remaining = array_values($pending['remaining'] ?? []);
+        while ($remaining !== []) {
+            $item = array_shift($remaining);
+            $pending['remaining'] = $remaining;
+            $match = $this->matchCreditor($item['creditor']);
+
+            if ($match['status'] !== 'matched') {
+                $pending['current'] = $item;
+                $pending['stage'] = 'voting_house';
+                return ['pending' => $pending, 'reply' => $this->question($pending)];
+            }
+
+            $creditor = $match['creditor'];
+            $this->rememberAlias($creditor, $item['creditor']);
+
+            if ($this->clientAlreadyHasCreditor($lead, $creditor)) {
+                $pending['current'] = $item;
+                $pending['creditor_id'] = $creditor->id;
+                $pending['stage'] = 'duplicate_confirmation';
+                return ['pending' => $pending, 'reply' => $this->question($pending)];
+            }
+
+            $this->addAndCount($lead, $creditor, $item, $pending);
+        }
+
+        return ['pending' => null, 'reply' => $this->doneReply((int)($pending['added_count'] ?? 0), (float)($pending['added_total'] ?? 0))];
+    }
+
     private function parse(string $message): array
     {
         $items = [];
-        foreach (preg_split('/\R/', $message) ?: [] as $line) {
-            $line = trim(preg_replace('/^[\s\-*•]+/u', '', $line) ?? $line);
-            if (!preg_match('/^(.+?)\s*(?:—|–|-)\s*£\s*([\d,]+(?:\.\d{1,2})?)/u', $line, $m)) continue;
-            $name = trim($m[1]);
-            if ($name === '') continue;
-            $items[] = ['creditor' => $name, 'balance' => (float) str_replace(',', '', $m[2])];
+
+        // Remove the instruction before the first list item, then recognise every
+        // "CREDITOR — £BALANCE" occurrence. This works whether the user pasted one
+        // debt per line or the whole list on a single line separated by " - ".
+        $body = preg_replace('/^.*?\bdebts?\b\s*[-:]*\s*/is', '', trim($message), 1) ?? trim($message);
+        $pattern = '/(?:^|\s+-\s+|\R|[•*]\s*)(.+?)\s*(?:—|–|\s-\s)\s*£\s*([\d,]+(?:\.\d{1,2})?)(?:\s*\([^)]*\))?/u';
+        if (preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $name = trim(preg_replace('/^[\s\-*•]+/u', '', $m[1]) ?? $m[1]);
+                if ($name === '') continue;
+                $items[] = ['creditor' => $name, 'balance' => (float) str_replace(',', '', $m[2])];
+            }
+        }
+
+        // Backwards-compatible line parser for simple hyphen-only lists.
+        if ($items === []) {
+            foreach (preg_split('/\R/', $body) ?: [] as $line) {
+                $line = trim(preg_replace('/^[\s\-*•]+/u', '', $line) ?? $line);
+                if (!preg_match('/^(.+?)\s*(?:—|–|-)\s*£\s*([\d,]+(?:\.\d{1,2})?)/u', $line, $m)) continue;
+                $items[] = ['creditor' => trim($m[1]), 'balance' => (float) str_replace(',', '', $m[2])];
+            }
         }
         return $items;
     }
@@ -99,23 +134,31 @@ class AssistantDebtImportService
         $needle = $this->normalise($supplied);
         $creditors = Creditor::with('aliases')->get();
         $best = null; $bestScore = 0.0; $second = 0.0;
-
         foreach ($creditors as $creditor) {
             $candidates = array_merge([$creditor->name], $creditor->aliases->pluck('alias')->all());
             foreach ($candidates as $candidate) {
-                $normal = $this->normalise((string) $candidate);
+                $normal = $this->normalise((string)$candidate);
                 if ($normal === $needle) return ['status' => 'matched', 'creditor' => $creditor];
                 similar_text($needle, $normal, $pct);
-                if (str_contains($needle, $normal) || str_contains($normal, $needle)) $pct = max($pct, 92.0);
+                if ($normal !== '' && (str_contains($needle, $normal) || str_contains($normal, $needle))) $pct = max($pct, 92.0);
                 if ($pct > $bestScore) { $second = $bestScore; $bestScore = $pct; $best = $creditor; }
                 elseif ($pct > $second) $second = $pct;
             }
         }
-
-        // Conservative automatic fuzzy match. Anything uncertain is treated as a new creditor
-        // rather than silently attaching a client's debt to the wrong creditor.
         if ($best && $bestScore >= 88.0 && ($bestScore - $second) >= 8.0) return ['status' => 'matched', 'creditor' => $best];
         return ['status' => 'unmatched'];
+    }
+
+    private function clientAlreadyHasCreditor(Lead $lead, Creditor $creditor): bool
+    {
+        return Debt::query()->where('lead_id', $lead->id)->where('creditor_id', $creditor->id)->exists();
+    }
+
+    private function addAndCount(Lead $lead, Creditor $creditor, array $item, array &$pending): void
+    {
+        $this->addDebt($lead, $creditor, (float)$item['balance']);
+        $pending['added_count'] = ((int)($pending['added_count'] ?? 0)) + 1;
+        $pending['added_total'] = ((float)($pending['added_total'] ?? 0)) + (float)$item['balance'];
     }
 
     private function normalise(string $value): string
@@ -137,10 +180,18 @@ class AssistantDebtImportService
         Debt::create(['lead_id' => $lead->id, 'creditor_id' => $creditor->id, 'balance' => $balance, 'source_expected' => 'other', 'reference' => null]);
     }
 
+    private function yesNo(string $answer): ?bool
+    {
+        return match (Str::lower(trim($answer))) {
+            'yes', 'y', 'yeah', 'yep', 'duplicate', 'add it', 'add' => true,
+            'no', 'n', 'nope', 'skip', 'skip it', 'dont', "don't" => false,
+            default => null,
+        };
+    }
+
     private function normalisePractice(string $answer): ?string
     {
-        $value = Str::lower(trim($answer));
-        return match ($value) {
+        return match (Str::lower(trim($answer))) {
             'accept', 'accepted', 'yes', 'approve', 'approved' => 'accept',
             'reject', 'rejected', 'no', 'decline', 'declined' => 'reject',
             'non_vote', 'non-vote', 'non vote', 'no vote', 'novote' => 'non_vote',
@@ -150,14 +201,17 @@ class AssistantDebtImportService
 
     private function question(array $pending): string
     {
-        $name = $pending['current']['creditor'] ?? 'this creditor';
+        $current = $pending['current'] ?? [];
+        $name = $current['creditor'] ?? 'this creditor';
+        if (($pending['stage'] ?? '') === 'duplicate_confirmation') {
+            return 'This client already has a debt with '.$name.'. Do you want to add another debt with '.$name.' for £'.number_format((float)($current['balance'] ?? 0), 2).'? Yes or no.';
+        }
         if (($pending['stage'] ?? '') === 'voting_house') return 'I can’t find a creditor matching “'.$name.'”. What voting house should I use for the new creditor?';
         return 'For '.$name.', what should voting_practice1 be? Enter accept, reject or non_vote.';
     }
 
-    private function doneReply(int $count, array $items): string
+    private function doneReply(int $count, float $total): string
     {
-        $total = array_sum(array_column($items, 'balance'));
         return 'Done. Added '.$count.' debt'.($count === 1 ? '' : 's').' to this client, totalling £'.number_format($total, 2).'.';
     }
 }
