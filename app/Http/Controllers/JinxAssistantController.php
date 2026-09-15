@@ -168,6 +168,7 @@ class JinxAssistantController extends Controller
                 'suitability_assessment' => $result['suitability_assessment'] ?? null,
                 'synced_fields' => $syncedFields,
                 'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
+                'debt_import_complete' => (bool) ($result['debt_import_complete'] ?? false),
                 'established_facts' => data_get($metadata, 'established_facts', []),
             ]);
         } catch (Throwable $e) {

@@ -34,7 +34,7 @@ class JinxAssistantService
             if(is_array($debtResult['pending']??null)) $metadata['pending_debt_import']=$debtResult['pending'];
             else unset($metadata['pending_debt_import']);
             $conversation->metadata=$metadata;$conversation->save();
-            return $this->directActionResult((string)$debtResult['reply']);
+            return $this->directActionResult((string)$debtResult['reply'], !is_array($debtResult['pending'] ?? null));
         }
         if($conversation->lead && $this->debtImporter->looksLikeImport($message)) {
             $debtResult=$this->debtImporter->begin($conversation->lead,$message);
@@ -42,7 +42,7 @@ class JinxAssistantService
                 if(is_array($debtResult['pending']??null)) $metadata['pending_debt_import']=$debtResult['pending'];
                 else unset($metadata['pending_debt_import']);
                 $conversation->metadata=$metadata;$conversation->save();
-                return $this->directActionResult((string)$debtResult['reply']);
+                return $this->directActionResult((string)$debtResult['reply'], !is_array($debtResult['pending'] ?? null));
             }
         }
 
@@ -121,7 +121,7 @@ PROMPT;
         return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'case_summary'=>trim((string)($decoded['case_summary']??''))];
     }
 
-    private function directActionResult(string $reply): array {return ['reply'=>$reply,'fact_updates'=>[],'deterministic_ie'=>[],'suitability_assessment'=>null,'proactive_route_signature'=>null,'proposed_knowledge'=>null,'confirm_pending_knowledge'=>false,'case_summary'=>''];}
+    private function directActionResult(string $reply, bool $debtImportComplete = false): array {return ['reply'=>$reply,'debt_import_complete'=>$debtImportComplete,'fact_updates'=>[],'deterministic_ie'=>[],'suitability_assessment'=>null,'proactive_route_signature'=>null,'proposed_knowledge'=>null,'confirm_pending_knowledge'=>false,'case_summary'=>''];}
     private function acceptedIeOffer(array $history,string $message): bool {$answer=Str::lower(trim($message));$explicit=preg_match('/\b(carry out|run|start|calculate|complete)\b.*\bi\s*&\s*e\b/i',$message)===1;if($explicit)return true;if(!in_array($answer,['yes','y','yeah','yep','please','go ahead','do it'],true))return false;$last=collect($history)->reverse()->first(fn($item)=>($item['role']??null)==='assistant');return is_array($last)&&Str::contains(Str::lower((string)($last['content']??'')),['would you like me to carry out','carry out the zebra i&e','carry out the i&e']);}
     private function conciseIeCompletion(array $snapshot): string {$calc=$snapshot['calculation']??[];$income=(float)($calc['income_total']??0);$exp=(float)($calc['expenditure_total']??0);$di=(float)($calc['disposable_income']??0);$target=$calc['target_di']??null;$text='I&E complete. Income £'.number_format($income,0).', expenditure £'.number_format($exp,0).', DI £'.number_format($di,0).'.';if($target!==null){$target=(float)$target;$text.=' Target £'.number_format($target,0).($di>=$target?' achieved.':' not achieved — £'.number_format($target-$di,0).' short.');}return$text;}
     private function runProactiveComparison(string $apiKey,string $model,array $facts,array $routeAlert): ?array {$response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>'Perform a proactive IVA destination check only after a completed I&E has failed its target. Assess each destination independently. Keep the reply concise. Return only JSON with reply and suitability_assessment.','input'=>json_encode(['ROUTE_ALERT'=>$routeAlert,'ESTABLISHED_FACTS'=>$facts,'DESTINATION_COMPARISON'=>$this->destinationSuitability->context()],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>1200]);if(!$response->successful())return null;$decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);if(!is_array($decoded)||!filled($decoded['reply']??null))return null;return ['reply'=>trim((string)$decoded['reply']),'suitability_assessment'=>$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null)];}

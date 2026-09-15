@@ -127,7 +127,7 @@ class AssistantDebtImportService
     {
         $items = [];
         $body = preg_replace('/^.*?\bdebts?\b\s*[-:]*\s*/is', '', trim($message), 1) ?? trim($message);
-        $pattern = '/(?:^|\s+-\s+|\R|[•*]\s*)(.+?)\s*(?:—|–|\s-\s)\s*£\s*([\d,]+(?:\.\d{1,2})?)(?:\s*\([^)]*\))?/u';
+        $pattern = '/(?:^|\s+-\s+|\R|[•*]\s*)(.+?)\s*(?:—|–|:|\s-\s)\s*£\s*([\d,]+(?:\.\d{1,2})?)(?:\s*\([^)]*\))?/u';
         if (preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $m) {
                 $name = trim(preg_replace('/^[\s\-*•]+/u', '', $m[1]) ?? $m[1]);
@@ -138,7 +138,7 @@ class AssistantDebtImportService
         if ($items === []) {
             foreach (preg_split('/\R/', $body) ?: [] as $line) {
                 $line = trim(preg_replace('/^[\s\-*•]+/u', '', $line) ?? $line);
-                if (!preg_match('/^(.+?)\s*(?:—|–|-)\s*£\s*([\d,]+(?:\.\d{1,2})?)/u', $line, $m)) continue;
+                if (!preg_match('/^(.+?)\s*(?:—|–|:|-)\s*£\s*([\d,]+(?:\.\d{1,2})?)/u', $line, $m)) continue;
                 $items[] = ['creditor' => trim($m[1]), 'balance' => (float) str_replace(',', '', $m[2])];
             }
         }

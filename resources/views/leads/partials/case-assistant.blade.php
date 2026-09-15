@@ -77,6 +77,12 @@
             status.textContent=data.knowledge_proposed?'New rule proposed — confirm or correct it in chat':(data.knowledge_saved?'Shared knowledge updated':'Ready');
             // The assistant writes directly into the lead/financial statement. Reload after a successful
             // CRM write so the visible form can never remain stale while the chat has newer values.
+            if(data.debt_import_complete) {
+                status.textContent='Refreshing debts…';
+                window.location.hash='debts';
+                window.setTimeout(()=>window.location.reload(),250);
+                return;
+            }
             if(data.financial_statement_changed || (Array.isArray(data.synced_fields) && data.synced_fields.length)) {
                 status.textContent='Updating Financial Statement…';
                 window.setTimeout(()=>window.location.reload(),250);
