@@ -56,11 +56,9 @@ class AssistantDebtImportService
             }
 
             $creditor = $match['creditor'];
-            // The supplied debt wording is now explicitly confirmed as an alias of the
-            // selected canonical creditor, so future imports resolve automatically.
             $this->rememberAlias($creditor, $current['creditor']);
 
-            if ($this->clientAlreadyHasCreditor($lead, $creditor)) {
+            if ($this->clientAlreadyHasDebt($lead, $creditor, (float)$current['balance'])) {
                 $pending['creditor_id'] = $creditor->id;
                 $pending['stage'] = 'duplicate_confirmation';
                 return ['pending' => $pending, 'reply' => $this->question($pending)];
@@ -112,7 +110,7 @@ class AssistantDebtImportService
 
             $creditor = $match['creditor'];
             $this->rememberAlias($creditor, $item['creditor']);
-            if ($this->clientAlreadyHasCreditor($lead, $creditor)) {
+            if ($this->clientAlreadyHasDebt($lead, $creditor, (float)$item['balance'])) {
                 $pending['current'] = $item;
                 $pending['creditor_id'] = $creditor->id;
                 $pending['stage'] = 'duplicate_confirmation';
@@ -165,9 +163,15 @@ class AssistantDebtImportService
         return ['status' => 'unmatched'];
     }
 
-    private function clientAlreadyHasCreditor(Lead $lead, Creditor $creditor): bool
+    private function clientAlreadyHasDebt(Lead $lead, Creditor $creditor, float $balance): bool
     {
-        return Debt::query()->where('lead_id', $lead->id)->where('creditor_id', $creditor->id)->exists();
+        // A duplicate means the same client already has the same canonical creditor AND
+        // the same balance. Multiple accounts with one creditor but different balances are valid.
+        return Debt::query()
+            ->where('lead_id', $lead->id)
+            ->where('creditor_id', $creditor->id)
+            ->where('balance', round($balance, 2))
+            ->exists();
     }
 
     private function addAndCount(Lead $lead, Creditor $creditor, array $item, array &$pending): void
@@ -225,7 +229,7 @@ class AssistantDebtImportService
         $current = $pending['current'] ?? [];
         $name = $current['creditor'] ?? 'this creditor';
         if (($pending['stage'] ?? '') === 'duplicate_confirmation') {
-            return 'This client already has a debt with '.$name.'. Do you want to add another debt with '.$name.' for £'.number_format((float)($current['balance'] ?? 0), 2).'? Yes or no.';
+            return 'This client already has a debt with '.$name.' for £'.number_format((float)($current['balance'] ?? 0), 2).'. Do you want to add this duplicate debt anyway? Yes or no.';
         }
         if (($pending['stage'] ?? '') === 'creditor_resolution') {
             return 'I can’t confidently match “'.$name.'” to an existing creditor. If it belongs under an existing creditor, tell me that creditor name and I’ll link it and save “'.$name.'” as an alias for future imports. Otherwise say “add new”.';
