@@ -519,6 +519,16 @@
         #wip-callback-list.wip-attention-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
         @media (max-width:1200px){ .wip-workdesk{grid-template-columns:minmax(0,1fr) 400px;} #wip-leads-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
         @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-workdesk{grid-template-columns:1fr;} .wip-assistant{position:relative;top:auto;min-height:480px;} #wip-leads-grid{grid-template-columns:1fr;} }
+        .wip-workdesk{height:min(690px,calc(100vh - 185px));min-height:540px;gap:16px;margin-bottom:20px}
+        .wip-assistant-column,.wip-callback-column{height:100%;min-height:0}
+        .wip-callback-column #wip-callback-section{height:100%;box-sizing:border-box;display:flex;flex-direction:column;padding:0;overflow:hidden}
+        .wip-callback-column .wip-attention-header{padding:14px 15px 11px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.45)}
+        .wip-callback-column #wip-callback-list{display:block;overflow-y:auto;overscroll-behavior:contain;padding:9px;scrollbar-width:thin;scrollbar-color:#475569 transparent}
+        .wip-callback-column #wip-callback-list .wip-card{margin-bottom:8px;border-radius:10px;background:rgba(15,23,42,.72)}
+        .wip-queue-heading{border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin-top:22px}.wip-queue-heading h2{font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin-top:4px}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
+        .wip-filter-bar{padding:10px;border:1px solid rgba(51,65,85,.55);border-radius:10px;background:rgba(15,23,42,.45)}
+        #wip-leads-grid{gap:12px!important}.wip-card{transition:border-color .15s ease,transform .15s ease,background .15s ease}.wip-card:hover{border-color:#475569;background:#111b2d;transform:translateY(-1px)}
+        @media(max-width:900px){.wip-workdesk{height:auto}.wip-callback-column #wip-callback-section{max-height:520px}.wip-assistant-column{height:auto}}
     </style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
@@ -535,8 +545,8 @@
         @endphp
         <div class="wip-header-toolbar">
             <div>
-                <div class="wip-header-title">WIP</div>
-                <div class="wip-header-sub">Case queue</div>
+                <div class="wip-header-title">Jinx Workdesk</div>
+                <div class="wip-header-sub">Assistant, callbacks and case priorities</div>
             </div>
             <button type="button" id="wip-refresh-btn" class="wip-refresh-btn" title="Reload">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -697,7 +707,7 @@
         @endif
     </section>
 
-    <div class="wip-queue-heading"><div><h2>WIP cases</h2><p>Priority work first, then oldest untouched cases.</p></div></div>
+    <div class="wip-queue-heading"><div><h2>WIP</h2><p>Case queue · priority work first, then oldest untouched cases.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input
             type="search"

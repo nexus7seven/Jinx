@@ -21,7 +21,7 @@ class JinxAssistantService
         private readonly AssistantDebtImportService $debtImporter,
     ) {}
 
-    public function reply(AssistantConversation $conversation,string $message): array
+    public function reply(AssistantConversation $conversation,string $message,?array $workspaceContext=null): array
     {
         $conversation->loadMissing('lead');
 
@@ -92,7 +92,7 @@ Return ONLY valid JSON:
 {"reply":"natural-language reply","fact_updates":{},"suitability_assessment":null,"proposed_knowledge":null,"confirm_pending_knowledge":false,"requested_action":null,"case_summary":"brief rolling summary"}
 PROMPT;
 
-        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message];
+        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'WORKSPACE_CONTEXT'=>$workspaceContext];
         $response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>$instructions,'input'=>json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>$comparisonRequested?2600:1800]);
         if(!$response->successful())throw new RuntimeException('Assistant provider error: '.$response->status().' '.$response->body());
         $decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);
@@ -121,7 +121,7 @@ PROMPT;
         if(($factsAfter['workflow.ie_complete']??false)===true){$factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;$factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;$factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;}
         $proactiveSignature=null;
         if(!$comparisonRequested){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
-        return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'requested_action'=>$this->normaliseRequestedAction($decoded['requested_action']??null),'case_summary'=>trim((string)($decoded['case_summary']??''))];
+        return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'requested_action'=>$this->normaliseRequestedAction($decoded['requested_action']??null),'case_summary'=>trim((string)($decoded['case_summary']??'')),'action'=>is_array($decoded['action']??null)?$decoded['action']:null];
     }
 
     private function directActionResult(string $reply, bool $debtImportComplete = false): array {return ['reply'=>$reply,'debt_import_complete'=>$debtImportComplete,'requested_action'=>null,'fact_updates'=>[],'deterministic_ie'=>[],'suitability_assessment'=>null,'proactive_route_signature'=>null,'proposed_knowledge'=>null,'confirm_pending_knowledge'=>false,'case_summary'=>''];}
