@@ -216,7 +216,7 @@ class JinxAssistantController extends Controller
     private function parseCallbackRequest(string $message): ?array
     {
         if (preg_match('/\b(?:call\s*back|callback|call|ring|phone)\b/i', $message) !== 1) return null;
-        if (preg_match('/\b(?:tomorrow|today|this\s+(?:morning|afternoon|evening)|next\s+(?:mon|tue|wed|thu|fri|sat|sun)|\d{1,2}[\/.-]\d{1,2})\b/i', $message) !== 1) return null;
+        if (preg_match('/\b(?:tomorrow|today|this\s+(?:morning|afternoon|evening)|(?:next\s+)?(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|\d{1,2}[\/.-]\d{1,2})\b/i', $message) !== 1) return null;
         if (preg_match('/(?:\bat\s*|\b)(\d{1,2})(?:[:.]([0-5]\d))?\s*(am|pm)\b|\bat\s+(\d{1,2})(?:[:.]([0-5]\d))?\b/i', $message, $tm) !== 1) return null;
 
         $hour=(int)(($tm[1]??'')!==''?$tm[1]:($tm[4]??0)); $minute=(int)(($tm[2]??'')!==''?$tm[2]:($tm[5]??0)); $ampm=strtolower($tm[3]??'');
@@ -224,8 +224,8 @@ class JinxAssistantController extends Controller
         if($hour>23)return null;
         $text=strtolower($message); $date=now();
         if(str_contains($text,'tomorrow'))$date=now()->addDay();
-        elseif(preg_match('/\bnext\s+(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i',$message,$dm)){
-            $date=Carbon::parse('next '.$dm[1]);
+        elseif(preg_match('/\b(next\s+)?(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i',$message,$dm)){
+            $date=Carbon::parse('next '.$dm[2]);
         } elseif(preg_match('/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/',$message,$dm)){
             $year=isset($dm[3])?(int)$dm[3]:(int)now()->year; if($year<100)$year+=2000;
             try{$date=Carbon::create($year,(int)$dm[2],(int)$dm[1]);}catch(Throwable){return null;}
@@ -236,6 +236,7 @@ class JinxAssistantController extends Controller
 
         $comments='';
         if(preg_match('/\b(?:because|regarding|about|re|note)\b[:\s-]+(.+)$/i',$message,$cm))$comments=trim($cm[1]);
+        elseif(preg_match('/\b(to\s+be\s+.+)$/i',$message,$cm))$comments=trim($cm[1]);
         return ['when'=>$when,'comments'=>$comments];
     }
 
