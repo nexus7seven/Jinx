@@ -128,6 +128,11 @@ class WipController extends Controller
             return isset($unseenReengagementLeadSet[(int) $lead->id]) ? 0 : 1;
         };
 
+        $callbackByLead = collect($this->vicidialCallbackService->activeForJinxLeads())->keyBy('lead_id');
+        $leads->each(function (Lead $lead) use ($callbackByLead) {
+            $lead->active_callback = $callbackByLead->get($lead->id);
+        });
+
         $leads = $leads->sort(function (Lead $a, Lead $b) use ($reengagementSortTier) {
             $aT = $reengagementSortTier($a);
             $bT = $reengagementSortTier($b);
@@ -139,13 +144,18 @@ class WipController extends Controller
                 return $b->created_at <=> $a->created_at;
             }
 
-            $aPri = in_array($a->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
-            $bPri = in_array($b->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 0 : 1;
-            if ($aPri !== $bPri) {
-                return $aPri <=> $bPri;
-            }
-
-            return $b->created_at <=> $a->created_at;
+            $rank = static function (Lead $lead): int {
+                $cb = $lead->active_callback ?? null;
+                if (is_array($cb) && ($cb['due'] ?? false)) return 0;
+                if ($lead->needsImmediateAttention()) return 1;
+                if ($lead->wip_status === 'WIP') return 2;
+                if ($lead->wip_status === 'Ready to Draft') return 3;
+                return in_array($lead->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 4 : 5;
+            };
+            $aPri=$rank($a); $bPri=$rank($b);
+            if($aPri!==$bPri) return $aPri<=>$bPri;
+            $aActivity=$a->last_dialled_at ?? $a->created_at; $bActivity=$b->last_dialled_at ?? $b->created_at;
+            return $aActivity <=> $bActivity;
         })->values();
 
         $opsAlertLeads = $leads->map(function (Lead $lead) {
@@ -251,7 +261,7 @@ class WipController extends Controller
             'unseen_reengagement_event_ids' => $unseenReengagementEventIds,
             'reengagement_channel_by_lead_id' => $reengagementChannelByLeadId,
             'remarketing_response_events' => $remarketingResponseEvents,
-            'scheduled_callbacks' => $this->vicidialCallbackService->activeForJinxLeads(),
+            'scheduled_callbacks' => $callbackByLead->values()->all(),
         ]);
     }
 

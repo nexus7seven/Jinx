@@ -511,12 +511,14 @@
         }
 
         .wip-callback-when{font-size:13px;font-weight:800;color:#bfdbfe;margin-top:7px}.wip-callback-reason{margin-top:8px;padding:9px 10px;border-radius:8px;background:rgba(15,23,42,.7);color:#cbd5e1;font-size:12px;line-height:1.4;min-height:34px}.wip-callback-reason span{display:block;color:#64748b;text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em;margin-bottom:3px}.wip-callback-actions{margin-top:8px}.wip-callback-actions a{display:inline-block;color:#93c5fd;font-size:11px;font-weight:800;text-decoration:none}.wip-callback-actions a:hover{color:#dbeafe}
-        .wip-desktop-layout { display:grid; grid-template-columns:minmax(0, 1fr) minmax(520px, .62fr); gap:22px; align-items:start; }
+        .wip-workdesk { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(390px,.55fr); gap:18px; align-items:start; margin-bottom:18px; }
+        .wip-assistant-column{min-width:0}.wip-callback-column{min-width:0}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:1fr}.wip-callback-column .wip-attention-section{margin:0}.wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:18px 0 10px}.wip-queue-heading h2{margin:0;font-size:16px}.wip-queue-heading p{margin:3px 0 0;color:#64748b;font-size:11px}
+        .wip-desktop-layout { display:block; }
         .wip-main-column { min-width:0; }
         #wip-leads-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
         #wip-callback-list.wip-attention-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        @media (max-width:1350px){ .wip-desktop-layout{grid-template-columns:minmax(0,1fr) 440px;} #wip-leads-grid{grid-template-columns:1fr;} }
-        @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-desktop-layout{grid-template-columns:1fr;} .wip-assistant-column{order:-1;} .wip-assistant{position:relative;top:auto;min-height:480px;} }
+        @media (max-width:1200px){ .wip-workdesk{grid-template-columns:minmax(0,1fr) 400px;} #wip-leads-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+        @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-workdesk{grid-template-columns:1fr;} .wip-assistant{position:relative;top:auto;min-height:480px;} #wip-leads-grid{grid-template-columns:1fr;} }
     </style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
@@ -572,6 +574,9 @@
     @endif
 
     @php $scheduledCallbacks = $scheduled_callbacks ?? []; @endphp
+    <div class="wip-workdesk">
+      <div class="wip-assistant-column">@include('wip.assistant')</div>
+      <div class="wip-callback-column">
     <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}" style="border-color:rgba(59,130,246,.45); background:linear-gradient(180deg,rgba(30,58,138,.22) 0%,rgba(15,23,42,.65) 100%);">
         <div class="wip-attention-header">
             <h2 class="wip-attention-title">📞 Scheduled callbacks</h2>
@@ -590,6 +595,8 @@
             @endforelse
         </div>
     </section>
+      </div>
+    </div>
 
     <section aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
         <div class="wip-attention-header">
@@ -690,6 +697,7 @@
         @endif
     </section>
 
+    <div class="wip-queue-heading"><div><h2>WIP cases</h2><p>Priority work first, then oldest untouched cases.</p></div></div>
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input
             type="search"
@@ -842,7 +850,6 @@
         @endforelse
     </div>
     </main>
-    <div class="wip-assistant-column">@include('wip.assistant')</div>
     </div>
 </div>
 
