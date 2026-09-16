@@ -147,7 +147,7 @@ class AssistantDebtImportService
 
     private function isSummaryLine(string $name): bool
     {
-        return preg_match('/^(?:grand\s+)?total(?:\s+(?:debt|debts|balance|owed))?$/i', trim($name)) === 1;
+        return preg_match('/^(?:grand\s+)?total(?:\s+(?:debt|debts|balance|owed|ccj(?:\s+value)?|ccjs(?:\s+value)?))?$/i', trim($name)) === 1;
     }
 
     private function matchCreditor(string $supplied): array
