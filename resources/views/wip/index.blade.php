@@ -509,14 +509,23 @@
             font-size: 14px;
             box-shadow: 0 12px 40px rgba(0,0,0,0.45);
         }
+
+        .wip-desktop-layout { display:grid; grid-template-columns:minmax(0, 1fr) 440px; gap:22px; align-items:start; }
+        .wip-main-column { min-width:0; }
+        #wip-leads-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        #wip-callback-list.wip-attention-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        @media (max-width:1200px){ .wip-desktop-layout{grid-template-columns:minmax(0,1fr) 360px;} #wip-leads-grid{grid-template-columns:1fr;} }
+        @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-desktop-layout{grid-template-columns:1fr;} .wip-assistant-column{order:-1;} .wip-assistant{position:relative;top:auto;min-height:480px;} }
     </style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
-<div class="wip-page" style="max-width:980px; margin:0 auto; padding:18px 20px 28px; box-sizing:border-box;">
+<div class="wip-page" style="max-width:1680px; margin:0 auto; padding:18px 28px 28px; box-sizing:border-box;">
 
     @include('partials.app-nav')
 
+    <div class="wip-desktop-layout">
+    <main class="wip-main-column">
     <header class="wip-header-block">
         @php
             $attentionCount = count($remarketing_response_events ?? []);
@@ -828,6 +837,9 @@
                 No cases found.
             </div>
         @endforelse
+    </div>
+    </main>
+    <div class="wip-assistant-column">@include('wip.assistant')</div>
     </div>
 </div>
 

@@ -17,6 +17,7 @@ use App\Http\Controllers\TempMailController;
 use App\Http\Controllers\CreditReportController;
 use App\Http\Controllers\DebtController;
 use App\Http\Controllers\WipController;
+use App\Http\Controllers\WipAssistantController;
 use App\Http\Controllers\RemarketingController;
 use App\Http\Controllers\LeadCaseController;
 use App\Services\LeadChecklistService;
@@ -170,6 +171,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
     Route::get('/wip/reengagement-poll', [WipController::class, 'pollReengagement'])->name('wip.reengagement-poll');
     Route::get('/wip/callback-poll', [WipController::class, 'pollCallbacks'])->name('wip.callback-poll');
+    Route::get('/assistant/wip', [WipAssistantController::class, 'bootstrap']);
+    Route::post('/assistant/wip/message', [WipAssistantController::class, 'send']);
+    Route::post('/assistant/wip/reset', [WipAssistantController::class, 'reset']);
     Route::post('/lead/{lead}/callback', [WipController::class, 'scheduleCallback'])->name('lead.callback.schedule');
     Route::post('/wip/reengagement-acknowledge', [WipController::class, 'acknowledgeReengagement'])->name('wip.reengagement-acknowledge');
     Route::post('/remarketing/response/{id}/handle', [WipController::class, 'handleResponseEvent'])->name('remarketing.response.handle');
