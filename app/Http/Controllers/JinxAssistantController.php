@@ -8,9 +8,11 @@ use App\Models\AssistantMessage;
 use App\Models\Lead;
 use App\Services\AssistantLeadFactSyncService;
 use App\Services\JinxAssistantService;
+use App\Services\VicidialCallbackService;
 use App\Services\ZebraIeInterviewAnswerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 use Throwable;
 
 class JinxAssistantController extends Controller
@@ -32,7 +34,7 @@ class JinxAssistantController extends Controller
         ]);
     }
 
-    public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync, ZebraIeInterviewAnswerService $zebraAnswers): JsonResponse
+    public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync, ZebraIeInterviewAnswerService $zebraAnswers, VicidialCallbackService $callbacks): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
         $messageText = trim($validated['message']);
@@ -42,6 +44,13 @@ class JinxAssistantController extends Controller
         ]);
 
         try {
+            if ($callback = $this->parseCallbackRequest($messageText)) {
+                $scheduled = $callbacks->schedule($lead->fresh(), $callback['when'], $callback['comments']);
+                $reply = 'Callback booked for '.$callback['when']->format('D j M \a\t H:i').'.';
+                if ($callback['comments'] !== '') $reply .= ' Note: '.$callback['comments'];
+                return $this->directAssistantReply($conversation, $reply, [], ['vicidial_callback']);
+            }
+
             $metadata = $conversation->metadata ?? [];
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
@@ -198,6 +207,32 @@ class JinxAssistantController extends Controller
     {
         return AssistantConversation::query()->where('lead_id', $lead->id)->where('user_id', $request->user()->id)->latest('id')->first()
             ?? AssistantConversation::create(['lead_id' => $lead->id, 'user_id' => $request->user()->id, 'title' => 'Jinx Assistant — '.$lead->formattedName(), 'metadata' => []]);
+    }
+
+    private function parseCallbackRequest(string $message): ?array
+    {
+        if (preg_match('/\b(?:call\s*back|callback|call|ring|phone)\b/i', $message) !== 1) return null;
+        if (preg_match('/\b(?:tomorrow|today|this\s+(?:morning|afternoon|evening)|next\s+(?:mon|tue|wed|thu|fri|sat|sun)|\d{1,2}[\/.-]\d{1,2})\b/i', $message) !== 1) return null;
+        if (preg_match('/(?:\bat\s*|\b)(\d{1,2})(?:[:.]([0-5]\d))?\s*(am|pm)\b|\bat\s+(\d{1,2})(?:[:.]([0-5]\d))?\b/i', $message, $tm) !== 1) return null;
+
+        $hour=(int)(($tm[1]??'')!==''?$tm[1]:($tm[4]??0)); $minute=(int)(($tm[2]??'')!==''?$tm[2]:($tm[5]??0)); $ampm=strtolower($tm[3]??'');
+        if($ampm==='pm'&&$hour<12)$hour+=12; if($ampm==='am'&&$hour===12)$hour=0;
+        if($hour>23)return null;
+        $text=strtolower($message); $date=now();
+        if(str_contains($text,'tomorrow'))$date=now()->addDay();
+        elseif(preg_match('/\bnext\s+(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i',$message,$dm)){
+            $date=Carbon::parse('next '.$dm[1]);
+        } elseif(preg_match('/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/',$message,$dm)){
+            $year=isset($dm[3])?(int)$dm[3]:(int)now()->year; if($year<100)$year+=2000;
+            try{$date=Carbon::create($year,(int)$dm[2],(int)$dm[1]);}catch(Throwable){return null;}
+        }
+        $when=$date->copy()->setTime($hour,$minute,0);
+        if($when->isPast()&&!str_contains($text,'today'))return null;
+        if($when->isPast()&&str_contains($text,'today'))return null;
+
+        $comments='';
+        if(preg_match('/\b(?:because|regarding|about|re|note)\b[:\s-]+(.+)$/i',$message,$cm))$comments=trim($cm[1]);
+        return ['when'=>$when,'comments'=>$comments];
     }
 
     private function isIeStartRequest(string $message): bool
