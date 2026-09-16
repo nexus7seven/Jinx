@@ -561,6 +561,24 @@
         <div class="wip-flash" role="status">{{ session('success') }}</div>
     @endif
 
+    @php $scheduledCallbacks = $scheduled_callbacks ?? []; @endphp
+    <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}" style="border-color:rgba(59,130,246,.45); background:linear-gradient(180deg,rgba(30,58,138,.22) 0%,rgba(15,23,42,.65) 100%);">
+        <div class="wip-attention-header">
+            <h2 class="wip-attention-title">📞 Scheduled callbacks</h2>
+            <span class="wip-attention-count" id="wip-callback-count" style="border-color:rgba(96,165,250,.5);background:rgba(30,64,175,.4);">{{ count($scheduledCallbacks) }}</span>
+        </div>
+        <div id="wip-callback-list" class="wip-attention-grid">
+            @forelse($scheduledCallbacks as $callback)
+                <article class="wip-card {{ $callback['overdue'] ? 'wip-card-attention' : '' }}" data-callback-id="{{ $callback['callback_id'] }}">
+                    <div class="wip-card__row1"><div class="wip-card__title"><a href="{{ url('/lead/'.$callback['lead_id']) }}">{{ $callback['lead_name'] }}</a></div><div class="wip-card-actions"><span class="wip-chip {{ $callback['due'] ? 'wip-channel-chip' : '' }}">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['callback_display'] }}</span></div></div>
+                    @if($callback['comments'] !== '')<div class="wip-card__meta" style="padding-top:0;border-top:none;"><span class="wip-meta-v">{{ $callback['comments'] }}</span></div>@endif
+                </article>
+            @empty
+                <div class="wip-attention-empty" id="wip-callback-empty">No scheduled callbacks.</div>
+            @endforelse
+        </div>
+    </section>
+
     <section aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
         <div class="wip-attention-header">
             <h2 id="wip-attention-required-heading" class="wip-attention-title">⚠️ Attention Required</h2>
@@ -850,6 +868,8 @@
     const wipReengagementSnapshotIds = new Set(@json($unseen_reengagement_event_ids ?? []));
     const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
     const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
+    const wipCallbackPollUrl = @json(route('wip.callback-poll'));
+    const wipCallbackInitialDueIds = new Set(@json(collect($scheduled_callbacks ?? [])->where('due', true)->pluck('callback_id')->values()->all()));
 
     (function () {
         let wipAlertAudioCtx = null;
@@ -1381,6 +1401,29 @@
         }
 
         runOpsAlerts();
+    })();
+
+    (function () {
+        const alerted = new Set(wipCallbackInitialDueIds);
+        const list = document.getElementById('wip-callback-list');
+        const count = document.getElementById('wip-callback-count');
+        const section = document.getElementById('wip-callback-section');
+        const esc = (v) => String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+        function render(items) {
+            if (count) count.textContent = items.length;
+            if (!list) return;
+            if (!items.length) { list.innerHTML='<div class="wip-attention-empty">No scheduled callbacks.</div>'; if(section)section.classList.remove('wip-attention-section--active'); return; }
+            if(section)section.classList.toggle('wip-attention-section--active',items.some(x=>x.due));
+            list.innerHTML=items.map(x=>`<article class="wip-card ${x.overdue?'wip-card-attention':''}" data-callback-id="${x.callback_id}"><div class="wip-card__row1"><div class="wip-card__title"><a href="/lead/${x.lead_id}">${esc(x.lead_name)}</a></div><div class="wip-card-actions"><span class="wip-chip ${x.due?'wip-channel-chip':''}">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.callback_display)}</span></div></div>${x.comments?`<div class="wip-card__meta" style="padding-top:0;border-top:none;"><span class="wip-meta-v">${esc(x.comments)}</span></div>`:''}</article>`).join('');
+        }
+        async function poll() {
+            try {
+                const r=await fetch(wipCallbackPollUrl,{headers:{'Accept':'application/json'}}); if(!r.ok)return; const data=await r.json(); const items=data.callbacks||[]; render(items);
+                items.filter(x=>x.due).forEach(x=>{ if(alerted.has(x.callback_id))return; alerted.add(x.callback_id); if(typeof window.jinxWipPlayReengagementAlertSound==='function'){ window.jinxWipPlayReengagementAlertSound(); setTimeout(window.jinxWipPlayReengagementAlertSound,450); setTimeout(window.jinxWipPlayReengagementAlertSound,900); } if('Notification' in window && Notification.permission==='granted') new Notification('Jinx callback due',{body:x.lead_name+(x.comments?' — '+x.comments:'')}); });
+            } catch(e) {}
+        }
+        if ('Notification' in window && Notification.permission === 'default') document.addEventListener('click',()=>Notification.requestPermission().catch(()=>{}),{once:true});
+        setInterval(poll,10000);
     })();
 
     (function () {

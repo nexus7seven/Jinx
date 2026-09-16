@@ -17,6 +17,7 @@ use App\Services\RemarketingEntryService;
 use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
 use App\Services\VicidialLeadLookupService;
+use App\Services\VicidialCallbackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,7 @@ class WipController extends Controller
         private RemarketingEntryService $remarketingEntryService,
         private RemarketingTaskService $remarketingTaskService,
         private VicidialLeadLookupService $vicidialLeadLookupService,
+        private VicidialCallbackService $vicidialCallbackService,
     ) {
     }
 
@@ -249,6 +251,7 @@ class WipController extends Controller
             'unseen_reengagement_event_ids' => $unseenReengagementEventIds,
             'reengagement_channel_by_lead_id' => $reengagementChannelByLeadId,
             'remarketing_response_events' => $remarketingResponseEvents,
+            'scheduled_callbacks' => $this->vicidialCallbackService->activeForJinxLeads(),
         ]);
     }
 
@@ -353,6 +356,23 @@ class WipController extends Controller
         }
 
         return redirect()->back()->with('success', $message);
+    }
+
+    public function pollCallbacks(): JsonResponse
+    {
+        return response()->json(['callbacks' => $this->vicidialCallbackService->activeForJinxLeads()]);
+    }
+
+    public function scheduleCallback(Request $request, Lead $lead): JsonResponse
+    {
+        $validated = $request->validate([
+            'callback_time' => ['required', 'date'],
+            'comments' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $when = Carbon::parse($validated['callback_time']);
+        if ($when->isPast()) return response()->json(['success' => false, 'message' => 'Callback time must be in the future.'], 422);
+        $callback = $this->vicidialCallbackService->schedule($lead, $when, (string) ($validated['comments'] ?? ''));
+        return response()->json(['success' => true, 'callback' => $callback]);
     }
 
     public function pollReengagement(): JsonResponse
