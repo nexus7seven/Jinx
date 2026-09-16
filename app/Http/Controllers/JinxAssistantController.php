@@ -43,7 +43,7 @@ class JinxAssistantController extends Controller
         $conversation = $this->conversationFor($request, $lead);
         $userMessage = AssistantMessage::create([
             'conversation_id' => $conversation->id,
-            'active_callback' => $callback, 'role' => 'user', 'content' => $messageText,
+            'role' => 'user', 'content' => $messageText,
         ]);
 
         try {
@@ -165,7 +165,7 @@ class JinxAssistantController extends Controller
 
             $assistantMessage = AssistantMessage::create([
                 'conversation_id' => $conversation->id,
-            'active_callback' => $callback, 'role' => 'assistant', 'content' => $result['reply'],
+                'role' => 'assistant', 'content' => $result['reply'],
                 'metadata' => [
                     'knowledge_saved_id' => $savedKnowledge?->id, 'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
                     'fact_updates' => array_replace($preFacts, $result['fact_updates'] ?? []), 'synced_fields' => $syncedFields,
