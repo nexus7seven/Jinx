@@ -510,11 +510,12 @@
             box-shadow: 0 12px 40px rgba(0,0,0,0.45);
         }
 
-        .wip-desktop-layout { display:grid; grid-template-columns:minmax(0, 1fr) 440px; gap:22px; align-items:start; }
+        .wip-callback-when{font-size:13px;font-weight:800;color:#bfdbfe;margin-top:7px}.wip-callback-reason{margin-top:8px;padding:9px 10px;border-radius:8px;background:rgba(15,23,42,.7);color:#cbd5e1;font-size:12px;line-height:1.4;min-height:34px}.wip-callback-reason span{display:block;color:#64748b;text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em;margin-bottom:3px}.wip-callback-actions{margin-top:8px}.wip-callback-actions a{display:inline-block;color:#93c5fd;font-size:11px;font-weight:800;text-decoration:none}.wip-callback-actions a:hover{color:#dbeafe}
+        .wip-desktop-layout { display:grid; grid-template-columns:minmax(0, 1fr) minmax(520px, .62fr); gap:22px; align-items:start; }
         .wip-main-column { min-width:0; }
         #wip-leads-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
         #wip-callback-list.wip-attention-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        @media (max-width:1200px){ .wip-desktop-layout{grid-template-columns:minmax(0,1fr) 360px;} #wip-leads-grid{grid-template-columns:1fr;} }
+        @media (max-width:1350px){ .wip-desktop-layout{grid-template-columns:minmax(0,1fr) 440px;} #wip-leads-grid{grid-template-columns:1fr;} }
         @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-desktop-layout{grid-template-columns:1fr;} .wip-assistant-column{order:-1;} .wip-assistant{position:relative;top:auto;min-height:480px;} }
     </style>
 </head>
@@ -579,8 +580,10 @@
         <div id="wip-callback-list" class="wip-attention-grid">
             @forelse($scheduledCallbacks as $callback)
                 <article class="wip-card {{ $callback['overdue'] ? 'wip-card-attention' : '' }}" data-callback-id="{{ $callback['callback_id'] }}">
-                    <div class="wip-card__row1"><div class="wip-card__title"><a href="{{ url('/lead/'.$callback['lead_id']) }}">{{ $callback['lead_name'] }}</a></div><div class="wip-card-actions"><span class="wip-chip {{ $callback['due'] ? 'wip-channel-chip' : '' }}">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['callback_display'] }}</span></div></div>
-                    @if($callback['comments'] !== '')<div class="wip-card__meta" style="padding-top:0;border-top:none;"><span class="wip-meta-v">{{ $callback['comments'] }}</span></div>@endif
+                    <div class="wip-card__row1"><div class="wip-card__title"><a href="{{ url('/lead/'.$callback['lead_id']) }}">{{ $callback['lead_name'] }}</a></div><div class="wip-card-actions"><span class="wip-chip {{ $callback['due'] ? 'wip-channel-chip' : '' }}">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['relative_due'] }}</span></div></div>
+                    <div class="wip-callback-when">{{ $callback['callback_full_display'] }}</div>
+                    <div class="wip-callback-reason"><span>Callback notes</span>{{ $callback['comments'] !== '' ? $callback['comments'] : 'No callback notes were recorded.' }}</div>
+                    <div class="wip-callback-actions"><a href="{{ url('/lead/'.$callback['lead_id']) }}">Open case &amp; callback brief</a></div>
                 </article>
             @empty
                 <div class="wip-attention-empty" id="wip-callback-empty">No scheduled callbacks.</div>
@@ -1426,7 +1429,7 @@
             if (!list) return;
             if (!items.length) { list.innerHTML='<div class="wip-attention-empty">No scheduled callbacks.</div>'; if(section)section.classList.remove('wip-attention-section--active'); return; }
             if(section)section.classList.toggle('wip-attention-section--active',items.some(x=>x.due));
-            list.innerHTML=items.map(x=>`<article class="wip-card ${x.overdue?'wip-card-attention':''}" data-callback-id="${x.callback_id}"><div class="wip-card__row1"><div class="wip-card__title"><a href="/lead/${x.lead_id}">${esc(x.lead_name)}</a></div><div class="wip-card-actions"><span class="wip-chip ${x.due?'wip-channel-chip':''}">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.callback_display)}</span></div></div>${x.comments?`<div class="wip-card__meta" style="padding-top:0;border-top:none;"><span class="wip-meta-v">${esc(x.comments)}</span></div>`:''}</article>`).join('');
+            list.innerHTML=items.map(x=>`<article class="wip-card ${x.overdue?'wip-card-attention':''}" data-callback-id="${x.callback_id}"><div class="wip-card__row1"><div class="wip-card__title"><a href="/lead/${x.lead_id}">${esc(x.lead_name)}</a></div><div class="wip-card-actions"><span class="wip-chip ${x.due?'wip-channel-chip':''}">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.relative_due)}</span></div></div><div class="wip-callback-when">${esc(x.callback_full_display)}</div><div class="wip-callback-reason"><span>Callback notes</span>${esc(x.comments||'No callback notes were recorded.')}</div><div class="wip-callback-actions"><a href="/lead/${x.lead_id}">Open case &amp; callback brief</a></div></article>`).join('');
         }
         async function poll() {
             try {

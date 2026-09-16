@@ -17,12 +17,14 @@ use Throwable;
 
 class JinxAssistantController extends Controller
 {
-    public function bootstrap(Request $request, Lead $lead): JsonResponse
+    public function bootstrap(Request $request, Lead $lead, VicidialCallbackService $callbacks): JsonResponse
     {
         $conversation = $this->conversationFor($request, $lead);
+        $callback = collect($callbacks->activeForJinxLeads())->firstWhere('lead_id', $lead->id);
         return response()->json([
             'ok' => true,
             'conversation_id' => $conversation->id,
+            'active_callback' => $callback,
             'knowledge_count' => AssistantKnowledgeItem::active()->count(),
             'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
             'established_facts' => data_get($conversation->metadata, 'established_facts', []),
@@ -40,7 +42,8 @@ class JinxAssistantController extends Controller
         $messageText = trim($validated['message']);
         $conversation = $this->conversationFor($request, $lead);
         $userMessage = AssistantMessage::create([
-            'conversation_id' => $conversation->id, 'role' => 'user', 'content' => $messageText,
+            'conversation_id' => $conversation->id,
+            'active_callback' => $callback, 'role' => 'user', 'content' => $messageText,
         ]);
 
         try {
@@ -161,7 +164,8 @@ class JinxAssistantController extends Controller
             $conversation->save();
 
             $assistantMessage = AssistantMessage::create([
-                'conversation_id' => $conversation->id, 'role' => 'assistant', 'content' => $result['reply'],
+                'conversation_id' => $conversation->id,
+            'active_callback' => $callback, 'role' => 'assistant', 'content' => $result['reply'],
                 'metadata' => [
                     'knowledge_saved_id' => $savedKnowledge?->id, 'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
                     'fact_updates' => array_replace($preFacts, $result['fact_updates'] ?? []), 'synced_fields' => $syncedFields,

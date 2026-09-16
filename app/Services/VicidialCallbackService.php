@@ -51,7 +51,7 @@ class VicidialCallbackService
         return $rows->map(function ($row) use ($leads) {
             $lead = $leads->get((int) $row->lead_id); if (! $lead) return null;
             $when = Carbon::parse($row->callback_time);
-            return ['callback_id'=>(int)$row->callback_id,'lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$row->lead_id,'lead_name'=>trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,'callback_time'=>$when->toIso8601String(),'callback_display'=>$when->format('D j M, H:i'),'comments'=>(string)($row->comments ?? ''),'due'=>$when->lte(now()),'overdue'=>$when->lt(now()->subMinutes(5))];
+            return ['callback_id'=>(int)$row->callback_id,'lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$row->lead_id,'lead_name'=>trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,'callback_time'=>$when->toIso8601String(),'callback_display'=>$when->format('D j M, H:i'),'callback_full_display'=>$when->format('l j F Y \a\t H:i'),'relative_due'=>$when->isPast() ? $when->diffForHumans(null, true).' overdue' : 'in '.$when->diffForHumans(null, true),'comments'=>(string)($row->comments ?? ''),'due'=>$when->lte(now()),'overdue'=>$when->lt(now()->subMinutes(5))];
         })->filter()->values()->all();
     }
 }

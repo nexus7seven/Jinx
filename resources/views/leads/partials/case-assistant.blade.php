@@ -11,6 +11,11 @@
 >
     <div class="case-assistant-header"><div><h2 class="case-assistant-title">Jinx Assistant</h2><div class="case-assistant-subtitle" id="caseAssistantSubtitle">Loading case memory…</div></div></div>
     <div class="case-assistant-body">
+        <section id="caseAssistantCallbackBrief" class="case-assistant-callback-brief" style="display:none;">
+            <div class="case-assistant-callback-kicker">Callback brief</div>
+            <div id="caseAssistantCallbackWhen" class="case-assistant-callback-when"></div>
+            <div id="caseAssistantCallbackNotes" class="case-assistant-callback-notes"></div>
+        </section>
         <section class="case-assistant-panel" aria-labelledby="caseAssistantContextHeading">
             <h3 id="caseAssistantContextHeading" class="case-assistant-panel-title">Current case context</h3>
             <dl class="case-assistant-context">
@@ -40,6 +45,7 @@
     .jinx-assistant-message-assistant { margin-right: 12px; background: #111827; border: 1px solid #334155; color: #e2e8f0; }
     .jinx-assistant-message-label { display:block; margin-bottom:3px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; opacity:.65; }
     .jinx-assistant-memory-note { margin:8px 0; padding:8px 10px; border:1px solid #166534; background:#052e16; border-radius:8px; color:#bbf7d0; font-size:12px; }
+    .case-assistant-callback-brief{margin-bottom:12px;padding:12px;border:1px solid #1d4ed8;background:linear-gradient(180deg,rgba(30,64,175,.22),rgba(15,23,42,.8));border-radius:10px}.case-assistant-callback-kicker{text-transform:uppercase;color:#60a5fa;font-size:10px;font-weight:900;letter-spacing:.06em}.case-assistant-callback-when{margin-top:5px;color:#dbeafe;font-size:14px;font-weight:800}.case-assistant-callback-notes{margin-top:7px;color:#cbd5e1;font-size:12px;line-height:1.45}
 </style>
 <script>
 (() => {
@@ -65,6 +71,7 @@
             if(!response.ok||!data.ok)throw new Error(data.message||'Unable to load assistant');
             if(Array.isArray(data.messages)&&data.messages.length){history.innerHTML=data.messages.map(renderMessage).join('');history.scrollTop=history.scrollHeight;} else history.innerHTML='<div class="case-assistant-muted" data-empty="1">No conversation yet. Ask me anything about this case, start an I&amp;E, or tell me about a changed rule.</div>';
             subtitle.textContent=`Case-aware assistant · ${data.knowledge_count||0} shared rules remembered`; status.textContent=data.pending_knowledge?'Waiting for confirmation of a new rule':'Ready';
+            const cb=data.active_callback;if(cb){document.getElementById('caseAssistantCallbackBrief').style.display='block';document.getElementById('caseAssistantCallbackWhen').textContent=cb.callback_full_display+(cb.relative_due?' · '+cb.relative_due:'');document.getElementById('caseAssistantCallbackNotes').textContent=cb.comments||'No callback notes were recorded.';}
         } catch(error){history.innerHTML=`<div class="case-assistant-muted">${escapeHtml(error.message)}</div>`;status.textContent='Unavailable';}
     }
     composer.addEventListener('submit',async(event)=>{
