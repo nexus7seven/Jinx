@@ -13,12 +13,13 @@ use RuntimeException;
 
 class JinxAgentToolService
 {
-    public function __construct(private readonly VicidialCallbackService $callbacks) {}
+    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter) {}
 
     public function definitions(): array
     {
         return [
             ['type'=>'web_search_preview','search_context_size'=>'medium'],
+            $this->fn('import_vicidial_lead_to_jinx','Find a VICIdial lead by phone number and create/link its Jinx case using the same core field mapping as the VICIdial webform. Use when asked to add/import a dialler phone number to Jinx. Returns the clickable Jinx case URL.',['phone_number'=>['type'=>'string']],['phone_number']),
             $this->fn('search_cases','Search Jinx CRM cases by client name, lead ID, status or source. Use this before assuming a case does not exist.',['query'=>['type'=>'string'],'status'=>['type'=>['string','null']]],['query','status']),
             $this->fn('get_case','Read a Jinx case including CRM fields, Financial Statement, debts, checklist and active callback.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('search_internal_knowledge','Search authoritative Jinx company/partner/IP knowledge, including Markdown rules and learned database rules. Use this for internal IVA packaging rules before relying on generic web information.',['query'=>['type'=>'string'],'scope'=>['type'=>['string','null']]],['query','scope']),
@@ -36,7 +37,7 @@ class JinxAgentToolService
     public function execute(string $name,array $args): array
     {
         return match($name) {
-            'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
+            'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
             'add_case_note'=>$this->addNote($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
@@ -45,6 +46,9 @@ class JinxAgentToolService
 
     private function fn(string $name,string $description,array $properties,array $required): array
     { return ['type'=>'function','name'=>$name,'description'=>$description,'strict'=>true,'parameters'=>['type'=>'object','properties'=>$properties,'required'=>$required,'additionalProperties'=>false]]; }
+
+    private function importVicidialLead(array $a): array
+    { return ['success'=>true,'result'=>$this->leadImporter->importByPhone((string)($a['phone_number']??''))]; }
 
     private function searchCases(array $a): array
     {
