@@ -47,13 +47,6 @@ class JinxAssistantController extends Controller
         ]);
 
         try {
-            if ($callback = $this->parseCallbackRequest($messageText)) {
-                $scheduled = $callbacks->schedule($lead->fresh(), $callback['when'], $callback['comments']);
-                $reply = 'Callback booked for '.$callback['when']->format('D j M \a\t H:i').'.';
-                if ($callback['comments'] !== '') $reply .= ' Note: '.$callback['comments'];
-                return $this->directAssistantReply($conversation, $reply, [], ['vicidial_callback']);
-            }
-
             $metadata = $conversation->metadata ?? [];
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
@@ -121,6 +114,20 @@ class JinxAssistantController extends Controller
                 ? '[Current I&E checkpoint answer already persisted deterministically. Advance to the next unresolved checkpoint.]'
                 : $userMessage->content;
             $result = $assistant->reply($conversation->fresh(), $assistantInput);
+
+            if (($result['requested_action']['type'] ?? null) === 'schedule_callback') {
+                try {
+                    $when = Carbon::parse((string) $result['requested_action']['callback_at']);
+                    if ($when->isPast()) throw new \RuntimeException('Callback time must be in the future.');
+                    $scheduled = $callbacks->schedule($lead->fresh(), $when, (string) ($result['requested_action']['notes'] ?? ''));
+                    $result['reply'] = 'Callback booked for '.$when->format('D j M \a\t H:i').'.';
+                    if (($scheduled['comments'] ?? '') !== '') $result['reply'] .= ' Note: '.$scheduled['comments'];
+                    $syncedFields[] = 'vicidial_callback';
+                } catch (Throwable $actionError) {
+                    report($actionError);
+                    $result['reply'] = 'I understood the callback request, but it was not booked because the VICIdial write failed: '.$actionError->getMessage();
+                }
+            }
 
             $metadata = $conversation->fresh()->metadata ?? [];
             $pending = data_get($metadata, 'pending_knowledge');
