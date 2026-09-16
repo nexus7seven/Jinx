@@ -24,6 +24,7 @@ class JinxAgentToolService
             $this->fn('search_internal_knowledge','Search authoritative Jinx company/partner/IP knowledge, including Markdown rules and learned database rules. Use this for internal IVA packaging rules before relying on generic web information.',['query'=>['type'=>'string'],'scope'=>['type'=>['string','null']]],['query','scope']),
             $this->fn('get_vicidial_state','Inspect the linked VICIdial lead, hopper membership and active callbacks for a Jinx case.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('schedule_callback','Book or replace a real VICIdial callback for a Jinx case. This writes VICIdial, sets CBHOLD, removes the lead from hopper and moves the Jinx case to WIP.',['lead_id'=>['type'=>'integer'],'callback_at'=>['type'=>'string'],'notes'=>['type'=>['string','null']]],['lead_id','callback_at','notes']),
+            $this->fn('cancel_callback','Cancel any active/live VICIdial callback for a Jinx case. This is a real dialler write, keeps the lead out of the hopper, and changes CBHOLD/CALLBK to WIP.',['lead_id'=>['type'=>'integer'],'reason'=>['type'=>['string','null']]],['lead_id','reason']),
             $this->fn('update_wip_status','Change the Jinx WIP status for one case. This is a real CRM write.',['lead_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['lead_id','status']),
             $this->fn('add_case_note','Append a timestamped assistant note to the Jinx case notes. This is a real CRM write and preserves existing notes.',['lead_id'=>['type'=>'integer'],'note'=>['type'=>'string']],['lead_id','note']),
             $this->fn('search_jinx_code','Search the Jinx Laravel source code for implementation details. Read-only. Use when the user asks how Jinx works or when diagnosing application behaviour.',['query'=>['type'=>'string']],['query']),
@@ -37,7 +38,7 @@ class JinxAgentToolService
         return match($name) {
             'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
-            'schedule_callback'=>$this->scheduleCallback($args), 'update_wip_status'=>$this->updateStatus($args),
+            'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
             'add_case_note'=>$this->addNote($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
     }
@@ -78,6 +79,8 @@ class JinxAgentToolService
 
     private function scheduleCallback(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);$when=Carbon::parse((string)$a['callback_at']);if($when->isPast())throw new RuntimeException('Callback time is in the past.');return ['success'=>true,'result'=>$this->callbacks->schedule($l,$when,(string)($a['notes']??''))]; }
+    private function cancelCallback(array $a): array
+    { $l=Lead::findOrFail((int)$a['lead_id']);return ['success'=>true,'result'=>$this->callbacks->cancel($l,(string)($a['reason']??''))]; }
     private function updateStatus(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);$status=(string)$a['status'];if(!in_array($status,Lead::WIP_STATUSES,true))throw new RuntimeException('Invalid WIP status.');$old=$l->wip_status;$l->update(['wip_status'=>$status]);return ['success'=>true,'lead_id'=>$l->id,'old_status'=>$old,'new_status'=>$status]; }
     private function addNote(array $a): array

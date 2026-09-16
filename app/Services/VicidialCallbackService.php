@@ -40,6 +40,27 @@ class VicidialCallbackService
         });
     }
 
+    public function cancel(Lead $lead, string $reason = ''): array
+    {
+        $connection = (string) config('services.vicidial.db_connection', 'asterisk');
+        $leadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : 0;
+        if ($leadId <= 0) throw new RuntimeException('This Jinx case is not linked to a VICIdial lead.');
+
+        return DB::connection($connection)->transaction(function () use ($connection, $leadId, $reason) {
+            $diallerLead = DB::connection($connection)->table('vicidial_list')->where('lead_id', $leadId)->lockForUpdate()->first();
+            if (! $diallerLead) throw new RuntimeException('VICIdial lead not found.');
+
+            $active = DB::connection($connection)->table('vicidial_callbacks')->where('lead_id', $leadId)->whereIn('status', ['ACTIVE', 'LIVE'])->get(['callback_id']);
+            if ($active->isEmpty()) return ['cancelled' => 0, 'callback_ids' => [], 'vicidial_lead_id' => $leadId, 'reason' => trim($reason)];
+
+            DB::connection($connection)->table('vicidial_callbacks')->whereIn('callback_id', $active->pluck('callback_id')->all())->update(['status' => 'INACTIVE']);
+            DB::connection($connection)->table('vicidial_list')->where('lead_id', $leadId)->whereIn('status', ['CALLBK', 'CBHOLD'])->update(['status' => 'WIP']);
+            DB::connection($connection)->table('vicidial_hopper')->where('lead_id', $leadId)->delete();
+
+            return ['cancelled' => $active->count(), 'callback_ids' => $active->pluck('callback_id')->map(fn ($id) => (int) $id)->all(), 'vicidial_lead_id' => $leadId, 'reason' => trim($reason)];
+        });
+    }
+
     public function activeForJinxLeads(): array
     {
         $connection = (string) config('services.vicidial.db_connection', 'asterisk');
