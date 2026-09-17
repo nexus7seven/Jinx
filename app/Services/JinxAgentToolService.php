@@ -25,6 +25,7 @@ class JinxAgentToolService
             $this->fn('search_cases','Search Jinx CRM cases by client name, lead ID, status or source. Use this before assuming a case does not exist.',['query'=>['type'=>'string'],'status'=>['type'=>['string','null']]],['query','status']),
             $this->fn('get_case','Read a Jinx case including CRM fields, Financial Statement, debts, checklist and active callback.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('search_internal_knowledge','Search authoritative Jinx company/partner/IP knowledge, including Markdown rules and learned database rules. Use this for internal IVA packaging rules before relying on generic web information.',['query'=>['type'=>'string'],'scope'=>['type'=>['string','null']]],['query','scope']),
+            $this->fn('save_internal_knowledge','Save or update a durable internal Jinx company, partner or IP rule. Use this when the user explicitly tells you to update, add, remember or change Jinx rules/knowledge. This is a real persistent knowledge write.',['scope'=>['type'=>'string','enum'=>['company','partner','ip']],'scope_key'=>['type'=>['string','null']],'category'=>['type'=>'string'],'title'=>['type'=>'string'],'content'=>['type'=>'string']],['scope','scope_key','category','title','content']),
             $this->fn('get_vicidial_state','Inspect the linked VICIdial lead, hopper membership and active callbacks for a Jinx case.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('schedule_callback','Book or replace a real VICIdial callback for a Jinx case. This writes VICIdial, sets CBHOLD, removes the lead from hopper and moves the Jinx case to WIP.',['lead_id'=>['type'=>'integer'],'callback_at'=>['type'=>'string'],'notes'=>['type'=>['string','null']]],['lead_id','callback_at','notes']),
             $this->fn('cancel_callback','Cancel any active/live VICIdial callback for a Jinx case. This is a real dialler write, keeps the lead out of the hopper, and changes CBHOLD/CALLBK to WIP.',['lead_id'=>['type'=>'integer'],'reason'=>['type'=>['string','null']]],['lead_id','reason']),
@@ -51,7 +52,7 @@ class JinxAgentToolService
     {
         return match($name) {
             'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
-            'search_internal_knowledge'=>$this->searchKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
+            'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
             'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
@@ -85,6 +86,18 @@ class JinxAgentToolService
         $db=AssistantKnowledgeItem::query()->active()->when($scope!=='',fn($x)=>$x->where(function($y)use($scope){$y->whereRaw('LOWER(scope_key)=? ',[$scope])->orWhereRaw('LOWER(scope)=?',[$scope]);}))->get()->filter(function($i)use($terms){$hay=Str::lower($i->title.' '.$i->content);return $terms->contains(fn($t)=>Str::contains($hay,$t));})->take(12)->map(fn($i)=>['source'=>'learned:'.$i->scope.($i->scope_key?'/'.$i->scope_key:''),'title'=>$i->title,'content'=>Str::limit($i->content,1800)])->values()->all();
         $files=[]; foreach(glob(resource_path('assistant/knowledge').'/*/*.md')?:[] as $path){$text=(string)@file_get_contents($path);$hay=Str::lower($text.' '.basename($path));$score=$terms->filter(fn($t)=>Str::contains($hay,$t))->count();if($score>0)$files[]=['score'=>$score,'source'=>Str::after($path,resource_path('assistant/knowledge').'/'),'content'=>Str::limit($text,3500)];}
         usort($files,fn($x,$y)=>$y['score']<=>$x['score']); return ['authoritative_internal_results'=>array_merge($db,array_slice($files,0,8))];
+    }
+
+    private function saveKnowledge(array $a): array
+    {
+        $scope=(string)$a['scope'];$key=trim((string)($a['scope_key']??''));$title=trim((string)$a['title']);$content=trim((string)$a['content']);$category=trim((string)$a['category']);
+        if(!in_array($scope,['company','partner','ip'],true))throw new RuntimeException('Invalid knowledge scope.');
+        if($scope!=='company'&&$key==='')throw new RuntimeException('Partner/IP knowledge requires a scope key.');
+        if($title===''||$content==='')throw new RuntimeException('Knowledge title and content are required.');
+        $existing=AssistantKnowledgeItem::query()->active()->where('scope',$scope)->where(function($q)use($key){$key===''?$q->whereNull('scope_key'):$q->whereRaw('LOWER(scope_key)=?',[Str::lower($key)]);})->whereRaw('LOWER(title)=?',[Str::lower($title)])->latest('id')->first();
+        if($existing){$existing->update(['category'=>$category?:'General','content'=>$content,'metadata'=>array_merge($existing->metadata??[],['source'=>'jinx_agent_chat','updated_at'=>now()->toIso8601String()])]);$item=$existing;$action='updated';}
+        else{$item=AssistantKnowledgeItem::create(['scope'=>$scope,'scope_key'=>$key!==''?$key:null,'category'=>$category?:'General','title'=>$title,'content'=>$content,'status'=>'active','metadata'=>['source'=>'jinx_agent_chat']]);$action='created';}
+        return ['success'=>true,'action'=>$action,'knowledge_id'=>$item->id,'scope'=>$scope,'scope_key'=>$item->scope_key,'title'=>$item->title,'content'=>$item->content];
     }
 
     private function vicidialState(array $a): array
