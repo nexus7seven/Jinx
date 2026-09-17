@@ -9,6 +9,9 @@ class Creditor extends Model
 {
     protected $fillable = [
         'name',
+        'contact_phone',
+        'contact_hours',
+        'contact_notes',
         'voting_house',
         'voting_practice1',
         'voting_practice2',

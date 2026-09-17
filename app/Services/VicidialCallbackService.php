@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use App\Models\Creditor;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -72,7 +73,14 @@ class VicidialCallbackService
         return $rows->map(function ($row) use ($leads) {
             $lead = $leads->get((int) $row->lead_id); if (! $lead) return null;
             $when = Carbon::parse($row->callback_time);
-            return ['callback_id'=>(int)$row->callback_id,'lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$row->lead_id,'lead_name'=>trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,'callback_time'=>$when->toIso8601String(),'callback_display'=>$when->format('D j M, H:i'),'callback_full_display'=>$when->format('l j F Y \a\t H:i'),'relative_due'=>$when->isPast() ? $when->diffForHumans(null, true).' overdue' : 'in '.$when->diffForHumans(null, true),'comments'=>(string)($row->comments ?? ''),'due'=>$when->lte(now()),'overdue'=>$when->lt(now()->subMinutes(5))];
+            return ['callback_id'=>(int)$row->callback_id,'lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$row->lead_id,'lead_name'=>trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,'callback_time'=>$when->toIso8601String(),'callback_display'=>$when->format('D j M, H:i'),'callback_full_display'=>$when->format('l j F Y \a\t H:i'),'relative_due'=>$when->isPast() ? $when->diffForHumans(null, true).' overdue' : 'in '.$when->diffForHumans(null, true),'comments'=>(string)($row->comments ?? ''),'creditor_contact'=>$this->creditorContactForCallback((string)($row->comments ?? '')),'due'=>$when->lte(now()),'overdue'=>$when->lt(now()->subMinutes(5))];
         })->filter()->values()->all();
     }
+    private function creditorContactForCallback(string $comments): ?array
+    {
+        $comments=trim($comments);if($comments==='')return null;
+        $matches=Creditor::query()->whereNotNull('contact_phone')->get()->filter(fn(Creditor $c)=>str_contains(mb_strtolower($comments),mb_strtolower($c->name)))->sortByDesc(fn(Creditor $c)=>mb_strlen($c->name))->first();
+        return $matches?['creditor_id'=>$matches->id,'name'=>$matches->name,'phone'=>$matches->contact_phone,'opening_hours'=>$matches->contact_hours,'notes'=>$matches->contact_notes]:null;
+    }
+
 }
