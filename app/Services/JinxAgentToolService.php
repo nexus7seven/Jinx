@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\AssistantKnowledgeItem;
 use App\Models\Debt;
+use App\Models\DebtDocument;
+use App\Models\Creditor;
 use App\Models\Lead;
 use App\Models\LeadChecklistItem;
 use Carbon\Carbon;
@@ -13,7 +15,7 @@ use RuntimeException;
 
 class JinxAgentToolService
 {
-    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter) {}
+    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists) {}
 
     public function definitions(): array
     {
@@ -28,6 +30,17 @@ class JinxAgentToolService
             $this->fn('cancel_callback','Cancel any active/live VICIdial callback for a Jinx case. This is a real dialler write, keeps the lead out of the hopper, and changes CBHOLD/CALLBK to WIP.',['lead_id'=>['type'=>'integer'],'reason'=>['type'=>['string','null']]],['lead_id','reason']),
             $this->fn('update_wip_status','Change the Jinx WIP status for one case. This is a real CRM write.',['lead_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['lead_id','status']),
             $this->fn('add_case_note','Append a timestamped assistant note to the Jinx case notes. This is a real CRM write and preserves existing notes.',['lead_id'=>['type'=>'integer'],'note'=>['type'=>'string']],['lead_id','note']),
+            $this->fn('update_case_field','Update one ordinary Jinx CRM case field. Use for client/contact/address/employment/debt estimate/source changes.',['lead_id'=>['type'=>'integer'],'field'=>['type'=>'string'],'value'=>['type'=>['string','number','null']]],['lead_id','field','value']),
+            $this->fn('update_ie_fact','Write one deterministic I&E input fact to the Jinx financial statement. For children ages use a comma-separated value such as 11,8,3.',['lead_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean']]],['lead_id','key','value']),
+            $this->fn('calculate_ie','Run the existing deterministic Jinx I&E calculator for a case and persist the resulting financial statement, DI, SFS analysis and calculated expenditure.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('review_iva_case','Build a read-only IVA packaging review context: current deterministic I&E preview, debt total, voting-house exposure, partner profile and outstanding checklist. Follow with internal-rule search for suitability questions.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('calculate_target_di','Calculate target monthly DI using the company base-fee formula.',['total_debt'=>['type'=>'number'],'dividend_percent'=>['type'=>'number'],'months'=>['type'=>'integer']],['total_debt','dividend_percent','months']),
+            $this->fn('search_creditors','Search Jinx creditor records before adding or changing a debt.',['query'=>['type'=>'string']],['query']),
+            $this->fn('add_debt','Add a real debt to a Jinx case using an existing creditor ID. Search creditors first.',['lead_id'=>['type'=>'integer'],'creditor_id'=>['type'=>'integer'],'balance'=>['type'=>'number'],'source_expected'=>['type'=>'string'],'reference'=>['type'=>['string','null']]],['lead_id','creditor_id','balance','source_expected','reference']),
+            $this->fn('update_debt','Update an existing Jinx debt balance, creditor, evidence source or reference.',['debt_id'=>['type'=>'integer'],'creditor_id'=>['type'=>'integer'],'balance'=>['type'=>'number'],'source_expected'=>['type'=>'string'],'reference'=>['type'=>['string','null']]],['debt_id','creditor_id','balance','source_expected','reference']),
+            $this->fn('delete_debt','Delete one Jinx debt by debt ID and resync the case checklist.',['debt_id'=>['type'=>'integer']],['debt_id']),
+            $this->fn('set_checklist_item','Mark a Jinx packaging checklist item complete or incomplete.',['lead_id'=>['type'=>'integer'],'item_id'=>['type'=>'integer'],'complete'=>['type'=>'boolean']],['lead_id','item_id','complete']),
+
             $this->fn('search_jinx_code','Search the Jinx Laravel source code for implementation details. Read-only. Use when the user asks how Jinx works or when diagnosing application behaviour.',['query'=>['type'=>'string']],['query']),
             $this->fn('read_jinx_file','Read a Jinx Laravel source/config/migration file by repository-relative path. Read-only and restricted to application code.',['path'=>['type'=>'string']],['path']),
             $this->fn('search_laravel_log','Search recent Laravel log lines for an error, lead ID or keyword. Read-only.',['query'=>['type'=>'string']],['query']),
@@ -40,7 +53,7 @@ class JinxAgentToolService
             'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
-            'add_case_note'=>$this->addNote($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
+            'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
     }
 
@@ -61,9 +74,9 @@ class JinxAgentToolService
     private function getCase(array $a): array
     {
         $l=Lead::with('debts.creditor')->findOrFail((int)$a['lead_id']);
-        $check=LeadChecklistItem::query()->where('lead_id',$l->id)->get()->map(fn($i)=>['item'=>$i->item_name??('Item '.$i->id),'complete'=>(bool)$i->is_complete])->all();
+        $check=LeadChecklistItem::query()->where('lead_id',$l->id)->get()->map(fn($i)=>['item_id'=>$i->id,'item'=>$i->item_name??('Item '.$i->id),'complete'=>(bool)$i->is_complete,'source_type'=>$i->source_type])->all();
         $cb=collect($this->callbacks->activeForJinxLeads())->firstWhere('lead_id',$l->id);
-        return ['case'=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id,'employment_status'=>$l->employment_status,'monthly_income'=>$l->monthly_income,'estimated_total_debt'=>$l->estimated_total_debt,'case_notes'=>$l->case_notes,'financial_statement'=>$l->financial_statement,'debts'=>$l->debts->map(fn($d)=>['creditor'=>$d->creditor?->name,'balance'=>$d->balance])->all(),'checklist'=>$check,'active_callback'=>$cb]];
+        return ['case'=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id,'employment_status'=>$l->employment_status,'monthly_income'=>$l->monthly_income,'estimated_total_debt'=>$l->estimated_total_debt,'case_notes'=>$l->case_notes,'financial_statement'=>$l->financial_statement,'debts'=>$l->debts->map(fn($d)=>['debt_id'=>$d->id,'creditor_id'=>$d->creditor_id,'creditor'=>$d->creditor?->name,'balance'=>(float)$d->balance,'source_expected'=>$d->source_expected,'reference'=>$d->reference])->all(),'checklist'=>$check,'active_callback'=>$cb]];
     }
 
     private function searchKnowledge(array $a): array
@@ -89,6 +102,28 @@ class JinxAgentToolService
     { $l=Lead::findOrFail((int)$a['lead_id']);$status=(string)$a['status'];if(!in_array($status,Lead::WIP_STATUSES,true))throw new RuntimeException('Invalid WIP status.');$old=$l->wip_status;$l->update(['wip_status'=>$status]);return ['success'=>true,'lead_id'=>$l->id,'old_status'=>$old,'new_status'=>$status]; }
     private function addNote(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);$note=trim((string)$a['note']);if($note==='')throw new RuntimeException('Note is empty.');$line='['.now()->format('d/m/Y H:i').'] Jinx Assistant: '.$note;$l->update(['case_notes'=>trim((string)$l->case_notes).(filled($l->case_notes)?"\n\n":'').$line]);return ['success'=>true,'lead_id'=>$l->id,'note'=>$line]; }
+    private function updateCaseField(array $a): array
+    {
+        $l=Lead::findOrFail((int)$a['lead_id']);$field=(string)$a['field'];$allowed=['title','first_name','middle_name','last_name','dob','email','phone_number','house_number','house_name','building_number','postcode','address_line_1','employment_status','estimated_total_debt','source'];
+        if(!in_array($field,$allowed,true))throw new RuntimeException('Unsupported case field.');$old=$l->{$field};$l->update([$field=>$a['value']]);return ['success'=>true,'lead_id'=>$l->id,'field'=>$field,'old_value'=>$old,'new_value'=>$l->fresh()->{$field}];
+    }
+    private function updateIeFact(array $a): array {return ['success'=>true,'result'=>$this->iva->updateFact(Lead::findOrFail((int)$a['lead_id']),(string)$a['key'],$a['value'])];}
+    private function calculateIe(array $a): array {return ['success'=>true,'result'=>$this->iva->calculate(Lead::findOrFail((int)$a['lead_id']))];}
+    private function reviewIvaCase(array $a): array {return $this->iva->review(Lead::findOrFail((int)$a['lead_id']));}
+    private function calculateTargetDi(array $a): array {return $this->iva->targetDi((float)$a['total_debt'],(float)$a['dividend_percent'],(int)$a['months']);}
+    private function searchCreditors(array $a): array
+    { $q=trim((string)$a['query']);return ['creditors'=>Creditor::query()->where('name','like','%'.$q.'%')->orWhereHas('aliases',fn($x)=>$x->where('alias','like','%'.$q.'%'))->limit(20)->get()->map(fn($c)=>['creditor_id'=>$c->id,'name'=>$c->name,'voting_house'=>$c->voting_house,'voting_practices'=>array_values(array_filter([$c->voting_practice1,$c->voting_practice2,$c->voting_practice3]))])->all()]; }
+    private function addDebt(array $a): array
+    { $this->validateDebtArgs($a);$l=Lead::findOrFail((int)$a['lead_id']);$d=$this->debtService->createForLead($l,['creditor_id'=>(int)$a['creditor_id'],'balance'=>(float)$a['balance'],'source_expected'=>(string)$a['source_expected'],'reference'=>$a['reference']]);$l->update(['estimated_total_debt'=>Debt::where('lead_id',$l->id)->sum('balance')]);return ['success'=>true,'debt_id'=>$d->id,'lead_id'=>$l->id,'estimated_total_debt'=>(float)$l->fresh()->estimated_total_debt]; }
+    private function updateDebt(array $a): array
+    { $this->validateDebtArgs($a);$d=Debt::findOrFail((int)$a['debt_id']);$d->update(['creditor_id'=>(int)$a['creditor_id'],'balance'=>(float)$a['balance'],'source_expected'=>(string)$a['source_expected'],'reference'=>$a['reference']]);$doc=$d->document;if($doc)$doc->update(['proof_type'=>(string)$a['source_expected'],'is_complete'=>(string)$a['source_expected']==='credit_check']);$this->checklists->syncForLead($d->lead);$d->lead->update(['estimated_total_debt'=>Debt::where('lead_id',$d->lead_id)->sum('balance')]);return ['success'=>true,'debt_id'=>$d->id,'lead_id'=>$d->lead_id]; }
+    private function deleteDebt(array $a): array
+    { $d=Debt::findOrFail((int)$a['debt_id']);$l=$d->lead;$id=$d->id;$docId=$d->document?->id;if($docId)LeadChecklistItem::where('lead_id',$l->id)->where('source_type','debt_document')->where('source_id',$docId)->delete();$d->delete();$this->checklists->syncForLead($l);$l->update(['estimated_total_debt'=>Debt::where('lead_id',$l->id)->sum('balance')]);return ['success'=>true,'deleted_debt_id'=>$id,'lead_id'=>$l->id,'estimated_total_debt'=>(float)$l->fresh()->estimated_total_debt]; }
+    private function setChecklistItem(array $a): array
+    { $l=Lead::findOrFail((int)$a['lead_id']);$i=LeadChecklistItem::where('lead_id',$l->id)->findOrFail((int)$a['item_id']);$i->update(['is_complete'=>(bool)$a['complete']]);$this->checklists->syncLeadStatus($l);return ['success'=>true,'item_id'=>$i->id,'item'=>$i->item_name,'complete'=>(bool)$i->fresh()->is_complete,'wip_status'=>$l->fresh()->wip_status]; }
+    private function validateDebtArgs(array $a): void
+    { if(!Creditor::whereKey((int)$a['creditor_id'])->exists())throw new RuntimeException('Creditor not found.');if((float)$a['balance']<0)throw new RuntimeException('Debt balance cannot be negative.');if(!in_array((string)$a['source_expected'],['credit_check','3wc','screenshot_pdf','live_chat','other'],true))throw new RuntimeException('Invalid debt evidence source.'); }
+
     private function searchCode(array $a): array
     {
         $q=trim((string)$a['query']);if(strlen($q)<2)throw new RuntimeException('Search query too short.');$roots=['app','routes','resources/views','database/migrations','config'];$hits=[];
