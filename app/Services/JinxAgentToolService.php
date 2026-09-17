@@ -15,7 +15,7 @@ use RuntimeException;
 
 class JinxAgentToolService
 {
-    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists) {}
+    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists, private readonly SetmoreSipAvailabilityService $sipAvailability) {}
 
     public function definitions(): array
     {
@@ -24,6 +24,7 @@ class JinxAgentToolService
             $this->fn('import_vicidial_lead_to_jinx','Find a VICIdial lead by phone number and create/link its Jinx case using the same core field mapping as the VICIdial webform. Use when asked to add/import a dialler phone number to Jinx. Returns the clickable Jinx case URL.',['phone_number'=>['type'=>'string']],['phone_number']),
             $this->fn('search_cases','Search Jinx CRM cases by client name, lead ID, status or source. Use this before assuming a case does not exist.',['query'=>['type'=>'string'],'status'=>['type'=>['string','null']]],['query','status']),
             $this->fn('get_case','Read a Jinx case including CRM fields, Financial Statement, debts, checklist and active callback.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('get_sip_availability','Read live Setmore SIP appointment availability across all eligible staff. Read-only; it does not book appointments. Use for questions about SIPs, Setmore, 1 Hour Meeting, next/earliest SIP appointments, availability on a date, or which SIP is free. Pass how many calendar days including today to check (1-31; normally 7). Excluded staff are applied automatically and must not be offered.',['days'=>['type'=>'integer']],['days']),
             $this->fn('search_internal_knowledge','Search authoritative Jinx company/partner/IP knowledge, including Markdown rules and learned database rules. Use this for internal IVA packaging rules before relying on generic web information.',['query'=>['type'=>'string'],'scope'=>['type'=>['string','null']]],['query','scope']),
             $this->fn('save_internal_knowledge','Save or update a durable internal Jinx company, partner or IP rule. Use this when the user explicitly tells you to update, add, remember or change Jinx rules/knowledge. This is a real persistent knowledge write.',['scope'=>['type'=>'string','enum'=>['company','partner','ip']],'scope_key'=>['type'=>['string','null']],'category'=>['type'=>'string'],'title'=>['type'=>'string'],'content'=>['type'=>'string']],['scope','scope_key','category','title','content']),
             $this->fn('get_vicidial_state','Inspect the linked VICIdial lead, hopper membership and active callbacks for a Jinx case.',['lead_id'=>['type'=>'integer']],['lead_id']),
@@ -52,7 +53,7 @@ class JinxAgentToolService
     public function execute(string $name,array $args): array
     {
         return match($name) {
-            'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
+            'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args), 'get_sip_availability'=>$this->getSipAvailability($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
             'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
@@ -64,6 +65,14 @@ class JinxAgentToolService
 
     private function importVicidialLead(array $a): array
     { return ['success'=>true,'result'=>$this->leadImporter->importByPhone((string)($a['phone_number']??''))]; }
+
+    private function getSipAvailability(array $a): array
+    {
+        $data=$this->sipAvailability->availability(max(1,min(31,(int)($a['days']??7))));
+        $data['slot_count']=count($data['slots']);
+        if($data['slot_count']>350){$data['truncated']=true;$data['slots']=array_slice($data['slots'],0,350);}else{$data['truncated']=false;}
+        return $data;
+    }
 
     private function searchCases(array $a): array
     {

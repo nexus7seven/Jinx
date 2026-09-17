@@ -16,7 +16,7 @@ class SipAvailabilityController extends Controller
 
     public function data(Request $request, SetmoreSipAvailabilityService $service): JsonResponse
     {
-        $days = (int) $request->integer('days', 21);
+        $days = max(1, min(31, (int) $request->integer('days', 7)));
 
         try {
             return response()->json($service->availability($days));
