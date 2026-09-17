@@ -15,7 +15,7 @@ use RuntimeException;
 
 class JinxAgentToolService
 {
-    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists, private readonly SetmoreSipAvailabilityService $sipAvailability) {}
+    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists) {}
 
     public function definitions(): array
     {
@@ -24,7 +24,6 @@ class JinxAgentToolService
             $this->fn('import_vicidial_lead_to_jinx','Find a VICIdial lead by phone number and create/link its Jinx case using the same core field mapping as the VICIdial webform. Use when asked to add/import a dialler phone number to Jinx. Returns the clickable Jinx case URL.',['phone_number'=>['type'=>'string']],['phone_number']),
             $this->fn('search_cases','Search Jinx CRM cases by client name, lead ID, status or source. Use this before assuming a case does not exist.',['query'=>['type'=>'string'],'status'=>['type'=>['string','null']]],['query','status']),
             $this->fn('get_case','Read a Jinx case including CRM fields, Financial Statement, debts, checklist and active callback.',['lead_id'=>['type'=>'integer']],['lead_id']),
-            $this->fn('get_sip_availability','Read live Setmore SIP appointment availability across all eligible staff. Read-only; it does not book appointments. Use for questions about SIPs, Setmore, 1 Hour Meeting, next/earliest SIP appointments, availability on a date, or which SIP is free. Pass how many calendar days including today to check (1-31; normally 7). Excluded staff are applied automatically and must not be offered.',['days'=>['type'=>'integer']],['days']),
             $this->fn('search_internal_knowledge','Search authoritative Jinx company/partner/IP knowledge, including Markdown rules and learned database rules. Use this for internal IVA packaging rules before relying on generic web information.',['query'=>['type'=>'string'],'scope'=>['type'=>['string','null']]],['query','scope']),
             $this->fn('save_internal_knowledge','Save or update a durable internal Jinx company, partner or IP rule. Use this when the user explicitly tells you to update, add, remember or change Jinx rules/knowledge. This is a real persistent knowledge write.',['scope'=>['type'=>'string','enum'=>['company','partner','ip']],'scope_key'=>['type'=>['string','null']],'category'=>['type'=>'string'],'title'=>['type'=>'string'],'content'=>['type'=>'string']],['scope','scope_key','category','title','content']),
             $this->fn('get_vicidial_state','Inspect the linked VICIdial lead, hopper membership and active callbacks for a Jinx case.',['lead_id'=>['type'=>'integer']],['lead_id']),
@@ -34,6 +33,8 @@ class JinxAgentToolService
             $this->fn('update_vicidial_lead_status','Change one VICIdial lead status. Real dialler write; WIP/HOLD/CBHOLD/CALLBK are removed from hopper.',['vicidial_lead_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['vicidial_lead_id','status']),
             $this->fn('remove_vicidial_from_hopper','Remove one VICIdial lead from the hopper without changing its status.',['vicidial_lead_id'=>['type'=>'integer']],['vicidial_lead_id']),
             $this->fn('update_vicidial_comments','Update one VICIdial lead comments field.',['vicidial_lead_id'=>['type'=>'integer'],'comments'=>['type'=>'string']],['vicidial_lead_id','comments']),
+            $this->fn('check_crm_dialler_consistency','Diagnose one Jinx case against its linked VICIdial lead. Reports CRM/dialler status mismatches, inappropriate hopper membership, callback/status inconsistencies and broken/missing links without changing anything.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('repair_crm_dialler_consistency','Repair safe case-level CRM/VICIdial inconsistencies. Removes inappropriate hopper rows and aligns VICIdial operational status with a clear Jinx WIP/callback state. Use only when the user clearly asks to fix/reconcile the case.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('schedule_callback','Book or replace a real VICIdial callback for a Jinx case. This writes VICIdial, sets CBHOLD, removes the lead from hopper and moves the Jinx case to WIP.',['lead_id'=>['type'=>'integer'],'callback_at'=>['type'=>'string'],'notes'=>['type'=>['string','null']]],['lead_id','callback_at','notes']),
             $this->fn('cancel_callback','Cancel any active/live VICIdial callback for a Jinx case. This is a real dialler write, keeps the lead out of the hopper, and changes CBHOLD/CALLBK to WIP.',['lead_id'=>['type'=>'integer'],'reason'=>['type'=>['string','null']]],['lead_id','reason']),
             $this->fn('update_wip_status','Change the Jinx WIP status for one case. This is a real CRM write.',['lead_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['lead_id','status']),
@@ -59,8 +60,8 @@ class JinxAgentToolService
     public function execute(string $name,array $args): array
     {
         return match($name) {
-            'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args), 'get_sip_availability'=>$this->getSipAvailability($args),
-            'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args), 'search_vicidial_leads'=>$this->searchVicidialLeads($args), 'get_vicidial_history'=>$this->vicidialHistory($args), 'inspect_vicidial_campaign'=>$this->inspectVicidialCampaign($args), 'update_vicidial_lead_status'=>$this->updateVicidialStatus($args), 'remove_vicidial_from_hopper'=>$this->removeVicidialHopper($args), 'update_vicidial_comments'=>$this->updateVicidialComments($args),
+            'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
+            'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args), 'search_vicidial_leads'=>$this->searchVicidialLeads($args), 'get_vicidial_history'=>$this->vicidialHistory($args), 'inspect_vicidial_campaign'=>$this->inspectVicidialCampaign($args), 'update_vicidial_lead_status'=>$this->updateVicidialStatus($args), 'remove_vicidial_from_hopper'=>$this->removeVicidialHopper($args), 'update_vicidial_comments'=>$this->updateVicidialComments($args), 'check_crm_dialler_consistency'=>$this->checkCrmDiallerConsistency($args), 'repair_crm_dialler_consistency'=>$this->repairCrmDiallerConsistency($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
             'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
@@ -71,14 +72,6 @@ class JinxAgentToolService
 
     private function importVicidialLead(array $a): array
     { return ['success'=>true,'result'=>$this->leadImporter->importByPhone((string)($a['phone_number']??''))]; }
-
-    private function getSipAvailability(array $a): array
-    {
-        $data=$this->sipAvailability->availability(max(1,min(31,(int)($a['days']??7))));
-        $data['slot_count']=count($data['slots']);
-        if($data['slot_count']>350){$data['truncated']=true;$data['slots']=array_slice($data['slots'],0,350);}else{$data['truncated']=false;}
-        return $data;
-    }
 
     private function searchCases(array $a): array
     {
@@ -132,6 +125,35 @@ class JinxAgentToolService
     private function updateVicidialStatus(array $a): array { $id=(int)$a['vicidial_lead_id'];$status=strtoupper(trim((string)$a['status']));if($status===''||strlen($status)>6||!preg_match('/^[A-Z0-9_]+$/',$status))throw new RuntimeException('Invalid VICIdial status.');$c=(string)config('services.vicidial.db_connection','asterisk');$row=DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->first(['lead_id','status']);if(!$row)throw new RuntimeException('VICIdial lead not found.');$valid=DB::connection($c)->table('vicidial_statuses')->where('status',$status)->exists()||DB::connection($c)->table('vicidial_campaign_statuses')->where('status',$status)->exists();if(!$valid)throw new RuntimeException('Unknown VICIdial status.');DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>$status]);$removed=0;if(in_array($status,['WIP','HOLD','CBHOLD','CALLBK'],true))$removed=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$id)->delete();return ['success'=>true,'vicidial_lead_id'=>$id,'old_status'=>$row->status,'new_status'=>$status,'hopper_rows_removed'=>$removed]; }
     private function removeVicidialHopper(array $a): array { $id=(int)$a['vicidial_lead_id'];$c=(string)config('services.vicidial.db_connection','asterisk');if(!DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->exists())throw new RuntimeException('VICIdial lead not found.');$n=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$id)->delete();return ['success'=>true,'vicidial_lead_id'=>$id,'hopper_rows_removed'=>$n]; }
     private function updateVicidialComments(array $a): array { $id=(int)$a['vicidial_lead_id'];$comments=trim((string)$a['comments']);$c=(string)config('services.vicidial.db_connection','asterisk');$row=DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->first(['lead_id','comments']);if(!$row)throw new RuntimeException('VICIdial lead not found.');DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['comments'=>$comments]);return ['success'=>true,'vicidial_lead_id'=>$id,'old_comments'=>$row->comments,'new_comments'=>$comments]; }
+
+    private function checkCrmDiallerConsistency(array $a): array
+    {
+        $lead=Lead::findOrFail((int)$a['lead_id']);$c=(string)config('services.vicidial.db_connection','asterisk');$issues=[];
+        if(!$lead->vicidial_lead_id)return ['lead_id'=>$lead->id,'consistent'=>false,'issues'=>[['code'=>'missing_vicidial_link','message'=>'Jinx case has no VICIdial lead ID.']],'safe_repair_available'=>false];
+        $v=DB::connection($c)->table('vicidial_list')->where('lead_id',(int)$lead->vicidial_lead_id)->first(['lead_id','status','list_id','phone_number','user','called_count','last_local_call_time']);
+        if(!$v)return ['lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$lead->vicidial_lead_id,'consistent'=>false,'issues'=>[['code'=>'broken_vicidial_link','message'=>'Linked VICIdial lead does not exist.']],'safe_repair_available'=>false];
+        $hopper=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$v->lead_id)->get(['hopper_id','campaign_id','status','priority']);
+        $callbacks=DB::connection($c)->table('vicidial_callbacks')->where('lead_id',$v->lead_id)->whereIn('status',['ACTIVE','LIVE'])->get(['callback_id','status','callback_time','user','comments']);
+        $protectedJinx=in_array($lead->wip_status,['WIP','Awaiting Docs','Ready to Draft','Sale','Lost Contact','DEAD'],true);$protectedVic=in_array($v->status,['WIP','HOLD','CBHOLD','CALLBK'],true);
+        if($protectedJinx&&$hopper->isNotEmpty())$issues[]=['code'=>'protected_case_in_hopper','message'=>'Jinx case is '.$lead->wip_status.' but the VICIdial lead is still in the hopper.'];
+        if($protectedVic&&$hopper->isNotEmpty())$issues[]=['code'=>'protected_status_in_hopper','message'=>'VICIdial status '.$v->status.' should not remain in the hopper.'];
+        if($callbacks->isNotEmpty()&&!in_array($v->status,['CBHOLD','CALLBK'],true))$issues[]=['code'=>'callback_status_mismatch','message'=>'An active/live callback exists but VICIdial status is '.$v->status.'.'];
+        if($callbacks->isEmpty()&&in_array($v->status,['CBHOLD','CALLBK'],true))$issues[]=['code'=>'orphan_callback_status','message'=>'VICIdial status is '.$v->status.' but no active/live callback exists.'];
+        if($lead->wip_status==='WIP'&&!$callbacks->count()&&!in_array($v->status,['WIP','HOLD'],true))$issues[]=['code'=>'wip_status_mismatch','message'=>'Jinx is WIP while VICIdial is '.$v->status.'.'];
+        return ['lead_id'=>$lead->id,'jinx_status'=>$lead->wip_status,'vicidial_lead_id'=>(int)$v->lead_id,'vicidial_status'=>$v->status,'hopper_rows'=>$hopper->map(fn($x)=>(array)$x)->all(),'active_callbacks'=>$callbacks->map(fn($x)=>(array)$x)->all(),'consistent'=>count($issues)===0,'issues'=>$issues,'safe_repair_available'=>count($issues)>0];
+    }
+
+    private function repairCrmDiallerConsistency(array $a): array
+    {
+        $before=$this->checkCrmDiallerConsistency($a);if(empty($before['vicidial_lead_id']))throw new RuntimeException('This case has no repairable VICIdial link.');$lead=Lead::findOrFail((int)$a['lead_id']);$id=(int)$before['vicidial_lead_id'];$c=(string)config('services.vicidial.db_connection','asterisk');$actions=[];
+        $hasCallback=!empty($before['active_callbacks']);$protectedJinx=in_array($lead->wip_status,['WIP','Awaiting Docs','Ready to Draft','Sale','Lost Contact','DEAD'],true);
+        if($protectedJinx||$hasCallback){$n=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$id)->delete();if($n)$actions[]="removed {$n} hopper row(s)";}
+        $v=DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->first(['status']);
+        if($hasCallback&&!in_array($v->status,['CBHOLD','CALLBK'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'CBHOLD']);$actions[]="changed VICIdial status {$v->status} -> CBHOLD";}
+        elseif(!$hasCallback&&$lead->wip_status==='WIP'&&!in_array($v->status,['WIP','HOLD'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'WIP']);$actions[]="changed VICIdial status {$v->status} -> WIP";}
+        elseif(!$hasCallback&&in_array($v->status,['CBHOLD','CALLBK'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'WIP']);$actions[]="cleared orphan callback status {$v->status} -> WIP";}
+        $after=$this->checkCrmDiallerConsistency($a);return ['success'=>true,'actions'=>$actions,'before'=>$before,'after'=>$after];
+    }
 
     private function scheduleCallback(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);$when=Carbon::parse((string)$a['callback_at']);if($when->isPast())throw new RuntimeException('Callback time is in the past.');return ['success'=>true,'result'=>$this->callbacks->schedule($l,$when,(string)($a['notes']??''))]; }
