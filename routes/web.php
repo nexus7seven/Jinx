@@ -38,6 +38,7 @@ use App\Http\Controllers\Webhooks\TwilioInboundSmsWebhookController;
 use App\Http\Controllers\Webhooks\SendGridInboundEmailWebhookController;
 use App\Services\LeadDebtService;
 use App\Http\Controllers\DataDiallingDashboardController;
+use App\Http\Controllers\SipAvailabilityController;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
@@ -179,6 +180,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/remarketing/response/{id}/handle', [WipController::class, 'handleResponseEvent'])->name('remarketing.response.handle');
     Route::get('/remarketing', [RemarketingController::class, 'index'])->name('remarketing.index');
     Route::get('/data-dialling-dashboard', [DataDiallingDashboardController::class, 'index'])->name('reports.data-dialling-dashboard');
+    Route::get('/sip-availability', [SipAvailabilityController::class, 'index'])->name('sip-availability.index');
+    Route::get('/sip-availability/data', [SipAvailabilityController::class, 'data'])->name('sip-availability.data');
     Route::post('/remarketing/tasks', [RemarketingController::class, 'store'])->name('remarketing.tasks.store');
     Route::post('/remarketing/call', [RemarketingController::class, 'call'])->name('remarketing.call');
     Route::post('/remarketing/complete', [RemarketingController::class, 'complete'])->name('remarketing.complete');

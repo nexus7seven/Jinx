@@ -2,6 +2,7 @@
     $isWip = request()->routeIs('wip.*');
     $isRemarketing = request()->routeIs('remarketing.*');
     $isDialDashboard = request()->routeIs('reports.data-dialling-dashboard');
+    $isSipAvailability = request()->routeIs('sip-availability.*');
 @endphp
 <style>
     .app-nav {
@@ -155,6 +156,13 @@
             @if ($isDialDashboard) aria-current="page" @endif
         >
             Dialling Dashboard
+        </a>
+        <a
+            href="{{ route('sip-availability.index') }}"
+            class="app-nav__tab {{ $isSipAvailability ? 'app-nav__tab--active' : '' }}"
+            @if ($isSipAvailability) aria-current="page" @endif
+        >
+            SIP Availability
         </a>
         <div class="app-nav__search-wrap" id="appNavSearchWrap">
             <input
