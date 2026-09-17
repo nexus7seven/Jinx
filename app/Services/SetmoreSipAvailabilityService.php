@@ -15,7 +15,7 @@ class SetmoreSipAvailabilityService
     private const SLOTS_ENDPOINT = 'https://cbphandlers.setmore.com/handlers/graphql?operation=GetSlots';
     private const COMPANY_ID = '3460e9c0-6a79-4247-95ed-8d36a665b14b';
     private const TIME_ZONE = 'Europe/London';
-    private const EXCLUDED_NAMES = ['John Bickerton', 'Paul Peak Summers', 'Kevin Roberts'];
+    private const EXCLUDED_NAMES = ['John Bickerton', 'Paul Peak Summers', 'Kevin Roberts', 'Joe (capt)'];
 
     public function availability(int $days = 7): array
     {
