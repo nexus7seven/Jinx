@@ -437,6 +437,18 @@ class WipController extends Controller
             'dead_reason' => $validated['wip_status'] === 'Dead' ? trim((string) ($validated['dead_reason'] ?? '')) : null,
         ]);
 
+        // Once a case is being worked beyond New Lead, it must not remain in the auto-dial hopper.
+        if (is_numeric($lead->vicidial_lead_id) && in_array($validated['wip_status'], ['Collecting Docs', 'Callback Set', 'DMP Transfer', 'Ready to Refer', 'SIP Booked', 'IVA Verified', 'DMP Verified', 'Lost Contact', 'Dead'], true)) {
+            try {
+                DB::connection((string) config('services.vicidial.db_connection', 'asterisk'))
+                    ->table('vicidial_hopper')
+                    ->where('lead_id', (int) $lead->vicidial_lead_id)
+                    ->delete();
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
         if ($validated['wip_status'] === 'Dead') {
             try {
                 $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
