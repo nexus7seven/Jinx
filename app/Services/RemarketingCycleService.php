@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingCycle;
 use App\Models\RemarketingStepDefinition;
 use DateTimeInterface;
@@ -132,8 +133,8 @@ class RemarketingCycleService
             ];
         }
 
-        $checks['reengaged'] = $lead->wip_status === Lead::WIP_STATUS_REENGAGED;
-        $checks['dead'] = $lead->wip_status === 'DEAD';
+        $checks['reengaged'] = LeadReengagementEvent::query()->where('lead_id', $lead->id)->whereNull('seen_at')->exists();
+        $checks['dead'] = $lead->wip_status === 'Dead';
         $checks['opted_out'] = $this->leadAppearsOptedOut($lead);
 
         $current = $this->getCurrentStepDefinition($cycle);

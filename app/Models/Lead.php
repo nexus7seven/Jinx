@@ -10,38 +10,39 @@ class Lead extends Model
 {
     /** Shown first on WIP with highlight; partner + website intake. */
     public const PRIORITY_WIP_STATUSES = [
-        'Initial Assessment',
-        'Awaiting Call',
+        'New Lead',
     ];
 
     /** Created within this window (hours) counts as "fresh" for immediate-attention UI. */
     public const IMMEDIATE_ATTENTION_FRESH_HOURS = 24;
 
-    public const DEFAULT_WIP_STATUS_WEBSITE_INTAKE = 'Awaiting Call';
+    public const DEFAULT_WIP_STATUS_WEBSITE_INTAKE = 'New Lead';
 
-    public const DEFAULT_WIP_STATUS_PARTNER_INTAKE = 'Initial Assessment';
+    public const DEFAULT_WIP_STATUS_PARTNER_INTAKE = 'New Lead';
 
-    /** WhatsApp / detector re-engagement; only manual WIP changes should move away from this. */
-    public const WIP_STATUS_REENGAGED = 'Re-engaged';
+    /** Legacy compatibility alias; re-engagement is tracked by LeadReengagementEvent, not a workflow stage. */
+    public const WIP_STATUS_REENGAGED = 'New Lead';
 
     /** All selectable WIP case statuses (lead detail, WIP screen, API validation). */
     public const WIP_STATUSES = [
-        'Initial Assessment',
-        'Awaiting Call',
-        'WIP',
-        'Awaiting Docs',
-        'Ready to Draft',
-        'Sale',
+        'New Lead',
+        'Collecting Docs',
+        'Callback Set',
+        'DMP Transfer',
+        'Ready to Refer',
+        'SIP Booked',
+        'IVA Verified',
+        'DMP Verified',
         'Lost Contact',
-        self::WIP_STATUS_REENGAGED,
-        'DEAD',
+        'Dead',
     ];
 
     /** Not listed on the WIP "Active" tab (shown on "All" only). */
     public const WIP_STATUSES_EXCLUDED_FROM_ACTIVE_TAB = [
-        'Sale',
+        'IVA Verified',
+        'DMP Verified',
         'Lost Contact',
-        'DEAD',
+        'Dead',
     ];
 
     public const TITLES = [
@@ -82,6 +83,7 @@ class Lead extends Model
         'submitted_by_vicidial_user',
         'from_vicidial_webform',
         'wip_status',
+        'dead_reason',
         'financial_statement',
         'estimated_total_debt',
         'employment_status',

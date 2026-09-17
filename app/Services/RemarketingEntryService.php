@@ -28,7 +28,7 @@ class RemarketingEntryService
      */
     public function enterRemarketingFlow(Lead $lead, string $triggerSource): void
     {
-        if ($lead->wip_status === 'DEAD') {
+        if ($lead->wip_status === 'Dead') {
             return;
         }
 

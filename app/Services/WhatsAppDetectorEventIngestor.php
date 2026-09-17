@@ -303,7 +303,7 @@ class WhatsAppDetectorEventIngestor
                         ->first();
 
                     if ($lead !== null) {
-                        $lead->update(['wip_status' => Lead::WIP_STATUS_REENGAGED]);
+                        $lead->update(['wip_status' => 'New Lead']);
                     }
 
                     LeadReengagementEvent::query()->create([

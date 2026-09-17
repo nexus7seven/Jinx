@@ -503,7 +503,8 @@ class RemarketingReconcileCallOutcomesCommand extends Command
                 $progress->stop_context_json = ['call_outcome' => $status, 'action' => $action];
                 $progress->save();
                 if ($lead) {
-                    $lead->wip_status = in_array($action, ['convert_wip'], true) ? 'WIP' : 'DEAD';
+                    $lead->wip_status = in_array($action, ['convert_wip'], true) ? 'New Lead' : 'Dead';
+                    $lead->dead_reason = in_array($action, ['convert_wip'], true) ? null : ('Remarketing outcome: ' . $status);
                     $lead->save();
                 }
             }

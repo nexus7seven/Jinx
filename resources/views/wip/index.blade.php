@@ -1175,6 +1175,8 @@
             const leadId = select.dataset.leadId;
             const originalValue = select.getAttribute('data-original') || select.value;
             const newValue = select.value;
+            let deadReason = null;
+            if (newValue === 'Dead') { deadReason = prompt('Why is this case Dead?'); if (!deadReason || !deadReason.trim()) { select.value = originalValue; return; } }
 
             try {
                 const response = await fetch(`/lead/${leadId}/wip-status`, {
@@ -1185,7 +1187,8 @@
                         'Accept': 'application/json',
                     },
                     body: JSON.stringify({
-                        wip_status: newValue
+                        wip_status: newValue,
+                        dead_reason: deadReason
                     })
                 });
 

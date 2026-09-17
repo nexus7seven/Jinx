@@ -35,7 +35,7 @@ class VicidialCallbackService
             ]);
             DB::connection($connection)->table('vicidial_list')->where('lead_id', $leadId)->update(['status' => 'CBHOLD']);
             DB::connection($connection)->table('vicidial_hopper')->where('lead_id', $leadId)->delete();
-            if ($lead->wip_status !== 'WIP') $lead->update(['wip_status' => 'WIP']);
+            if ($lead->wip_status !== 'Callback Set') $lead->update(['wip_status' => 'Callback Set']);
 
             return ['callback_id' => (int) $callbackId, 'vicidial_lead_id' => $leadId, 'callback_time' => $when->toDateTimeString(), 'comments' => mb_substr(trim($comments), 0, 255)];
         });

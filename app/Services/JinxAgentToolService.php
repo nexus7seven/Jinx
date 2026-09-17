@@ -37,7 +37,7 @@ class JinxAgentToolService
             $this->fn('repair_crm_dialler_consistency','Repair safe case-level CRM/VICIdial inconsistencies. Removes inappropriate hopper rows and aligns VICIdial operational status with a clear Jinx WIP/callback state. Use only when the user clearly asks to fix/reconcile the case.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('schedule_callback','Book or replace a real VICIdial callback for a Jinx case. This writes VICIdial, sets CBHOLD, removes the lead from hopper and moves the Jinx case to WIP.',['lead_id'=>['type'=>'integer'],'callback_at'=>['type'=>'string'],'notes'=>['type'=>['string','null']]],['lead_id','callback_at','notes']),
             $this->fn('cancel_callback','Cancel any active/live VICIdial callback for a Jinx case. This is a real dialler write, keeps the lead out of the hopper, and changes CBHOLD/CALLBK to WIP.',['lead_id'=>['type'=>'integer'],'reason'=>['type'=>['string','null']]],['lead_id','reason']),
-            $this->fn('update_wip_status','Change the Jinx WIP status for one case. This is a real CRM write.',['lead_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['lead_id','status']),
+            $this->fn('update_wip_status','Change the Jinx workflow stage for one case. This is a real CRM write. Dead requires a reason.',['lead_id'=>['type'=>'integer'],'status'=>['type'=>'string'],'reason'=>['type'=>['string','null']]],['lead_id','status','reason']),
             $this->fn('add_case_note','Append a timestamped assistant note to the Jinx case notes. This is a real CRM write and preserves existing notes.',['lead_id'=>['type'=>'integer'],'note'=>['type'=>'string']],['lead_id','note']),
             $this->fn('update_case_field','Update one ordinary Jinx CRM case field. Use for client/contact/address/employment/debt estimate/source changes.',['lead_id'=>['type'=>'integer'],'field'=>['type'=>'string'],'value'=>['type'=>['string','number','null']]],['lead_id','field','value']),
             $this->fn('update_ie_fact','Write one deterministic I&E input fact to the Jinx financial statement. For children ages use a comma-separated value such as 11,8,3.',['lead_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean']]],['lead_id','key','value']),
@@ -78,7 +78,7 @@ class JinxAgentToolService
         $q=trim((string)($a['query']??'')); $status=trim((string)($a['status']??''));
         $query=Lead::query(); if($status!=='')$query->where('wip_status',$status);
         if($q!=='')$query->where(function($x)use($q){$x->where('first_name','like','%'.$q.'%')->orWhere('last_name','like','%'.$q.'%')->orWhereRaw("CONCAT(first_name,' ',last_name) like ?",['%'.$q.'%'])->orWhere('source','like','%'.$q.'%');if(ctype_digit($q))$x->orWhere('id',(int)$q)->orWhere('vicidial_lead_id',(int)$q);});
-        return ['cases'=>$query->latest('updated_at')->limit(25)->get()->map(fn(Lead $l)=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id])->all()];
+        return ['cases'=>$query->latest('updated_at')->limit(25)->get()->map(fn(Lead $l)=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'dead_reason'=>$l->dead_reason,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id])->all()];
     }
 
     private function getCase(array $a): array
@@ -86,7 +86,7 @@ class JinxAgentToolService
         $l=Lead::with('debts.creditor')->findOrFail((int)$a['lead_id']);
         $check=LeadChecklistItem::query()->where('lead_id',$l->id)->get()->map(fn($i)=>['item_id'=>$i->id,'item'=>$i->item_name??('Item '.$i->id),'complete'=>(bool)$i->is_complete,'source_type'=>$i->source_type])->all();
         $cb=collect($this->callbacks->activeForJinxLeads())->firstWhere('lead_id',$l->id);
-        return ['case'=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id,'employment_status'=>$l->employment_status,'monthly_income'=>$l->monthly_income,'estimated_total_debt'=>$l->estimated_total_debt,'case_notes'=>$l->case_notes,'financial_statement'=>$l->financial_statement,'debts'=>$l->debts->map(fn($d)=>['debt_id'=>$d->id,'creditor_id'=>$d->creditor_id,'creditor'=>$d->creditor?->name,'balance'=>(float)$d->balance,'source_expected'=>$d->source_expected,'reference'=>$d->reference])->all(),'checklist'=>$check,'active_callback'=>$cb]];
+        return ['case'=>['lead_id'=>$l->id,'name'=>$l->formattedName(),'status'=>$l->wip_status,'dead_reason'=>$l->dead_reason,'source'=>$l->source,'vicidial_lead_id'=>$l->vicidial_lead_id,'employment_status'=>$l->employment_status,'monthly_income'=>$l->monthly_income,'estimated_total_debt'=>$l->estimated_total_debt,'case_notes'=>$l->case_notes,'financial_statement'=>$l->financial_statement,'debts'=>$l->debts->map(fn($d)=>['debt_id'=>$d->id,'creditor_id'=>$d->creditor_id,'creditor'=>$d->creditor?->name,'balance'=>(float)$d->balance,'source_expected'=>$d->source_expected,'reference'=>$d->reference])->all(),'checklist'=>$check,'active_callback'=>$cb]];
     }
 
     private function searchKnowledge(array $a): array
@@ -134,23 +134,23 @@ class JinxAgentToolService
         if(!$v)return ['lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$lead->vicidial_lead_id,'consistent'=>false,'issues'=>[['code'=>'broken_vicidial_link','message'=>'Linked VICIdial lead does not exist.']],'safe_repair_available'=>false];
         $hopper=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$v->lead_id)->get(['hopper_id','campaign_id','status','priority']);
         $callbacks=DB::connection($c)->table('vicidial_callbacks')->where('lead_id',$v->lead_id)->whereIn('status',['ACTIVE','LIVE'])->get(['callback_id','status','callback_time','user','comments']);
-        $protectedJinx=in_array($lead->wip_status,['WIP','Awaiting Docs','Ready to Draft','Sale','Lost Contact','DEAD'],true);$protectedVic=in_array($v->status,['WIP','HOLD','CBHOLD','CALLBK'],true);
+        $protectedJinx=in_array($lead->wip_status,['Collecting Docs','Callback Set','DMP Transfer','Ready to Refer','SIP Booked','IVA Verified','DMP Verified','Lost Contact','Dead'],true);$protectedVic=in_array($v->status,['WIP','HOLD','CBHOLD','CALLBK'],true);
         if($protectedJinx&&$hopper->isNotEmpty())$issues[]=['code'=>'protected_case_in_hopper','message'=>'Jinx case is '.$lead->wip_status.' but the VICIdial lead is still in the hopper.'];
         if($protectedVic&&$hopper->isNotEmpty())$issues[]=['code'=>'protected_status_in_hopper','message'=>'VICIdial status '.$v->status.' should not remain in the hopper.'];
         if($callbacks->isNotEmpty()&&!in_array($v->status,['CBHOLD','CALLBK'],true))$issues[]=['code'=>'callback_status_mismatch','message'=>'An active/live callback exists but VICIdial status is '.$v->status.'.'];
         if($callbacks->isEmpty()&&in_array($v->status,['CBHOLD','CALLBK'],true))$issues[]=['code'=>'orphan_callback_status','message'=>'VICIdial status is '.$v->status.' but no active/live callback exists.'];
-        if($lead->wip_status==='WIP'&&!$callbacks->count()&&!in_array($v->status,['WIP','HOLD'],true))$issues[]=['code'=>'wip_status_mismatch','message'=>'Jinx is WIP while VICIdial is '.$v->status.'.'];
+        if($lead->wip_status==='New Lead'&&!$callbacks->count()&&!in_array($v->status,['WIP','HOLD'],true))$issues[]=['code'=>'wip_status_mismatch','message'=>'Jinx is New Lead while VICIdial is '.$v->status.'.'];
         return ['lead_id'=>$lead->id,'jinx_status'=>$lead->wip_status,'vicidial_lead_id'=>(int)$v->lead_id,'vicidial_status'=>$v->status,'hopper_rows'=>$hopper->map(fn($x)=>(array)$x)->all(),'active_callbacks'=>$callbacks->map(fn($x)=>(array)$x)->all(),'consistent'=>count($issues)===0,'issues'=>$issues,'safe_repair_available'=>count($issues)>0];
     }
 
     private function repairCrmDiallerConsistency(array $a): array
     {
         $before=$this->checkCrmDiallerConsistency($a);if(empty($before['vicidial_lead_id']))throw new RuntimeException('This case has no repairable VICIdial link.');$lead=Lead::findOrFail((int)$a['lead_id']);$id=(int)$before['vicidial_lead_id'];$c=(string)config('services.vicidial.db_connection','asterisk');$actions=[];
-        $hasCallback=!empty($before['active_callbacks']);$protectedJinx=in_array($lead->wip_status,['WIP','Awaiting Docs','Ready to Draft','Sale','Lost Contact','DEAD'],true);
+        $hasCallback=!empty($before['active_callbacks']);$protectedJinx=in_array($lead->wip_status,['Collecting Docs','Callback Set','DMP Transfer','Ready to Refer','SIP Booked','IVA Verified','DMP Verified','Lost Contact','Dead'],true);
         if($protectedJinx||$hasCallback){$n=DB::connection($c)->table('vicidial_hopper')->where('lead_id',$id)->delete();if($n)$actions[]="removed {$n} hopper row(s)";}
         $v=DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->first(['status']);
         if($hasCallback&&!in_array($v->status,['CBHOLD','CALLBK'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'CBHOLD']);$actions[]="changed VICIdial status {$v->status} -> CBHOLD";}
-        elseif(!$hasCallback&&$lead->wip_status==='WIP'&&!in_array($v->status,['WIP','HOLD'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'WIP']);$actions[]="changed VICIdial status {$v->status} -> WIP";}
+        elseif(!$hasCallback&&$lead->wip_status==='New Lead'&&!in_array($v->status,['WIP','HOLD'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'WIP']);$actions[]="changed VICIdial status {$v->status} -> WIP";}
         elseif(!$hasCallback&&in_array($v->status,['CBHOLD','CALLBK'],true)){DB::connection($c)->table('vicidial_list')->where('lead_id',$id)->update(['status'=>'WIP']);$actions[]="cleared orphan callback status {$v->status} -> WIP";}
         $after=$this->checkCrmDiallerConsistency($a);return ['success'=>true,'actions'=>$actions,'before'=>$before,'after'=>$after];
     }
@@ -160,7 +160,7 @@ class JinxAgentToolService
     private function cancelCallback(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);return ['success'=>true,'result'=>$this->callbacks->cancel($l,(string)($a['reason']??''))]; }
     private function updateStatus(array $a): array
-    { $l=Lead::findOrFail((int)$a['lead_id']);$status=(string)$a['status'];if(!in_array($status,Lead::WIP_STATUSES,true))throw new RuntimeException('Invalid WIP status.');$old=$l->wip_status;$l->update(['wip_status'=>$status]);return ['success'=>true,'lead_id'=>$l->id,'old_status'=>$old,'new_status'=>$status]; }
+    { $l=Lead::findOrFail((int)$a['lead_id']);$status=(string)$a['status'];if(!in_array($status,Lead::WIP_STATUSES,true))throw new RuntimeException('Invalid WIP status.');$reason=trim((string)($a['reason']??''));if($status==='Dead'&&$reason==='')throw new RuntimeException('A reason is required when marking a case Dead.');$old=$l->wip_status;$l->update(['wip_status'=>$status,'dead_reason'=>$status==='Dead'?$reason:null]);return ['success'=>true,'lead_id'=>$l->id,'old_status'=>$old,'new_status'=>$status,'dead_reason'=>$l->dead_reason]; }
     private function addNote(array $a): array
     { $l=Lead::findOrFail((int)$a['lead_id']);$note=trim((string)$a['note']);if($note==='')throw new RuntimeException('Note is empty.');$line='['.now()->format('d/m/Y H:i').'] Jinx Assistant: '.$note;$l->update(['case_notes'=>trim((string)$l->case_notes).(filled($l->case_notes)?"\n\n":'').$line]);return ['success'=>true,'lead_id'=>$l->id,'note'=>$line]; }
     private function updateCaseField(array $a): array

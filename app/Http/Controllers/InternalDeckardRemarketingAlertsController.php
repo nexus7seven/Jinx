@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lead;
 use App\Models\LeadRemarketingProgress;
+use App\Models\LeadReengagementEvent;
 use App\Models\RemarketingResponseEvent;
 use App\Models\RemarketingTask;
 use Illuminate\Http\JsonResponse;
@@ -183,7 +184,7 @@ class InternalDeckardRemarketingAlertsController extends Controller
     private function reengagedItems(Carbon $now): array
     {
         return Lead::query()
-            ->where('wip_status', Lead::WIP_STATUS_REENGAGED)
+            ->whereIn('id', LeadReengagementEvent::query()->whereNull('seen_at')->select('lead_id'))
             ->orderByDesc('updated_at')
             ->limit(50)
             ->get()

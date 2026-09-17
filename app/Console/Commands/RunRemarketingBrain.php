@@ -412,7 +412,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -453,7 +453,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -491,7 +491,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -558,7 +558,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -596,7 +596,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -708,7 +708,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -779,7 +779,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -850,7 +850,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -916,7 +916,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -974,7 +974,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -1045,7 +1045,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 
@@ -1110,7 +1110,7 @@ class RunRemarketingBrain extends Command
                 ->where('vicidial_lead_id', $leadId)
                 ->first();
 
-            if ($lead !== null && $lead->wip_status === 'DEAD') {
+            if ($lead !== null && $lead->wip_status === 'Dead') {
                 continue;
             }
 

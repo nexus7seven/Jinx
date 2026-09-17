@@ -14,7 +14,7 @@ class RemarketingResponseEventService
             return false;
         }
 
-        return in_array((string) $lead->wip_status, ['Lost Contact', 'DEAD'], true);
+        return in_array((string) $lead->wip_status, ['Lost Contact', 'Dead'], true);
     }
 
     public function createNeedsReviewEventIfEligible(array $data, ?Lead $lead): ?RemarketingResponseEvent

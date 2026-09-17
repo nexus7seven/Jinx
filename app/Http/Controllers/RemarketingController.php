@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lead;
 use App\Models\LeadRemarketingProgress;
+use App\Models\LeadReengagementEvent;
 use App\Models\LeadRemarketingStepLog;
 use App\Models\RemarketingStep;
 use App\Models\RemarketingTask;
@@ -723,7 +724,7 @@ class RemarketingController extends Controller
             return;
         }
 
-        if ($lead->wip_status === 'DEAD') {
+        if ($lead->wip_status === 'Dead') {
             return;
         }
 
@@ -736,11 +737,11 @@ class RemarketingController extends Controller
         $code = strtoupper(trim($latest));
 
         if (in_array($code, self::REMARKETING_TERMINAL_DISPOSITIONS, true)) {
-            if ($lead->wip_status === Lead::WIP_STATUS_REENGAGED) {
+            if (LeadReengagementEvent::query()->where('lead_id', $lead->id)->whereNull('seen_at')->exists()) {
                 return;
             }
 
-            $lead->update(['wip_status' => 'DEAD']);
+            $lead->update(['wip_status' => 'Dead', 'dead_reason' => 'Remarketing exhausted']);
 
             RemarketingTask::query()
                 ->where('lead_id', (int) $vicidialLeadId)

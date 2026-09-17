@@ -30,7 +30,7 @@ use Throwable;
 
 class WipController extends Controller
 {
-    private const PRIORITY_ORDER_SQL = "CASE WHEN wip_status IN ('Initial Assessment','Awaiting Call') THEN 0 ELSE 1 END";
+    private const PRIORITY_ORDER_SQL = "CASE WHEN wip_status = 'New Lead' THEN 0 ELSE 1 END";
 
     public function __construct(
         private LeadChecklistService $checklistService,
@@ -121,11 +121,7 @@ class WipController extends Controller
         }
 
         $reengagementSortTier = static function (Lead $lead) use ($unseenReengagementLeadSet): int {
-            if ($lead->wip_status !== Lead::WIP_STATUS_REENGAGED) {
-                return 2;
-            }
-
-            return isset($unseenReengagementLeadSet[(int) $lead->id]) ? 0 : 1;
+            return isset($unseenReengagementLeadSet[(int) $lead->id]) ? 0 : 2;
         };
 
         $callbackByLead = collect($this->vicidialCallbackService->activeForJinxLeads())->keyBy('lead_id');
@@ -148,8 +144,8 @@ class WipController extends Controller
                 $cb = $lead->active_callback ?? null;
                 if (is_array($cb) && ($cb['due'] ?? false)) return 0;
                 if ($lead->needsImmediateAttention()) return 1;
-                if ($lead->wip_status === 'WIP') return 2;
-                if ($lead->wip_status === 'Ready to Draft') return 3;
+                if ($lead->wip_status === 'Collecting Docs') return 2;
+                if ($lead->wip_status === 'Ready to Refer') return 3;
                 return in_array($lead->wip_status, Lead::PRIORITY_WIP_STATUSES, true) ? 4 : 5;
             };
             $aPri=$rank($a); $bPri=$rank($b);
@@ -293,10 +289,10 @@ class WipController extends Controller
             }
 
             $statusMap = [
-                'dead' => 'DEAD',
-                'awaiting_call' => 'Awaiting Call',
-                'initial_assessment' => 'Initial Assessment',
-                'callback' => 'Callback',
+                'dead' => 'Dead',
+                'awaiting_call' => 'New Lead',
+                'initial_assessment' => 'New Lead',
+                'callback' => 'Callback Set',
             ];
 
             $targetWipStatus = $statusMap[$decision] ?? null;
@@ -433,13 +429,15 @@ class WipController extends Controller
 
         $validated = $request->validate([
             'wip_status' => ['required', Rule::in(Lead::WIP_STATUSES)],
+            'dead_reason' => ['nullable', 'string', 'max:1000', Rule::requiredIf(fn () => $request->input('wip_status') === 'Dead')],
         ]);
 
         $lead->update([
             'wip_status' => $validated['wip_status'],
+            'dead_reason' => $validated['wip_status'] === 'Dead' ? trim((string) ($validated['dead_reason'] ?? '')) : null,
         ]);
 
-        if ($validated['wip_status'] === 'DEAD') {
+        if ($validated['wip_status'] === 'Dead') {
             try {
                 $vicidialLeadId = is_numeric($lead->vicidial_lead_id) ? (int) $lead->vicidial_lead_id : null;
 
@@ -469,7 +467,7 @@ class WipController extends Controller
         if ($previousStatus === 'Lost Contact' && $validated['wip_status'] !== 'Lost Contact') {
             try {
                 $freshLead = $lead->fresh();
-                if ($freshLead !== null && $freshLead->wip_status !== 'DEAD') {
+                if ($freshLead !== null && $freshLead->wip_status !== 'Dead') {
                     $vicidialLeadId = is_numeric($freshLead->vicidial_lead_id) ? (int) $freshLead->vicidial_lead_id : null;
 
                     if ($vicidialLeadId !== null) {
@@ -579,8 +577,8 @@ class WipController extends Controller
         }
 
         if (
-            $validated['wip_status'] === 'Awaiting Call'
-            && $previousStatus !== 'Awaiting Call'
+            $validated['wip_status'] === 'New Lead'
+            && $previousStatus !== 'New Lead'
             && $previousStatus !== 'Lost Contact'
         ) {
             try {
@@ -600,7 +598,7 @@ class WipController extends Controller
                     ]
                 );
                 Log::info('Remarketing trigger executed', [
-                    'trigger_status' => 'Awaiting Call',
+                    'trigger_status' => 'New Lead',
                     'task_type' => 'call',
                     'task_id' => $triggerResult['task']->id ?? null,
                     'lead_id' => $triggerResult['task']->lead_id ?? null,
@@ -611,7 +609,7 @@ class WipController extends Controller
             }
         }
 
-        if ($validated['wip_status'] === 'Awaiting Docs' && $previousStatus !== 'Awaiting Docs') {
+        if ($validated['wip_status'] === 'Collecting Docs' && $previousStatus !== 'Collecting Docs') {
             try {
                 $triggerResult = $this->remarketingTaskService->createTaskForLeadTriggerWithResult(
                     $lead->fresh(),
@@ -623,7 +621,7 @@ class WipController extends Controller
                     ]
                 );
                 Log::info('Remarketing trigger executed', [
-                    'trigger_status' => 'Awaiting Docs',
+                    'trigger_status' => 'Collecting Docs',
                     'task_type' => 'whatsapp',
                     'task_id' => $triggerResult['task']->id ?? null,
                     'lead_id' => $triggerResult['task']->lead_id ?? null,

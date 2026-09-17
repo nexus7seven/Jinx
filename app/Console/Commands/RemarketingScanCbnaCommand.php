@@ -157,7 +157,7 @@ class RemarketingScanCbnaCommand extends Command
             if ($lead === null) {
                 $lead = Lead::query()->create($this->buildLeadPayload($candidate, $vicidialLeadId, false, null));
             } else {
-                if ((string) $lead->wip_status === 'DEAD') {
+                if ((string) $lead->wip_status === 'Dead') {
                     $row['state'] = 'skipped_dead_lead';
                     $row['note'] = 'existing_jinx_lead_dead_no_lost_contact_or_progress_reset';
 

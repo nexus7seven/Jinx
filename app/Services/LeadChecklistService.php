@@ -15,10 +15,13 @@ class LeadChecklistService
     ];
 
     private const PROTECTED_STATUSES = [
-        'Sale',
+        'IVA Verified',
+        'DMP Verified',
+        'SIP Booked',
+        'DMP Transfer',
         'Lost Contact',
         Lead::WIP_STATUS_REENGAGED,
-        'DEAD',
+        'Dead',
     ];
 
     /**
@@ -26,8 +29,8 @@ class LeadChecklistService
      * overwritten by checklist-derived rules (Awaiting Docs / forced WIP).
      */
     private const MANUAL_WORKFLOW_STATUSES = [
-        'WIP',
-        'Ready to Draft',
+        'New Lead',
+        'Ready to Refer',
     ];
 
     private const REQUIRED_DEBT_SOURCES = [
@@ -67,8 +70,8 @@ class LeadChecklistService
                 return;
             }
 
-            if ($lead->wip_status !== 'WIP') {
-                $lead->update(['wip_status' => 'WIP']);
+            if ($lead->wip_status !== 'New Lead') {
+                $lead->update(['wip_status' => 'New Lead']);
             }
             return;
         }
@@ -82,14 +85,14 @@ class LeadChecklistService
                 return;
             }
 
-            if ($lead->wip_status !== 'Awaiting Docs') {
-                $lead->update(['wip_status' => 'Awaiting Docs']);
+            if ($lead->wip_status !== 'Collecting Docs') {
+                $lead->update(['wip_status' => 'Collecting Docs']);
             }
             return;
         }
 
-        if ($lead->wip_status !== 'Ready to Draft') {
-            $lead->update(['wip_status' => 'Ready to Draft']);
+        if ($lead->wip_status !== 'Ready to Refer') {
+            $lead->update(['wip_status' => 'Ready to Refer']);
         }
     }
 

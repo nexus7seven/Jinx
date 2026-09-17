@@ -2180,6 +2180,8 @@
         leadWipStatusSelect.addEventListener('change', async function () {
             const leadId = leadWipStatusSelect.dataset.leadId;
             const newValue = leadWipStatusSelect.value;
+            let deadReason = null;
+            if (newValue === 'Dead') { deadReason = prompt('Why is this case Dead?'); if (!deadReason || !deadReason.trim()) { leadWipStatusSelect.value = originalWipStatus; return; } }
 
             try {
                 const response = await fetch('/lead/' + leadId + '/wip-status', {
@@ -2189,7 +2191,7 @@
                         'X-CSRF-TOKEN': csrfToken,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({ wip_status: newValue }),
+                    body: JSON.stringify({ wip_status: newValue, dead_reason: deadReason }),
                 });
 
                 if (!response.ok) {

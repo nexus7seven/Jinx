@@ -184,7 +184,7 @@ class RemarketingLinearExecuteCommand extends Command
 
             $lead = $this->findLeadByVicidialLeadId((int) $progress->lead_id);
 
-            if ($lead !== null && (string) $lead->wip_status === 'DEAD') {
+            if ($lead !== null && (string) $lead->wip_status === 'Dead') {
                 if (in_array((string) $progress->status, [
                     LeadRemarketingProgress::STATUS_ACTIVE,
                     LeadRemarketingProgress::STATUS_WAITING,
