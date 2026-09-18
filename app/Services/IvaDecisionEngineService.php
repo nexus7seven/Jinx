@@ -328,26 +328,205 @@ class IvaDecisionEngineService
     private function evidenceFeasibility(string $key,array $review,array $caseFacts): array
     {
         $items=[];
-        $partnerIncome=(float)(data_get($review,'ie.income.partner_salary') ?? 0);
+        $income=(array)data_get($review,'ie.income',[]);
+        $salary=(float)($income['client_salary']??0);
+        $selfEmployedIncome=(float)($income['self_employed']??0);
+        $uc=(float)($income['universal_credit']??0);
+        $partnerIncome=(float)($income['partner_salary']??0);
+        $benefitTotal=collect(['child_benefit','pip_dla','esa','carers_allowance','foster_guardianship'])
+            ->sum(fn($k)=>(float)($income[$k]??0));
+        $otherProofIncome=collect(['child_benefit','maintenance_received','pension','pip_dla','esa','carers_allowance','student','foster_guardianship','other_income'])
+            ->sum(fn($k)=>(float)($income[$k]??0));
+
+        $months=$this->factValue($caseFacts,'evidence.bank_statement_months');
+        $continuous=$this->factValue($caseFacts,'evidence.bank_statements_continuous');
+        $allAccounts=$this->factValue($caseFacts,'evidence.bank_statements_all_accounts');
+        $recentStatements=$this->factValue($caseFacts,'evidence.bank_statements_dated_last_3_months');
+
+        if (in_array($key,['zebra','lawson_fox','assure'],true)) {
+            $ok=is_numeric($months) && (float)$months>=3 && $continuous===true;
+            $items[]=$this->evidenceItem(
+                'bank_statements',
+                $ok?'SATISFIED':'FIT_WITH_ACTIONS',
+                $ok
+                    ? 'At least 3 continuous full months of bank statements are recorded.'
+                    : 'Obtain/confirm at least 3 continuous full months of bank statements.',
+                $key,
+                '3 continuous full month'
+            );
+        } elseif ($key==='tig') {
+            $statementsOk=is_numeric($months) && (float)$months>=1 && $allAccounts===true && $recentStatements===true;
+            $items[]=$this->evidenceItem(
+                'bank_statements',
+                $statementsOk?'SATISFIED':'FIT_WITH_ACTIONS',
+                $statementsOk
+                    ? 'TIG bank-statement requirements are recorded as satisfied.'
+                    : 'TIG requires a full month for every account, dated within the last 3 months.',
+                $key,
+                '1 full month for every account'
+            );
+        }
+
+        if ($key==='tig' && $salary>0) {
+            $proof=$this->factValue($caseFacts,'evidence.income_proof_available');
+            $items[]=$this->evidenceItem(
+                'client_income_proof',
+                $proof===true?'SATISFIED':($proof===false?'EXCEPTION_ESCALATION':'FIT_WITH_ACTIONS'),
+                $proof===true
+                    ? 'Client wage evidence is recorded as available.'
+                    : ($proof===false
+                        ? 'TIG wage evidence is recorded unavailable; supplied criteria allow an exceptional alternative with manager sign-off.'
+                        : 'Confirm a recent full-month wage slip or the TIG exceptional evidence route.'),
+                $key,
+                'full month wage slip'
+            );
+        } elseif (in_array($key,['zebra','lawson_fox','assure'],true) && ($salary+$otherProofIncome)>0) {
+            $proof=$this->factValue($caseFacts,'evidence.income_proof_available');
+            $items[]=$this->evidenceItem(
+                'client_income_proof',
+                $proof===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                $proof===true?'Current proof for the recorded client income is available.':'Obtain current proof for the recorded client income (for example the applicable wage slip, benefit letter or bank evidence).',
+                $key,
+                'Proof of all income'
+            );
+        }
+
+        if ($uc>0) {
+            if ($key==='tig') {
+                $journal=$this->factValue($caseFacts,'evidence.uc_journal_available');
+                $items[]=$this->evidenceItem(
+                    'universal_credit_evidence',
+                    $journal===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                    $journal===true?'Recent Universal Credit journal is recorded as available.':'Obtain the TIG-required full Universal Credit journal dated within the last 3 months.',
+                    $key,
+                    'Universal Credit need full journal'
+                );
+            } elseif (in_array($key,['zebra','lawson_fox','assure'],true)) {
+                $breakdown=$this->factValue($caseFacts,'evidence.uc_breakdown_available');
+                $items[]=$this->evidenceItem(
+                    'universal_credit_evidence',
+                    $breakdown===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                    $breakdown===true?'Universal Credit breakdown is recorded as available.':'Obtain the Universal Credit breakdown.',
+                    $key,
+                    'Universal Credit'
+                );
+            }
+        }
+
+        if ($key==='tig' && $benefitTotal>0) {
+            $proof=$this->factValue($caseFacts,'evidence.benefit_proof_available');
+            $items[]=$this->evidenceItem(
+                'benefit_evidence',
+                $proof===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                $proof===true?'Current benefit evidence is recorded as available.':'Obtain current-financial-year benefit evidence or qualifying recent bank-statement evidence.',
+                $key,
+                'benefit letters'
+            );
+        }
+
+        if ($key==='tig' && (float)($review['known_debt_total'] ?? 0)>0) {
+            $debtProof=$this->factValue($caseFacts,'evidence.debt_proof_complete');
+            $creditReport=$this->factValue($caseFacts,'evidence.credit_report_available');
+            $items[]=$this->evidenceItem(
+                'debt_proof',
+                $debtProof===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                $debtProof===true
+                    ? 'Proof of all debts is recorded as complete.'
+                    : ($creditReport===true
+                        ? 'A credit report is recorded, but confirm that proof is complete for every debt before referral.'
+                        : 'Obtain and verify proof of every debt before referral.'),
+                $key,
+                'PROOF OF DEBTS'
+            );
+        }
+
+        $previousIva=$this->factValue($caseFacts,'case.previous_iva');
+        $previousIvaFailed=$this->factValue($caseFacts,'case.previous_iva_failed');
+        $needsPreviousIvaDocs=$previousIva===true
+            && ($key==='tig' || (in_array($key,['zebra','lawson_fox','assure'],true) && $previousIvaFailed===true));
+        if ($needsPreviousIvaDocs) {
+            $docs=$this->factValue($caseFacts,'evidence.previous_iva_termination_docs');
+            $needle=$key==='tig'?'TERMINATION REPORT':'termination docs';
+            $items[]=$this->evidenceItem(
+                'previous_iva_documents',
+                $docs===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                $docs===true?'Previous IVA termination evidence is recorded as available.':'Obtain the previous IVA termination documentation before referral.',
+                $key,
+                $needle
+            );
+        } elseif ($previousIva===true && in_array($key,['zebra','lawson_fox','assure'],true) && $previousIvaFailed===null) {
+            $items[]=$this->evidenceItem(
+                'previous_iva_status',
+                'FIT_WITH_ACTIONS',
+                'Confirm whether the previous IVA terminated/failed; termination documents are required if it did.',
+                $key,
+                'Previous Debt Solutions'
+            );
+        }
+
+        if (($this->factValue($caseFacts,'case.self_employed')===true || $selfEmployedIncome>0)
+            && in_array($key,['zebra','lawson_fox','assure','tig'],true)) {
+            $docs=$this->factValue($caseFacts,'evidence.self_employed_docs_complete');
+            $tradingMonths=$this->factValue($caseFacts,'case.self_employed_trading_months');
+            if ($key==='tig') {
+                $needle='SELF EMPLOYED = TAX RETURN';
+                $required='Complete TIG self-employed evidence: tax return and 3 months banking; newly self-employed cases also require the supplied minimum trading history and income confirmation.';
+            } elseif (!is_numeric($tradingMonths)) {
+                $needle='SELF EMPLOYED CASES - CRITERIA AND REQUIREMENTS';
+                $required="Confirm the client's trading duration so the correct self-employed evidence pack can be applied, then complete that pack.";
+            } elseif ((float)$tradingMonths<12) {
+                $needle='Self-employed less than 1 year';
+                $required='Complete the under-one-year self-employed pack: required bank statements, invoices and income breakdown, with tax-return evidence where applicable.';
+            } else {
+                $needle='Self employed over 1 year';
+                $required='Complete the established self-employed pack: latest tax return, required bank statements and income breakdown.';
+            }
+            $items[]=$this->evidenceItem(
+                'self_employed_evidence',
+                $docs===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                $docs===true?'The route-specific self-employed evidence pack is recorded as complete.':$required,
+                $key,
+                $needle
+            );
+        }
+
+        if (in_array($key,['zebra','lawson_fox','assure'],true)) {
+            $rent=(float)(data_get($review,'ie.expenditure.housing.rent_mortgage') ?? 0);
+            $childcare=(float)(data_get($review,'ie.expenditure.other.childcare') ?? 0);
+            $maintenance=(float)(data_get($review,'ie.expenditure.other.maintenance_paid') ?? 0);
+            if ($rent>0 || $childcare>0 || $maintenance>0) {
+                $outgoingsProof=$this->factValue($caseFacts,'evidence.outgoings_proof_available');
+                $items[]=$this->evidenceItem(
+                    'outgoings_proof',
+                    $outgoingsProof===true?'SATISFIED':'FIT_WITH_ACTIONS',
+                    $outgoingsProof===true
+                        ? 'Evidence supporting the relevant recorded outgoings is available.'
+                        : 'Obtain evidence supporting the recorded rent/mortgage, childcare or maintenance expenditure as applicable, or explain any difference in case notes.',
+                    $key,
+                    'Evidence of outgoings'
+                );
+            }
+        }
+
         $partnerEvidence=$this->factValue($caseFacts,'partner.income_evidence_available');
         $partnerDeclaration=$this->factValue($caseFacts,'partner.declaration_available');
 
         if ($partnerIncome > 0) {
             if ($key==='lawson_fox') {
-                if ($partnerEvidence===true) $items[]=['topic'=>'partner_income','status'=>'SATISFIED','reason'=>'Partner income evidence is recorded as available.'];
-                elseif ($partnerDeclaration===true) $items[]=['topic'=>'partner_income','status'=>'SATISFIED','reason'=>'Lawson Fox operator instruction allows a signed partner declaration instead of partner bank statements/wage slips.'];
-                elseif ($partnerEvidence===false && $partnerDeclaration===false) $items[]=['topic'=>'partner_income','status'=>'BLOCKED','reason'=>'No conventional partner evidence and partner declaration is recorded unavailable.'];
-                else $items[]=['topic'=>'partner_income','status'=>'FIT_WITH_ACTIONS','reason'=>'Lawson Fox can use a signed partner declaration; confirm it can be obtained.'];
+                if ($partnerEvidence===true) $items[]=$this->evidenceItem('partner_income','SATISFIED','Partner income evidence is recorded as available.',$key,"Partner's income");
+                elseif ($partnerDeclaration===true) $items[]=$this->evidenceItem('partner_income','SATISFIED','Lawson Fox operator instruction allows a signed partner declaration instead of partner bank statements/wage slips.',$key,'Partner income can be evidenced');
+                elseif ($partnerEvidence===false && $partnerDeclaration===false) $items[]=$this->evidenceItem('partner_income','BLOCKED','No conventional partner evidence and partner declaration is recorded unavailable.',$key,'Partner income can be evidenced');
+                else $items[]=$this->evidenceItem('partner_income','FIT_WITH_ACTIONS','Lawson Fox can use a signed partner declaration; confirm it can be obtained.',$key,'Partner income can be evidenced');
             } elseif (in_array($key,['zebra','assure'],true)) {
-                if ($partnerEvidence===true) $items[]=['topic'=>'partner_income','status'=>'SATISFIED','reason'=>'Partner income evidence is recorded as available.'];
-                elseif ($partnerEvidence===false) $items[]=['topic'=>'partner_income','status'=>'BLOCKED','reason'=>'This route requires partner income proof and it is recorded unavailable.'];
-                else $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'Partner income proof availability has not been recorded.'];
+                if ($partnerEvidence===true) $items[]=$this->evidenceItem('partner_income','SATISFIED','Partner income evidence is recorded as available.',$key,"Partner's income");
+                elseif ($partnerEvidence===false) $items[]=$this->evidenceItem('partner_income','BLOCKED','This route requires partner income proof and it is recorded unavailable.',$key,"Partner's income");
+                else $items[]=$this->evidenceItem('partner_income','UNKNOWN','Partner income proof availability has not been recorded.',$key,"Partner's income");
             } elseif ($key==='tig') {
-                if ($partnerEvidence===true) $items[]=['topic'=>'partner_income','status'=>'SATISFIED','reason'=>'Partner income evidence is recorded as available.'];
-                elseif ($partnerEvidence===false) $items[]=['topic'=>'partner_income','status'=>'EXCEPTION_ESCALATION','reason'=>'TIG normally requires a recent wage slip for each wage; supplied criteria allow exceptional alternatives with manager sign-off.'];
-                else $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'Partner income evidence availability has not been recorded.'];
+                if ($partnerEvidence===true) $items[]=$this->evidenceItem('partner_income','SATISFIED','Partner income evidence is recorded as available.',$key,'Including partners where applicable');
+                elseif ($partnerEvidence===false) $items[]=$this->evidenceItem('partner_income','EXCEPTION_ESCALATION','TIG normally requires a recent wage slip for each wage; supplied criteria allow exceptional alternatives with manager sign-off.',$key,'Including partners where applicable');
+                else $items[]=$this->evidenceItem('partner_income','UNKNOWN','Partner income evidence availability has not been recorded.',$key,'Including partners where applicable');
             } else {
-                $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'No complete Anchorage Chambers partner-income evidence rule has been supplied.'];
+                $items[]=$this->evidenceItem('partner_income','UNKNOWN','No complete Anchorage Chambers partner-income evidence rule has been supplied.',$key,'partner');
             }
         }
 
@@ -355,17 +534,35 @@ class IvaDecisionEngineService
         if ($immigration !== '' && !in_array(strtolower($immigration),['uk citizen','british','british citizen'],true)) {
             if ($key==='lawson_fox') {
                 $licence=$this->factValue($caseFacts,'case.uk_driving_licence');
-                if ($licence===true) $items[]=['topic'=>'immigration_id','status'=>'SATISFIED','reason'=>'Lawson Fox operator instruction permits immigrant cases where the client has a UK driving licence.'];
-                elseif ($licence===false) $items[]=['topic'=>'immigration_id','status'=>'UNKNOWN','reason'=>'The supplied Lawson Fox operational rule covers immigrant cases with a UK driving licence; no alternative evidence rule has been supplied for this circumstance.'];
-                else $items[]=['topic'=>'immigration_id','status'=>'FIT_WITH_ACTIONS','reason'=>'Confirm whether the client has a UK driving licence for the Lawson Fox immigrant-case route.'];
+                if ($licence===true) $items[]=$this->evidenceItem('immigration_id','SATISFIED','Lawson Fox operator instruction permits immigrant cases where the client has a UK driving licence.',$key,'UK driving licence');
+                elseif ($licence===false) $items[]=$this->evidenceItem('immigration_id','UNKNOWN','The supplied Lawson Fox operational rule covers immigrant cases with a UK driving licence; no alternative evidence rule has been supplied for this circumstance.',$key,'UK driving licence');
+                else $items[]=$this->evidenceItem('immigration_id','FIT_WITH_ACTIONS','Confirm whether the client has a UK driving licence for the Lawson Fox immigrant-case route.',$key,'UK driving licence');
             } else {
-                $items[]=['topic'=>'immigration_id','status'=>'UNKNOWN','reason'=>'No route-specific immigration/ID treatment is recorded for this destination in the current structured facts.'];
+                $items[]=$this->evidenceItem('immigration_id','UNKNOWN','No route-specific immigration/ID treatment is recorded for this destination in the current structured facts.',$key,'immigration');
             }
         }
 
         return [
             'status'=>$this->worstEvidenceStatus($items),
             'items'=>$items,
+        ];
+    }
+
+    private function evidenceItem(string $topic,string $status,string $reason,string $key,string $needle): array
+    {
+        $source=DB::table('decision_rules as r')
+            ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
+            ->where('r.partner_key',$key)
+            ->where('r.is_active',true)
+            ->where('r.requirement_text','like','%'.$needle.'%')
+            ->select('r.id','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location')
+            ->first();
+
+        return [
+            'topic'=>$topic,
+            'status'=>$status,
+            'reason'=>$reason,
+            'source'=>$source?(array)$source:null,
         ];
     }
 

@@ -330,6 +330,7 @@ class JinxAgentToolService
                 'decision_facts'=>$this->decisionFacts->allForLead($lead),
                 'ie_adjustments'=>$this->decisionFacts->ieAdjustmentSummary($lead),
                 'ie_calculation'=>data_get($review,'ie.calculation'),
+                'similarity_signature'=>$this->iva->learningSignature($lead),
             ];
         }
         $applicability = trim((string)($a['applicability'] ?? ''));

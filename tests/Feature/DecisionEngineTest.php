@@ -174,6 +174,188 @@ class DecisionEngineTest extends TestCase
         $this->assertSame((float)ceil($max*0.65),(float)$ac['expenditure']['sfs']['housekeeping']);
     }
 
+    public function test_lawson_partner_declaration_can_resolve_partner_income_when_zebra_cannot(): void
+    {
+        $lead=$this->lead();
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+        $iva->updateFact($lead,'household.partner_exists',true);
+        $iva->updateFact($lead,'income.partner_salary',500);
+
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+        $facts->setLeadFact($lead,'partner.income_evidence_available',false);
+        $facts->setLeadFact($lead,'partner.declaration_available',true);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $lawson=collect($result['route_overview'])->firstWhere('destination','Lawson Fox');
+        $lawsonPartner=collect($lawson['evidence_feasibility']['items'])->firstWhere('topic','partner_income');
+
+        $this->assertSame('BLOCKED',$zebra['evidence_feasibility']['status']);
+        $this->assertSame('FIT_WITH_ACTIONS',$lawson['evidence_feasibility']['status']);
+        $this->assertSame('SATISFIED',$lawsonPartner['status']);
+        $this->assertSame('internal_instruction',$lawsonPartner['source']['source_type']);
+    }
+
+    public function test_route_evidence_actions_are_sourced_and_not_silent_unknowns(): void
+    {
+        $lead=$this->lead();
+        app(\App\Services\JinxAgentIvaService::class)->updateFact($lead,'income.client_salary',1800);
+        app(DecisionCaseFactService::class)->setLeadFact($lead,'property.is_homeowner',false);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $bank=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','bank_statements');
+        $income=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','client_income_proof');
+
+        $this->assertSame('FIT_WITH_ACTIONS',$bank['status']);
+        $this->assertNotNull($bank['source']);
+        $this->assertSame('FIT_WITH_ACTIONS',$income['status']);
+        $this->assertNotNull($income['source']);
+    }
+
+    public function test_zebra_income_evidence_applies_to_benefit_income_without_salary(): void
+    {
+        $lead=$this->lead();
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+        $iva->updateFact($lead,'income.pip_dla',420);
+
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $proof=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','client_income_proof');
+
+        $this->assertSame('FIT_WITH_ACTIONS',$proof['status']);
+        $this->assertNotNull($proof['source']);
+        $this->assertStringContainsString('Proof of all income',$proof['source']['requirement_text']);
+    }
+
+    public function test_tig_requires_complete_debt_proof_even_when_credit_report_exists(): void
+    {
+        $lead=$this->lead();
+        $creditor=$this->creditor('TIG Evidence Bank');
+        Debt::create(['lead_id'=>$lead->id,'creditor_id'=>$creditor->id,'balance'=>8000,'source_expected'=>'other']);
+
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+        $facts->setLeadFact($lead,'evidence.credit_report_available',true);
+        $facts->setLeadFact($lead,'evidence.debt_proof_complete',false);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $tig=collect($result['route_overview'])->firstWhere('destination','TIG');
+        $proof=collect($tig['evidence_feasibility']['items'])->firstWhere('topic','debt_proof');
+
+        $this->assertSame('FIT_WITH_ACTIONS',$proof['status']);
+        $this->assertStringContainsString('confirm that proof is complete for every debt',$proof['reason']);
+        $this->assertNotNull($proof['source']);
+        $this->assertStringContainsString('PROOF OF DEBTS',$proof['source']['requirement_text']);
+    }
+
+    public function test_avondale_style_routes_require_sourced_outgoings_evidence_when_relevant(): void
+    {
+        $lead=$this->lead();
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+        $iva->updateFact($lead,'housing.rent_mortgage',650);
+
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $proof=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','outgoings_proof');
+
+        $this->assertSame('FIT_WITH_ACTIONS',$proof['status']);
+        $this->assertNotNull($proof['source']);
+        $this->assertStringContainsString('Evidence of outgoings',$proof['source']['requirement_text']);
+
+        $facts->setLeadFact($lead,'evidence.outgoings_proof_available',true);
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $proof=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','outgoings_proof');
+        $this->assertSame('SATISFIED',$proof['status']);
+    }
+
+    public function test_self_employed_evidence_uses_the_correct_trading_stage_rule(): void
+    {
+        $lead=$this->lead();
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+        $facts->setLeadFact($lead,'case.self_employed',true);
+        $facts->setLeadFact($lead,'case.self_employed_trading_months',8);
+        $facts->setLeadFact($lead,'evidence.self_employed_docs_complete',false);
+
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $evidence=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','self_employed_evidence');
+
+        $this->assertSame('FIT_WITH_ACTIONS',$evidence['status']);
+        $this->assertStringContainsString('under-one-year',$evidence['reason']);
+        $this->assertStringContainsString('Self-employed less than 1 year',$evidence['source']['requirement_text']);
+
+        $facts->setLeadFact($lead,'case.self_employed_trading_months',18);
+        $result=app(IvaDecisionEngineService::class)->assess($lead);
+        $zebra=collect($result['route_overview'])->firstWhere('destination','Zebra');
+        $evidence=collect($zebra['evidence_feasibility']['items'])->firstWhere('topic','self_employed_evidence');
+        $this->assertStringContainsString('Self employed over 1 year',$evidence['source']['requirement_text']);
+    }
+
+    public function test_cross_case_learning_surfaces_only_for_similar_and_route_relevant_cases(): void
+    {
+        $creditor=$this->creditor('Learning Bank');
+
+        $source=$this->lead();
+        $sourceDebt=Debt::create(['lead_id'=>$source->id,'creditor_id'=>$creditor->id,'balance'=>8000,'source_expected'=>'other']);
+        $sourceFacts=app(DecisionCaseFactService::class);
+        $sourceFacts->setDebtFact($sourceDebt,'debt.product_type','Personal Loan');
+        $sourceFacts->setLeadFact($source,'property.is_homeowner',false);
+        $sourceFacts->setLeadFact($source,'case.self_employed',false);
+        $sourceFacts->setLeadFact($source,'case.previous_iva',false);
+
+        $stored=app(\App\Services\JinxAgentToolService::class)->execute('teach_decision_engine',[
+            'lead_id'=>$source->id,
+            'knowledge_type'=>'precedent',
+            'original_decision'=>'Lawson Fox blocked',
+            'corrected_decision'=>'Lawson Fox fit with actions',
+            'reason'=>'Lawson Fox accepted this structure after the evidence issue was resolved.',
+            'applicability'=>'Lawson Fox cases with a similar creditor/product and non-homeowner profile.',
+            'outcome'=>'accepted',
+        ]);
+        $learningId=$stored['learning_record_id'];
+
+        $similar=$this->lead();
+        $similarDebt=Debt::create(['lead_id'=>$similar->id,'creditor_id'=>$creditor->id,'balance'=>8500,'source_expected'=>'other']);
+        $similarFacts=app(DecisionCaseFactService::class);
+        $similarFacts->setDebtFact($similarDebt,'debt.product_type','Personal Loan');
+        $similarFacts->setLeadFact($similar,'property.is_homeowner',false);
+        $similarFacts->setLeadFact($similar,'case.self_employed',false);
+        $similarFacts->setLeadFact($similar,'case.previous_iva',false);
+
+        $lawson=app(\App\Services\JinxAgentIvaService::class)->analyseRoute($similar,'Lawson Fox');
+        $match=collect($lawson['learned_guidance'])->firstWhere('id',$learningId);
+        $this->assertNotNull($match);
+        $this->assertSame('similar_case',$match['match_scope']);
+        $this->assertGreaterThanOrEqual(0.55,$match['match_score']);
+        $this->assertNotEmpty($match['match_reasons']);
+        $this->assertSame('operator_learning',$match['provenance']);
+
+        $zebra=app(\App\Services\JinxAgentIvaService::class)->analyseRoute($similar,'Zebra');
+        $this->assertFalse(collect($zebra['learned_guidance'])->contains('id',$learningId));
+
+        $otherCreditor=$this->creditor('Unrelated Learning Creditor');
+        $unrelated=$this->lead();
+        $unrelatedDebt=Debt::create(['lead_id'=>$unrelated->id,'creditor_id'=>$otherCreditor->id,'balance'=>22000,'source_expected'=>'other']);
+        $unrelatedFacts=app(DecisionCaseFactService::class);
+        $unrelatedFacts->setDebtFact($unrelatedDebt,'debt.product_type','Credit Card');
+        $unrelatedFacts->setLeadFact($unrelated,'property.is_homeowner',true);
+        $unrelatedFacts->setLeadFact($unrelated,'case.self_employed',true);
+        $unrelatedFacts->setLeadFact($unrelated,'case.previous_iva',true);
+
+        $unrelatedLawson=app(\App\Services\JinxAgentIvaService::class)->analyseRoute($unrelated,'Lawson Fox');
+        $this->assertFalse(collect($unrelatedLawson['learned_guidance'])->contains('id',$learningId));
+    }
+
     public function test_avondale_partner_baseline_is_a_separate_decision_rule(): void
     {
         $rule=\DB::table('decision_rules as r')

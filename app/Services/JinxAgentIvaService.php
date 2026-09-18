@@ -6,7 +6,14 @@ use RuntimeException;
 
 class JinxAgentIvaService
 {
-    public function __construct(private readonly FinancialStatementService $statements, private readonly AssistantIeCalculationService $calculator, private readonly AssistantLeadFactSyncService $sync, private readonly PartnerKnowledgeService $knowledge, private readonly DecisionVotingService $voting) {}
+    public function __construct(
+        private readonly FinancialStatementService $statements,
+        private readonly AssistantIeCalculationService $calculator,
+        private readonly AssistantLeadFactSyncService $sync,
+        private readonly PartnerKnowledgeService $knowledge,
+        private readonly DecisionVotingService $voting,
+        private readonly DecisionCaseFactService $decisionFacts,
+    ) {}
 
     public function facts(Lead $lead): array
     {
@@ -16,7 +23,7 @@ class JinxAgentIvaService
         $put('calculation.target_di',data_get($s,'facts.target_di'));$put('household.partner_exists',data_get($s,'household.partner_exists',false));
         $children=collect(data_get($s,'household.children',[]))->pluck('age')->filter(fn($x)=>$x!==null)->values()->all();$put('household.children_count',count(data_get($s,'household.children',[])));if($children)$put('household.children_ages',$children);
         foreach(['client_salary','partner_salary','self_employed','universal_credit','child_benefit','maintenance_received','pension','pip_dla','esa','carers_allowance','student','foster_guardianship','other_income','uc_advance_add_back'] as $k)$put('income.'.$k,data_get($s,'income.'.$k));
-        foreach(['rent_mortgage','council_tax'] as $k)$put('housing.'.$k,data_get($s,'expenditure.housing.'.$k));
+        $put('housing.type',data_get($s,'facts.housing_type'));foreach(['rent_mortgage','council_tax'] as $k)$put('housing.'.$k,data_get($s,'expenditure.housing.'.$k));
         foreach(['electricity','gas','water'] as $k)$put('utilities.'.$k,data_get($s,'expenditure.utilities.'.$k));
         $put('sfs.housekeeping',data_get($s,'expenditure.sfs.housekeeping'));
         foreach(['home_internet_tv','mobile','leisure'] as $k)$put('sfs.comms.'.$k,data_get($s,'expenditure.sfs.comms.'.$k));
@@ -71,34 +78,7 @@ class JinxAgentIvaService
                 ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all()
             : [];
 
-        $aliases = match($key) {
-            'zebra' => ['zebra'],
-            'lawson_fox' => ['lawson_fox','lawson fox','lawson'],
-            'anchorage_chambers' => ['anchorage_chambers','anchorage chambers','anchorage','ac'],
-            'assure' => ['assure'],
-            'tig' => ['tig'],
-            default => [$key],
-        };
-        $learning = \Illuminate\Support\Facades\DB::table('decision_learning_records')
-            ->where('status','active')
-            ->where(function($q) use ($lead) {
-                $q->where('lead_id',$lead->id)->orWhereNull('lead_id');
-            })
-            ->where(function($q) use ($aliases) {
-                foreach ($aliases as $i=>$alias) {
-                    $method=$i===0?'where':'orWhere';
-                    $q->{$method}(function($x) use ($alias) {
-                        $x->where('corrected_decision','like','%'.$alias.'%')
-                          ->orWhere('original_decision','like','%'.$alias.'%')
-                          ->orWhere('reason','like','%'.$alias.'%')
-                          ->orWhere('applicability','like','%'.$alias.'%');
-                    });
-                }
-                $q->orWhereNull('corrected_decision');
-            })
-            ->orderByRaw('CASE WHEN lead_id = ? THEN 0 ELSE 1 END',[$lead->id])
-            ->orderByDesc('last_confirmed_at')->limit(20)->get()
-            ->map(function($r){$x=(array)$r;$x['case_context']=$r->case_context?json_decode($r->case_context,true):null;$x['applicability']=$r->applicability?json_decode($r->applicability,true):null;return $x;})->all();
+        $learning = $this->learnedGuidance($lead,$key,$voting,$routeIe);
 
         return [
             'lead_id'=>$lead->id, 'destination'=>$destination, 'destination_key'=>$key,
@@ -112,6 +92,263 @@ class JinxAgentIvaService
         ];
     }
 
+
+    public function learningSignature(Lead $lead, ?array $voting = null, ?array $ie = null): array
+    {
+        $lead->loadMissing('debts.creditor');
+        $ieFacts=$this->facts($lead);
+        $decision=$this->decisionFacts->allForLead($lead);
+        $caseFacts=collect($decision['case_facts'] ?? [])->mapWithKeys(
+            fn($value,$key)=>[$key=>$value['value'] ?? null]
+        )->all();
+
+        if ($ie===null) {
+            $profile=$this->knowledge->profile($lead->source,$ieFacts);
+            $ie=$this->calculator->snapshot($ieFacts,$profile);
+        }
+        $voting ??= $this->voting->analyse($lead,null,null);
+
+        $debtProducts=collect($decision['debt_facts'] ?? [])
+            ->map(fn($row)=>data_get($row,'facts.debt.product_type.value'))
+            ->filter(fn($value)=>filled($value))
+            ->map(fn($value)=>mb_strtolower(trim((string)$value)))
+            ->unique()->sort()->values()->all();
+
+        $creditors=$lead->debts
+            ->pluck('creditor.name')->filter()
+            ->map(fn($value)=>mb_strtolower(trim((string)$value)))
+            ->unique()->sort()->values()->all();
+
+        $houses=collect($voting['houses'] ?? [])
+            ->pluck('name')->filter(fn($value)=>filled($value) && mb_strtolower(trim((string)$value))!=='unresolved representative')
+            ->map(fn($value)=>mb_strtolower(trim((string)$value)))
+            ->unique()->sort()->values()->all();
+
+        $immigration=trim((string)($caseFacts['case.immigration_status'] ?? ''));
+        $immigrationGroup=$immigration==='' ? null
+            : (in_array(mb_strtolower($immigration),['uk citizen','british','british citizen'],true) ? 'british' : 'non_british');
+
+        $gambling=$caseFacts['case.gambling_monthly'] ?? null;
+        $gamblingBand=null;
+        if (is_numeric($gambling)) {
+            $gambling=(float)$gambling;
+            $gamblingBand=$gambling<=0?'none':($gambling<=200?'up_to_200':($gambling<1000?'201_to_999':'1000_plus'));
+        }
+
+        $partnerExists=data_get($ieFacts,'household.partner_exists');
+        if ($partnerExists===null) $partnerExists=(float)data_get($ieFacts,'income.partner_salary',0)>0;
+
+        $selfEmployed=$caseFacts['case.self_employed'] ?? null;
+        if ($selfEmployed===null && (float)data_get($ieFacts,'income.self_employed',0)>0) $selfEmployed=true;
+
+        return [
+            'source'=>filled($lead->source)?mb_strtolower(trim((string)$lead->source)):null,
+            'known_debt_total'=>(float)$lead->debts->sum('balance'),
+            'disposable_income'=>is_numeric(data_get($ie,'calculation.disposable_income'))?(float)data_get($ie,'calculation.disposable_income'):null,
+            'income_total'=>is_numeric(data_get($ie,'calculation.income_total'))?(float)data_get($ie,'calculation.income_total'):null,
+            'partner_exists'=>$partnerExists===null?null:(bool)$partnerExists,
+            'homeowner'=>array_key_exists('property.is_homeowner',$caseFacts)?(bool)$caseFacts['property.is_homeowner']:null,
+            'self_employed'=>$selfEmployed===null?null:(bool)$selfEmployed,
+            'previous_iva'=>array_key_exists('case.previous_iva',$caseFacts)?(bool)$caseFacts['case.previous_iva']:null,
+            'immigration_group'=>$immigrationGroup,
+            'hmrc_majority'=>array_key_exists('case.hmrc_majority',$caseFacts)?(bool)$caseFacts['case.hmrc_majority']:null,
+            'benefits_only'=>array_key_exists('case.benefits_only',$caseFacts)?(bool)$caseFacts['case.benefits_only']:null,
+            'vulnerable_client'=>array_key_exists('case.vulnerable_client',$caseFacts)?(bool)$caseFacts['case.vulnerable_client']:null,
+            'has_hmrc_debt'=>$lead->debts->contains(fn($debt)=>str_contains(mb_strtolower((string)($debt->creditor?->name ?? '')),'hmrc') || str_contains(mb_strtolower((string)($debt->creditor?->name ?? '')),'hm revenue')),
+            'gambling_band'=>$gamblingBand,
+            'voting_houses'=>$houses,
+            'creditors'=>$creditors,
+            'debt_products'=>$debtProducts,
+        ];
+    }
+
+    private function learnedGuidance(Lead $lead,string $key,array $voting,array $routeIe): array
+    {
+        $target=$this->learningSignature($lead,$voting,$routeIe);
+        $records=\Illuminate\Support\Facades\DB::table('decision_learning_records')
+            ->where('status','active')
+            ->orderByDesc('last_confirmed_at')->orderByDesc('id')->limit(250)->get();
+
+        $matched=[];
+        foreach ($records as $record) {
+            $row=(array)$record;
+            $row['case_context']=$record->case_context?json_decode($record->case_context,true):null;
+            $row['applicability']=$record->applicability?json_decode($record->applicability,true):null;
+
+            $route=$this->learningRouteRelevance($row,$key);
+            if (!$route['relevant']) continue;
+
+            if ((int)($record->lead_id ?? 0)===$lead->id) {
+                $score=1.0;
+                $reasons=['Same-case operator learning.'];
+                $scope='same_case';
+            } elseif ($record->lead_id===null) {
+                $score=$route['specific']?0.95:0.85;
+                $reasons=[$route['specific']?'Global guidance explicitly applies to this route.':'Global operator guidance.'];
+                $scope='global';
+            } else {
+                $candidate=data_get($row,'case_context.similarity_signature');
+                if (!is_array($candidate)) $candidate=$this->legacyLearningSignature($row['case_context'] ?? []);
+                [$score,$reasons,$matchedDimensions,$comparedDimensions,$strongMatches]=$this->learningSimilarity($target,$candidate);
+                $threshold=$route['specific']?0.55:0.65;
+                if ($comparedDimensions<3 || $matchedDimensions<2 || $strongMatches<1 || $score<$threshold) continue;
+                $scope='similar_case';
+            }
+
+            $row['match_score']=round($score,4);
+            $row['match_scope']=$scope;
+            $row['match_reasons']=$reasons;
+            $row['route_match']=$route['specific']?'route_specific':'general';
+            $row['provenance']='operator_learning';
+            $matched[]=$row;
+        }
+
+        usort($matched,function($a,$b){
+            $scopeOrder=['same_case'=>3,'global'=>2,'similar_case'=>1];
+            $scopeCmp=($scopeOrder[$b['match_scope']]??0)<=>($scopeOrder[$a['match_scope']]??0);
+            if ($scopeCmp!==0) return $scopeCmp;
+            $scoreCmp=($b['match_score']??0)<=>($a['match_score']??0);
+            if ($scoreCmp!==0) return $scoreCmp;
+            return ($b['id']??0)<=>($a['id']??0);
+        });
+
+        return array_slice($matched,0,20);
+    }
+
+    private function learningRouteRelevance(array $row,string $key): array
+    {
+        $text=mb_strtolower(implode(' ',array_filter([
+            $row['corrected_decision'] ?? null,
+            $row['original_decision'] ?? null,
+            $row['reason'] ?? null,
+            is_array($row['applicability'] ?? null)?json_encode($row['applicability']):($row['applicability'] ?? null),
+        ])));
+
+        $routeAliases=[
+            'zebra'=>['zebra'],
+            'lawson_fox'=>['lawson fox','lawson_fox','lawson'],
+            'anchorage_chambers'=>['anchorage chambers','anchorage_chambers','anchorage','ac'],
+            'assure'=>['assure'],
+            'tig'=>['tig'],
+        ];
+        $mentioned=[];
+        foreach ($routeAliases as $route=>$aliases) {
+            foreach ($aliases as $alias) {
+                $pattern='/\\b'.preg_quote($alias,'/').'\\b/u';
+                if (preg_match($pattern,$text)) {$mentioned[]=$route;break;}
+            }
+        }
+        $mentioned=array_values(array_unique($mentioned));
+        if (!$mentioned) return ['relevant'=>true,'specific'=>false];
+        return ['relevant'=>in_array($key,$mentioned,true),'specific'=>in_array($key,$mentioned,true)];
+    }
+
+    private function learningSimilarity(array $target,array $candidate): array
+    {
+        $score=0.0;$weight=0.0;$matchedDimensions=0;$comparedDimensions=0;$strongMatches=0;$reasons=[];
+
+        $scalars=[
+            'homeowner'=>0.16,'self_employed'=>0.16,'previous_iva'=>0.10,'partner_exists'=>0.12,
+            'immigration_group'=>0.10,'hmrc_majority'=>0.10,'benefits_only'=>0.07,
+            'vulnerable_client'=>0.06,'has_hmrc_debt'=>0.12,'gambling_band'=>0.08,'source'=>0.04,
+        ];
+        foreach ($scalars as $field=>$fieldWeight) {
+            if (!array_key_exists($field,$target) || !array_key_exists($field,$candidate)
+                || $target[$field]===null || $candidate[$field]===null) continue;
+            $weight+=$fieldWeight;$comparedDimensions++;
+            if ($target[$field]===$candidate[$field]) {
+                $score+=$fieldWeight;$matchedDimensions++;
+                if (in_array($field,['homeowner','self_employed','partner_exists','has_hmrc_debt','previous_iva','immigration_group','gambling_band'],true)) {
+                    $reasons[]=$this->learningMatchLabel($field,$target[$field]);
+                }
+                if (($field==='homeowner' && $target[$field]===true)
+                    || ($field==='self_employed' && $target[$field]===true)
+                    || ($field==='previous_iva' && $target[$field]===true)
+                    || ($field==='has_hmrc_debt' && $target[$field]===true)
+                    || ($field==='hmrc_majority' && $target[$field]===true)
+                    || ($field==='benefits_only' && $target[$field]===true)
+                    || ($field==='vulnerable_client' && $target[$field]===true)
+                    || ($field==='immigration_group' && $target[$field]==='non_british')
+                    || ($field==='gambling_band' && !in_array($target[$field],['none',null],true))) {
+                    $strongMatches++;
+                }
+            }
+        }
+
+        foreach ([['known_debt_total',0.12,'Similar total debt'],['disposable_income',0.10,'Similar disposable income']] as [$field,$fieldWeight,$label]) {
+            $a=$target[$field]??null;$b=$candidate[$field]??null;
+            if (!is_numeric($a) || !is_numeric($b)) continue;
+            $a=(float)$a;$b=(float)$b;
+            if ($field==='known_debt_total' && ($a<=0 || $b<=0)) continue;
+            $weight+=$fieldWeight;$comparedDimensions++;
+            $scale=max(100.0,abs($a),abs($b));
+            $closeness=max(0.0,1.0-(abs($a-$b)/$scale));
+            $score+=$fieldWeight*$closeness;
+            if ($closeness>=0.75) {$matchedDimensions++;$reasons[]=$label;}
+        }
+
+        foreach ([['voting_houses',0.25,'Overlapping voting-house exposure'],['creditors',0.20,'Overlapping creditors'],['debt_products',0.15,'Overlapping debt products']] as [$field,$fieldWeight,$label]) {
+            $a=array_values(array_filter((array)($target[$field]??[])));
+            $b=array_values(array_filter((array)($candidate[$field]??[])));
+            if (!$a || !$b) continue;
+            $weight+=$fieldWeight;$comparedDimensions++;
+            $similarity=$this->jaccard($a,$b);
+            $score+=$fieldWeight*$similarity;
+            if ($similarity>0) {
+                $matchedDimensions++;$reasons[]=$label;
+                if ($field==='creditors' || $field==='debt_products') $strongMatches++;
+                elseif ($field==='voting_houses') {
+                    $shared=array_intersect($a,$b);
+                    if (collect($shared)->contains(fn($house)=>!str_contains($house,'independent') && !str_contains($house,'ungrouped'))) $strongMatches++;
+                }
+            }
+        }
+
+        $final=$weight>0?$score/$weight:0.0;
+        return [$final,array_values(array_unique($reasons)),$matchedDimensions,$comparedDimensions,$strongMatches];
+    }
+
+    private function legacyLearningSignature(array $context): array
+    {
+        $facts=collect(data_get($context,'decision_facts.case_facts',[]))->mapWithKeys(
+            fn($value,$key)=>[$key=>$value['value'] ?? null]
+        )->all();
+        return [
+            'source'=>filled($context['source']??null)?mb_strtolower(trim((string)$context['source'])):null,
+            'known_debt_total'=>is_numeric($context['known_debt_total']??null)?(float)$context['known_debt_total']:null,
+            'disposable_income'=>is_numeric(data_get($context,'ie_calculation.disposable_income'))?(float)data_get($context,'ie_calculation.disposable_income'):null,
+            'homeowner'=>array_key_exists('property.is_homeowner',$facts)?(bool)$facts['property.is_homeowner']:null,
+            'self_employed'=>array_key_exists('case.self_employed',$facts)?(bool)$facts['case.self_employed']:null,
+            'previous_iva'=>array_key_exists('case.previous_iva',$facts)?(bool)$facts['case.previous_iva']:null,
+            'hmrc_majority'=>array_key_exists('case.hmrc_majority',$facts)?(bool)$facts['case.hmrc_majority']:null,
+            'benefits_only'=>array_key_exists('case.benefits_only',$facts)?(bool)$facts['case.benefits_only']:null,
+            'vulnerable_client'=>array_key_exists('case.vulnerable_client',$facts)?(bool)$facts['case.vulnerable_client']:null,
+            'voting_houses'=>collect($context['voting_house_exposure']??[])->pluck('name')->filter()->map(fn($x)=>mb_strtolower(trim((string)$x)))->unique()->values()->all(),
+        ];
+    }
+
+    private function jaccard(array $a,array $b): float
+    {
+        $a=array_values(array_unique(array_map(fn($x)=>mb_strtolower(trim((string)$x)),$a)));
+        $b=array_values(array_unique(array_map(fn($x)=>mb_strtolower(trim((string)$x)),$b)));
+        $union=array_unique(array_merge($a,$b));
+        if (!$union) return 0.0;
+        return count(array_intersect($a,$b))/count($union);
+    }
+
+    private function learningMatchLabel(string $field,mixed $value): string
+    {
+        return match($field) {
+            'homeowner'=>(bool)$value?'Both cases are homeowner cases.':'Both cases are non-homeowner cases.',
+            'self_employed'=>(bool)$value?'Both cases are self-employed.':'Both cases are not recorded as self-employed.',
+            'partner_exists'=>(bool)$value?'Both cases include a partner.':'Both cases are single-client households.',
+            'has_hmrc_debt'=>(bool)$value?'Both cases include HMRC debt.':'Neither case includes an HMRC debt.',
+            'previous_iva'=>(bool)$value?'Both cases have previous IVA history.':'Neither case is recorded with previous IVA history.',
+            'immigration_group'=>'Same immigration-status grouping.',
+            'gambling_band'=>'Same gambling band.',
+            default=>'Matching '.$field.'.',
+        };
+    }
 
     public function auditDecisionKnowledge(?Lead $lead = null, ?string $destination = null): array
     {
