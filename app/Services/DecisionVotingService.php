@@ -68,6 +68,120 @@ class DecisionVotingService
         ];
     }
 
+
+    public function snapshot(Lead $lead, ?string $partnerKey = null, ?string $ipKey = null): array
+    {
+        $analysis = $this->analyse($lead, $partnerKey, $ipKey);
+
+        return DB::transaction(function () use ($lead, $partnerKey, $ipKey, $analysis) {
+            $snapshotId = DB::table('lead_voting_snapshots')->insertGetId([
+                'lead_id' => $lead->id,
+                'partner_key' => $partnerKey,
+                'ip_key' => $ipKey,
+                'qualifying_debt_total' => $analysis['qualifying_debt_total'],
+                'summary' => json_encode([
+                    'houses' => $analysis['houses'],
+                    'unresolved_representative_count' => $analysis['unresolved_representative_count'],
+                    'unresolved_voting_debt_total' => $analysis['unresolved_voting_debt_total'],
+                    'unresolved_voting_percent' => $analysis['unresolved_voting_percent'],
+                ]),
+                'assessed_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            foreach ($analysis['debts'] as $debt) {
+                $houseId = null;
+                if ($debt['voting_house'] !== 'Unresolved representative') {
+                    $houseId = DB::table('voting_houses')->whereRaw('LOWER(`key`) = ?', [strtolower((string)$debt['voting_house'])])->value('id');
+                }
+
+                DB::table('lead_voting_snapshot_debts')->insert([
+                    'snapshot_id' => $snapshotId,
+                    'debt_id' => $debt['debt_id'],
+                    'creditor_id' => $debt['creditor_id'],
+                    'voting_house_id' => $houseId,
+                    'balance' => $debt['balance'],
+                    'voting_percent' => $debt['percent_of_known_debt'],
+                    'applicable_rule_ids' => json_encode(array_values(array_unique(array_map(
+                        fn($r) => $r['id'],
+                        array_merge($debt['applicable_rules'] ?? [], $debt['supporting_company_rules'] ?? [])
+                    )))),
+                    'assessment' => json_encode([
+                        'voting_house' => $debt['voting_house'],
+                        'route_source' => $debt['route_source'],
+                        'route_candidates' => $debt['route_candidates'] ?? [],
+                        'route_conflict' => $debt['route_conflict'] ?? false,
+                        'route_conflict_reason' => $debt['route_conflict_reason'] ?? null,
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            return [
+                'success' => true,
+                'snapshot_id' => $snapshotId,
+                'lead_id' => $lead->id,
+                'partner_key' => $partnerKey,
+                'ip_key' => $ipKey,
+                'qualifying_debt_total' => $analysis['qualifying_debt_total'],
+                'unresolved_representative_count' => $analysis['unresolved_representative_count'],
+            ];
+        });
+    }
+
+    public function auditKnowledge(?Lead $lead = null, ?string $partnerKey = null): array
+    {
+        $unmatched = DB::table('decision_creditor_source_rows')
+            ->whereNull('creditor_id')
+            ->orderBy('source_name')->orderBy('sheet')->orderBy('source_row')
+            ->get(['source_name','sheet','source_row','partner_key','creditor_name_raw','representative_key','status_text','detail_text'])
+            ->map(fn($r)=>(array)$r)->all();
+
+        $conflicts = DB::table('creditor_voting_routes as r')
+            ->join('creditors as c','c.id','=','r.creditor_id')
+            ->join('voting_houses as h','h.id','=','r.voting_house_id')
+            ->where('r.is_active',true)->whereNotNull('r.partner_key')
+            ->whereNotNull('r.source_id')
+            ->select('r.creditor_id','c.name','r.partner_key',
+                DB::raw('COUNT(DISTINCT h.key) as house_count'),
+                DB::raw('GROUP_CONCAT(DISTINCT h.key ORDER BY h.key SEPARATOR ", ") as houses'))
+            ->groupBy('r.creditor_id','c.name','r.partner_key')
+            ->having('house_count','>',1)
+            ->orderBy('r.partner_key')->orderBy('c.name')
+            ->get()->map(fn($r)=>(array)$r)->all();
+
+        $sources = DB::table('decision_rule_sources as s')
+            ->select('s.name','s.sheet',DB::raw('COUNT(*) as source_rows'))
+            ->where('s.source_type','workbook_decision_engine')
+            ->groupBy('s.name','s.sheet')->orderBy('s.name')->orderBy('s.sheet')
+            ->get()->map(fn($r)=>(array)$r)->all();
+
+        $case = null;
+        if ($lead) {
+            $caseAnalysis = $this->analyse($lead, $partnerKey, null);
+            $case = [
+                'lead_id'=>$lead->id,
+                'partner_key'=>$partnerKey,
+                'unresolved_representative_count'=>$caseAnalysis['unresolved_representative_count'],
+                'unresolved_voting_debt_total'=>$caseAnalysis['unresolved_voting_debt_total'],
+                'unresolved_voting_percent'=>$caseAnalysis['unresolved_voting_percent'],
+                'conflicted_debts'=>collect($caseAnalysis['debts'])->filter(fn($d)=>$d['route_conflict']??false)->values()->all(),
+            ];
+        }
+
+        return [
+            'unmatched_source_rows'=>$unmatched,
+            'unmatched_source_row_count'=>count($unmatched),
+            'multi_representative_mappings'=>$conflicts,
+            'multi_representative_mapping_count'=>count($conflicts),
+            'source_coverage'=>$sources,
+            'case_audit'=>$case,
+            'instruction'=>'Unmatched and conflicting source knowledge is intentionally retained. Do not invent a creditor match or choose between equally preferred representative mappings without a deterministic product/account condition or operator ruling.',
+        ];
+    }
+
     private function resolveRoute(int $creditorId, ?string $partnerKey, ?string $ipKey): array
     {
         if (!Schema::hasTable('creditor_voting_routes')) return [];

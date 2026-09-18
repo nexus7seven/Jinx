@@ -51,11 +51,7 @@ class JinxAgentIvaService
 
     public function analyseRoute(Lead $lead, string $destination): array
     {
-        $key = match (strtolower(trim($destination))) {
-            'zebra' => 'zebra', 'lawson fox', 'lawson', 'lawson_fox' => 'lawson_fox',
-            'assure' => 'assure', 'tig' => 'tig',
-            default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, Assure or TIG.'),
-        };
+        $key = $this->destinationKey($destination);
         $lead->loadMissing('debts.creditor');
         $voting = $this->voting->analyse($lead, $key, null);
         $general = \Illuminate\Support\Facades\DB::table('decision_rules as r')
@@ -95,6 +91,30 @@ class JinxAgentIvaService
             'general_route_rules'=>$general, 'company_supporting_rules'=>$company, 'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
             'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and relevant learned guidance. Authoritative workbook/internal rules remain distinct from operator corrections, techniques and precedents; learned guidance may refine reasoning but must not be presented as an official rule.',
         ];
+    }
+
+
+    public function auditDecisionKnowledge(?Lead $lead = null, ?string $destination = null): array
+    {
+        $key = $destination ? $this->destinationKey($destination) : null;
+        return $this->voting->auditKnowledge($lead, $key);
+    }
+
+    public function recordVotingSnapshot(Lead $lead, string $destination): array
+    {
+        $key = $this->destinationKey($destination);
+        return $this->voting->snapshot($lead, $key, null);
+    }
+
+    private function destinationKey(string $destination): string
+    {
+        return match (strtolower(trim($destination))) {
+            'zebra' => 'zebra',
+            'lawson fox', 'lawson', 'lawson_fox' => 'lawson_fox',
+            'assure' => 'assure',
+            'tig' => 'tig',
+            default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, Assure or TIG.'),
+        };
     }
 
     public function targetDi(float $debt,float $dividend,int $months=60): array
