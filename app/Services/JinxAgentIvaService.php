@@ -6,7 +6,7 @@ use RuntimeException;
 
 class JinxAgentIvaService
 {
-    public function __construct(private readonly FinancialStatementService $statements, private readonly AssistantIeCalculationService $calculator, private readonly AssistantLeadFactSyncService $sync, private readonly PartnerKnowledgeService $knowledge) {}
+    public function __construct(private readonly FinancialStatementService $statements, private readonly AssistantIeCalculationService $calculator, private readonly AssistantLeadFactSyncService $sync, private readonly PartnerKnowledgeService $knowledge, private readonly DecisionVotingService $voting) {}
 
     public function facts(Lead $lead): array
     {
@@ -43,9 +43,9 @@ class JinxAgentIvaService
     public function review(Lead $lead): array
     {
         $lead->loadMissing('debts.creditor');$facts=$this->facts($lead);$profile=$this->knowledge->profile($lead->source,$facts);$snapshot=$this->calculator->snapshot($facts,$profile);$total=(float)$lead->debts->sum('balance');
-        $houses=$lead->debts->groupBy(fn($d)=>trim((string)($d->creditor?->voting_house?:'Independent / ungrouped')))->map(function($rows,$name)use($total){$balance=(float)$rows->sum('balance');return ['name'=>$name,'balance'=>$balance,'percent_of_known_debt'=>$total>0?round($balance/$total*100,1):0,'creditors'=>$rows->map(fn($d)=>$d->creditor?->name)->filter()->values()->all()];})->values()->all();
+        $voting=$this->voting->analyse($lead,$profile['partner']??null,$profile['ip']??null);
         $check=\App\Models\LeadChecklistItem::where('lead_id',$lead->id)->get()->map(fn($i)=>['item_id'=>$i->id,'item'=>$i->item_name,'complete'=>(bool)$i->is_complete])->all();
-        return ['lead_id'=>$lead->id,'name'=>$lead->formattedName(),'source'=>$lead->source,'profile'=>['partner'=>$profile['partner'],'ip'=>$profile['ip'],'basis'=>$profile['partner_basis']],'estimated_total_debt'=>$lead->estimated_total_debt,'known_debt_total'=>$total,'ie'=>$snapshot,'checklist'=>$check,'outstanding_checklist'=>array_values(array_filter($check,fn($x)=>!$x['complete'])),'voting_house_exposure'=>$houses,'instruction'=>'Use search_internal_knowledge for the applicable partner/IP rules before making a packaging assessment.'];
+        return ['lead_id'=>$lead->id,'name'=>$lead->formattedName(),'source'=>$lead->source,'profile'=>['partner'=>$profile['partner'],'ip'=>$profile['ip'],'basis'=>$profile['partner_basis']],'estimated_total_debt'=>$lead->estimated_total_debt,'known_debt_total'=>$total,'ie'=>$snapshot,'checklist'=>$check,'outstanding_checklist'=>array_values(array_filter($check,fn($x)=>!$x['complete'])),'voting_house_exposure'=>$voting['houses'],'voting_analysis'=>$voting,'instruction'=>'Use sourced decision rules and internal knowledge for the applicable partner/IP before making a packaging assessment. Voting-rule non-compliance is not automatically a rejection: assess its consequence against the whole voting position.'];
     }
 
     public function targetDi(float $debt,float $dividend,int $months=60): array
