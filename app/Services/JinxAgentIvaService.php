@@ -61,9 +61,18 @@ class JinxAgentIvaService
         $general = \Illuminate\Support\Facades\DB::table('decision_rules as r')
             ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
             ->where('r.is_active',true)->where('r.partner_key',$key)
-            ->whereNull('r.voting_house_id')
-            ->select('r.id','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
+            ->whereNull('r.voting_house_id')->whereNull('r.creditor_id')
+            ->select('r.id','r.scope_type','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
             ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all();
+
+        $company = in_array($key,['assure','lawson_fox','tig'],true)
+            ? \Illuminate\Support\Facades\DB::table('decision_rules as r')
+                ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
+                ->where('r.is_active',true)->where('r.partner_key','avondale_ac')
+                ->whereNull('r.voting_house_id')->whereNull('r.creditor_id')
+                ->select('r.id','r.scope_type','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
+                ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all()
+            : [];
 
         $learning = \Illuminate\Support\Facades\DB::table('decision_learning_records')
             ->where('status','active')
@@ -83,7 +92,7 @@ class JinxAgentIvaService
         return [
             'lead_id'=>$lead->id, 'destination'=>$destination, 'destination_key'=>$key,
             'known_debt_total'=>$voting['qualifying_debt_total'], 'voting_house_exposure'=>$voting['houses'],
-            'general_route_rules'=>$general, 'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
+            'general_route_rules'=>$general, 'company_supporting_rules'=>$company, 'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
             'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and relevant learned guidance. Authoritative workbook/internal rules remain distinct from operator corrections, techniques and precedents; learned guidance may refine reasoning but must not be presented as an official rule.',
         ];
     }
