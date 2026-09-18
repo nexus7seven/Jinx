@@ -48,6 +48,31 @@ class JinxAgentIvaService
         return ['lead_id'=>$lead->id,'name'=>$lead->formattedName(),'source'=>$lead->source,'profile'=>['partner'=>$profile['partner'],'ip'=>$profile['ip'],'basis'=>$profile['partner_basis']],'estimated_total_debt'=>$lead->estimated_total_debt,'known_debt_total'=>$total,'ie'=>$snapshot,'checklist'=>$check,'outstanding_checklist'=>array_values(array_filter($check,fn($x)=>!$x['complete'])),'voting_house_exposure'=>$voting['houses'],'voting_analysis'=>$voting,'instruction'=>'Use sourced decision rules and internal knowledge for the applicable partner/IP before making a packaging assessment. Voting-rule non-compliance is not automatically a rejection: assess its consequence against the whole voting position.'];
     }
 
+
+    public function analyseRoute(Lead $lead, string $destination): array
+    {
+        $key = match (strtolower(trim($destination))) {
+            'zebra' => 'zebra', 'lawson fox', 'lawson', 'lawson_fox' => 'lawson_fox',
+            'assure' => 'assure', 'tig' => 'tig',
+            default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, Assure or TIG.'),
+        };
+        $lead->loadMissing('debts.creditor');
+        $voting = $this->voting->analyse($lead, $key, null);
+        $general = \Illuminate\Support\Facades\DB::table('decision_rules as r')
+            ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
+            ->where('r.is_active',true)->where('r.partner_key',$key)
+            ->whereNull('r.voting_house_id')
+            ->select('r.id','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
+            ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all();
+
+        return [
+            'lead_id'=>$lead->id, 'destination'=>$destination, 'destination_key'=>$key,
+            'known_debt_total'=>$voting['qualifying_debt_total'], 'voting_house_exposure'=>$voting['houses'],
+            'general_route_rules'=>$general, 'debt_voting_analysis'=>$voting['debts'],
+            'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and any relevant learned precedent. Distinguish workbook rules from internal instructions.',
+        ];
+    }
+
     public function targetDi(float $debt,float $dividend,int $months=60): array
     {if($debt<0||$dividend<=0||$dividend>100||$months<1)throw new RuntimeException('Invalid target DI inputs.');$fee=3935.0;$di=round((($debt+$fee)*($dividend/100))/$months,2);return ['debt'=>$debt,'base_fees'=>$fee,'dividend_percent'=>$dividend,'months'=>$months,'target_di'=>$di];}
 
