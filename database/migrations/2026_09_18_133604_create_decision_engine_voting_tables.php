@@ -113,13 +113,19 @@ return new class extends Migration
         });
 
         // Preserve the old hybrid creditor fields, but seed the new unlimited route model from them.
-        $houses = DB::table('voting_houses')->pluck('id', 'key');
+        $houses = DB::table('voting_houses')->get()->mapWithKeys(
+            fn ($house) => [mb_strtolower(trim((string) $house->key)) => $house->id]
+        );
         DB::table('creditors')->orderBy('id')->get()->each(function ($creditor) use ($houses) {
             $key = trim((string) $creditor->voting_house);
             if ($key === '') return;
-            $houseId = $houses[$key] ?? DB::table('voting_houses')->insertGetId([
-                'key' => $key, 'rules_text' => null, 'created_at' => now(), 'updated_at' => now(),
-            ]);
+            $normalisedKey = mb_strtolower($key);
+            if (!$houses->has($normalisedKey)) {
+                $houses->put($normalisedKey, DB::table('voting_houses')->insertGetId([
+                    'key' => $key, 'rules_text' => null, 'created_at' => now(), 'updated_at' => now(),
+                ]));
+            }
+            $houseId = $houses[$normalisedKey];
             DB::table('creditor_voting_routes')->insert([
                 'creditor_id' => $creditor->id,
                 'voting_house_id' => $houseId,
