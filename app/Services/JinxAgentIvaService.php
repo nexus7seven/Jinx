@@ -65,11 +65,26 @@ class JinxAgentIvaService
             ->select('r.id','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
             ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all();
 
+        $learning = \Illuminate\Support\Facades\DB::table('decision_learning_records')
+            ->where('status','active')
+            ->where(function($q) use ($lead) {
+                $q->where('lead_id',$lead->id)->orWhereNull('lead_id');
+            })
+            ->where(function($q) use ($key) {
+                $q->where('corrected_decision','like','%'.$key.'%')
+                  ->orWhere('original_decision','like','%'.$key.'%')
+                  ->orWhere('reason','like','%'.$key.'%')
+                  ->orWhereNull('corrected_decision');
+            })
+            ->orderByRaw('CASE WHEN lead_id = ? THEN 0 ELSE 1 END',[$lead->id])
+            ->orderByDesc('last_confirmed_at')->limit(20)->get()
+            ->map(function($r){$x=(array)$r;$x['case_context']=$r->case_context?json_decode($r->case_context,true):null;$x['applicability']=$r->applicability?json_decode($r->applicability,true):null;return $x;})->all();
+
         return [
             'lead_id'=>$lead->id, 'destination'=>$destination, 'destination_key'=>$key,
             'known_debt_total'=>$voting['qualifying_debt_total'], 'voting_house_exposure'=>$voting['houses'],
-            'general_route_rules'=>$general, 'debt_voting_analysis'=>$voting['debts'],
-            'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and any relevant learned precedent. Distinguish workbook rules from internal instructions.',
+            'general_route_rules'=>$general, 'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
+            'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and relevant learned guidance. Authoritative workbook/internal rules remain distinct from operator corrections, techniques and precedents; learned guidance may refine reasoning but must not be presented as an official rule.',
         ];
     }
 
