@@ -39,8 +39,14 @@ class ImportDecisionCreditorIntelligence extends Command
             $houses[strtolower($h)] = DB::table('voting_houses')->insertGetId(['key'=>$h,'created_at'=>now(),'updated_at'=>now()]);
         }
 
-        $stats=['rows'=>0,'matched'=>0,'unmatched'=>0,'rules'=>0,'routes'=>0,'representative_rules'=>0,'general_rules'=>0];
-        DB::transaction(function() use ($data,$match,$houses,&$stats) {
+        $ignoredNames = collect([
+            'Laser at The Insolvency Exchange',
+            'Mercer & Hughes Veterinary Surgeons',
+        ])->map(fn($x)=>$this->norm($x))->all();
+        $isIgnored = fn(string $name): bool => in_array($this->norm($name), $ignoredNames, true);
+
+        $stats=['rows'=>0,'matched'=>0,'unmatched'=>0,'ignored'=>0,'rules'=>0,'routes'=>0,'representative_rules'=>0,'general_rules'=>0];
+        DB::transaction(function() use ($data,$match,$isIgnored,$houses,&$stats) {
             $oldSources=DB::table('decision_rule_sources')->whereIn('source_type',['workbook_creditor_intelligence','workbook_decision_engine'])->pluck('id');
             DB::table('creditor_voting_routes')->whereIn('source_id',$oldSources)->delete();
             DB::table('decision_rules')->whereIn('source_id',$oldSources)->delete();
@@ -48,6 +54,10 @@ class ImportDecisionCreditorIntelligence extends Command
             DB::table('decision_creditor_source_rows')->delete();
 
             foreach ($data['creditor_rules'] as $r) {
+                if ($isIgnored($r['name'])) {
+                    $this->sourceRow($r,['id'=>null,'method'=>'ignored_by_operator'],null,null);
+                    $stats['rows']++; $stats['ignored']++; continue;
+                }
                 $matched=$match($r['name']);
                 $rowId=$this->sourceRow($r,$matched,null,null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
                 if (!$matched) continue;
@@ -66,6 +76,10 @@ class ImportDecisionCreditorIntelligence extends Command
             }
 
             foreach ($data['explicit_routes'] as $r) {
+                if ($isIgnored($r['name'])) {
+                    $this->sourceRow($r,['id'=>null,'method'=>'ignored_by_operator'],$r['house'],null);
+                    $stats['rows']++; $stats['ignored']++; continue;
+                }
                 $matched=$match($r['name']);
                 $this->sourceRow($r,$matched,$r['house'],null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
                 if (!$matched) continue;
@@ -75,6 +89,10 @@ class ImportDecisionCreditorIntelligence extends Command
             }
 
             foreach ($data['representative_catalog'] as $r) {
+                if ($isIgnored($r['name'])) {
+                    $this->sourceRow($r,['id'=>null,'method'=>'ignored_by_operator'],$r['house'],$r['data']??null);
+                    $stats['rows']++; $stats['ignored']++; continue;
+                }
                 $matched=$match($r['name']);
                 $this->sourceRow($r,$matched,$r['house'],$r['data']??null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
                 if (!$matched) continue;

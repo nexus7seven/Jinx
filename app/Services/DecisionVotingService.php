@@ -5,9 +5,12 @@ namespace App\Services;
 use App\Models\Lead;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class DecisionVotingService
 {
+    public function __construct(private readonly DecisionCaseFactService $facts) {}
+
     public function analyse(Lead $lead, ?string $partnerKey = null, ?string $ipKey = null): array
     {
         $lead->loadMissing('debts.creditor');
@@ -16,7 +19,11 @@ class DecisionVotingService
         $houseTotals = [];
 
         foreach ($lead->debts as $debt) {
-            $route = $this->resolveRoute((int) $debt->creditor_id, $partnerKey, $ipKey);
+            $debtFacts = $this->facts->debtValues($debt);
+            $override = $debtFacts['voting.representative_override'] ?? null;
+            $route = $override
+                ? $this->overrideRoute((string)$override)
+                : $this->resolveRoute((int) $debt->creditor_id, $partnerKey, $ipKey, $debtFacts, $debt->reference);
             $house = $route['house'] ?? ($route['unresolved'] ?? false ? 'Unresolved representative' : trim((string) ($debt->creditor?->voting_house ?: 'Independent / ungrouped')));
             $balance = (float) $debt->balance;
             $percent = $total > 0 ? round(($balance / $total) * 100, 4) : 0.0;
@@ -37,6 +44,7 @@ class DecisionVotingService
                 'route_candidates' => $route['candidates'] ?? [],
                 'route_conflict' => $route['conflict'] ?? false,
                 'route_conflict_reason' => $route['conflict_reason'] ?? null,
+                'route_resolution' => $route['resolution'] ?? null,
                 'applicable_rules' => $rules,
                 'supporting_company_rules' => $companyRules,
             ];
@@ -113,6 +121,7 @@ class DecisionVotingService
                         'route_candidates' => $debt['route_candidates'] ?? [],
                         'route_conflict' => $debt['route_conflict'] ?? false,
                         'route_conflict_reason' => $debt['route_conflict_reason'] ?? null,
+                        'route_resolution' => $debt['route_resolution'] ?? null,
                     ]),
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -135,6 +144,7 @@ class DecisionVotingService
     {
         $unmatched = DB::table('decision_creditor_source_rows')
             ->whereNull('creditor_id')
+            ->where('match_method','!=','ignored_by_operator')
             ->orderBy('source_name')->orderBy('sheet')->orderBy('source_row')
             ->get(['source_name','sheet','source_row','partner_key','creditor_name_raw','representative_key','status_text','detail_text'])
             ->map(fn($r)=>(array)$r)->all();
@@ -182,7 +192,33 @@ class DecisionVotingService
         ];
     }
 
-    private function resolveRoute(int $creditorId, ?string $partnerKey, ?string $ipKey): array
+
+    private function overrideRoute(string $house): array
+    {
+        $row = DB::table('voting_houses')->whereRaw('LOWER(`key`) = ?', [strtolower(trim($house))])->first(['id','key']);
+        if (!$row) {
+            return [
+                'source'=>'unresolved_conflict',
+                'unresolved'=>true,
+                'conflict'=>true,
+                'conflict_reason'=>'The recorded representative override does not match a known voting house.',
+                'candidates'=>[['house'=>$house,'source_type'=>'operator_override','selected'=>false]],
+            ];
+        }
+
+        return [
+            'id'=>null,
+            'voting_house_id'=>$row->id,
+            'house'=>$row->key,
+            'source'=>'operator_override',
+            'candidates'=>[['route_id'=>null,'house'=>$row->key,'partner_key'=>null,'priority'=>0,'condition'=>'Explicit debt-level operator override','source_type'=>'operator_override','source_name'=>'decision_case_fact','source_sheet'=>null,'source_location'=>null,'selected'=>true]],
+            'conflict'=>false,
+            'unresolved'=>false,
+            'conflict_reason'=>null,
+        ];
+    }
+
+    private function resolveRoute(int $creditorId, ?string $partnerKey, ?string $ipKey, array $debtFacts = [], ?string $reference = null): array
     {
         if (!Schema::hasTable('creditor_voting_routes')) return [];
 
@@ -200,7 +236,7 @@ class DecisionVotingService
                 if ($isAvondale) $q->orWhere('r.partner_key','avondale_ac');
             })
             ->where(fn($q) => $q->whereNull('r.ip_key')->orWhere('r.ip_key', $ipKey))
-            ->select('r.*','h.key as house','s.source_type','s.name as source_name','s.sheet as source_sheet','s.location as source_location')
+            ->select('r.*','h.key as house','s.source_type','s.name as source_name','s.sheet as source_sheet','s.location as source_location','s.original_text as source_original_text')
             ->get()
             ->map(function($r) use ($partnerKey,$isAvondale) {
                 $r->scope_rank = $r->partner_key === $partnerKey ? 0 : (($isAvondale && $r->partner_key === 'avondale_ac') ? 1 : 2);
@@ -215,32 +251,141 @@ class DecisionVotingService
         $pool = $sourced->isNotEmpty() ? $sourced : $query;
         $bestScope = (int)$pool->min('scope_rank');
         $scopePool = $pool->where('scope_rank',$bestScope)->values();
-        $bestPriority = (int)$scopePool->min('priority');
-        $best = $scopePool->where('priority',$bestPriority)->values();
-        $bestHouses = $best->pluck('house')->filter()->unique()->values();
+
+        $product = trim((string)($debtFacts['debt.product_type'] ?? ''));
+        $specificMatches = collect();
+        if ($product !== '') {
+            $specificMatches = $scopePool->filter(function($r) use ($product,$reference) {
+                $match=$this->candidateDebtMatch($r,$product,$reference);
+                return $match['specific'] && $match['matches'];
+            })->values();
+        }
+
+        $resolution = null;
+        if ($specificMatches->isNotEmpty()) {
+            $matchedHouses=$specificMatches->pluck('house')->filter()->unique()->values();
+            if ($matchedHouses->count() === 1) {
+                $route=$specificMatches->sortBy(fn($r)=>sprintf('%04d-%01d',$r->priority,$r->is_default?0:1))->first();
+                $unresolved=false;
+                $resolution='Resolved from recorded debt product/account facts.';
+            } else {
+                $route=null;
+                $unresolved=true;
+                $resolution='Recorded debt product/account facts still match more than one representative.';
+            }
+        } else {
+            $bestPriority = (int)$scopePool->min('priority');
+            $best = $scopePool->where('priority',$bestPriority)->values();
+            $bestHouses = $best->pluck('house')->filter()->unique()->values();
+            $unresolved = $bestHouses->count() > 1;
+            $route = $unresolved ? null : $best->first();
+        }
+
         $allHouses = $pool->pluck('house')->filter()->unique()->values();
         $conflict = $allHouses->count() > 1;
-        $unresolved = $bestHouses->count() > 1;
-        $route = $unresolved ? null : $best->first();
 
-        $candidates = $pool->map(fn($r)=>[
-            'route_id'=>$r->id,'house'=>$r->house,'partner_key'=>$r->partner_key,'priority'=>$r->priority,
-            'condition'=>$r->condition_text,'source_type'=>$r->source_type,'source_name'=>$r->source_name,
-            'source_sheet'=>$r->source_sheet,'source_location'=>$r->source_location,'selected'=>$route && $route->id===$r->id,
-        ])->all();
+        $candidates = $pool->map(function($r) use ($route,$product,$reference) {
+            $match=$product!=='' ? $this->candidateDebtMatch($r,$product,$reference) : ['specific'=>false,'matches'=>false,'reasons'=>[]];
+            return [
+                'route_id'=>$r->id,'house'=>$r->house,'partner_key'=>$r->partner_key,'priority'=>$r->priority,
+                'condition'=>$r->condition_text,'source_type'=>$r->source_type,'source_name'=>$r->source_name,
+                'source_sheet'=>$r->source_sheet,'source_location'=>$r->source_location,
+                'debt_fact_specific'=>$match['specific'],'debt_fact_match'=>$match['matches'],'debt_fact_match_reasons'=>$match['reasons'],
+                'selected'=>$route && $route->id===$r->id,
+            ];
+        })->all();
 
         return [
             'id' => $route?->id,
             'voting_house_id' => $route?->voting_house_id,
             'house' => $route?->house,
-            'source' => $route ? ($route->source_id ? 'sourced_route' : 'migrated_or_manual_route') : 'unresolved_conflict',
+            'source' => $route
+                ? ($resolution ? 'sourced_route_resolved_by_debt_fact' : ($route->source_id ? 'sourced_route' : 'migrated_or_manual_route'))
+                : 'unresolved_conflict',
             'candidates' => $candidates,
             'conflict' => $conflict,
             'unresolved' => $unresolved,
+            'resolution'=>$resolution,
             'conflict_reason' => $unresolved
-                ? 'Multiple equally preferred sourced representative mappings apply; account/product detail or an operator ruling is required.'
-                : ($conflict ? 'Lower-precedence source mappings disagree with the selected mapping; the conflict is retained for audit.' : null),
+                ? ($product === ''
+                    ? 'Multiple equally preferred sourced representative mappings apply; record the debt product/account detail or an operator ruling.'
+                    : 'Multiple sourced representative mappings still apply after checking the recorded debt product/account detail; an operator ruling is required.')
+                : ($conflict
+                    ? ($resolution ?: 'Lower-precedence source mappings disagree with the selected mapping; the conflict is retained for audit.')
+                    : null),
         ];
+    }
+
+    private function candidateDebtMatch(object $route, string $product, ?string $reference): array
+    {
+        $text=trim(implode(' | ',array_filter([
+            $route->debt_type ?? null,
+            $route->condition_text ?? null,
+            $route->source_original_text ?? null,
+        ])));
+        $specific=false;$matches=true;$reasons=[];
+
+        $routeProduct=null;
+        if (preg_match('/(?:account_type|product_type)\s*:\s*([^|]+)/i',$text,$m)) {
+            $routeProduct=trim($m[1]);
+        } elseif (filled($route->debt_type ?? null)) {
+            $routeProduct=trim((string)$route->debt_type);
+        }
+
+        if ($routeProduct !== null && $routeProduct !== '') {
+            $specific=true;
+            $wanted=$this->canonicalProduct($routeProduct);
+            $actual=$this->canonicalProduct($product);
+            $productMatch=$wanted!=='' && $actual!=='' && $wanted===$actual;
+            $matches=$matches && $productMatch;
+            $reasons[]='product '.($productMatch?'matches':'does not match').' (case: '.$product.'; route: '.$routeProduct.')';
+        }
+
+        if (preg_match('/\bdigits\s*:\s*(\d+)\b/i',$text,$m)) {
+            $specific=true;
+            $requiredDigits=(int)$m[1];
+            $actualDigits=preg_replace('/\D+/','',(string)$reference) ?? '';
+            if ($actualDigits !== '') {
+                $lengthMatch=strlen($actualDigits)===$requiredDigits;
+                $matches=$matches && $lengthMatch;
+                $reasons[]='reference digit length '.($lengthMatch?'matches':'does not match').' (case: '.strlen($actualDigits).'; route: '.$requiredDigits.')';
+            } else {
+                $matches=false;
+                $reasons[]='route requires a '.$requiredDigits.'-digit reference but no debt reference is recorded';
+            }
+        }
+
+        if (preg_match('/prefixes_comments\s*:\s*([^|]+)/i',$text,$m)
+            && preg_match('/beginning\s+([0-9\/,\s]+)/i',$m[1],$prefixMatch)) {
+            $specific=true;
+            $prefixes=array_values(array_filter(preg_split('/[^0-9]+/',$prefixMatch[1])?:[]));
+            $actualDigits=preg_replace('/\D+/','',(string)$reference) ?? '';
+            if ($actualDigits==='') {
+                $matches=false;
+                $reasons[]='route has an explicit reference-prefix condition but no debt reference is recorded';
+            } else {
+                $prefixOk=collect($prefixes)->contains(fn($prefix)=>str_starts_with($actualDigits,$prefix));
+                $matches=$matches && $prefixOk;
+                $reasons[]='reference prefix '.($prefixOk?'matches':'does not match').' route prefix condition';
+            }
+        }
+
+        return ['specific'=>$specific,'matches'=>$matches,'reasons'=>$reasons];
+    }
+
+    private function canonicalProduct(string $value): string
+    {
+        $v=Str::of(Str::ascii(Str::lower($value)))->replaceMatches('/[^a-z0-9]+/',' ')->squish()->toString();
+        if (str_contains($v,'credit card') || str_contains($v,'mastercard') || str_contains($v,'visa card')) return 'credit_card';
+        if (str_contains($v,'personal loan') || preg_match('/\bloan\b/',$v)) return 'loan';
+        if (str_contains($v,'catalog')) return 'catalogue';
+        if (str_contains($v,'overdraft')) return 'overdraft';
+        if (str_contains($v,'hire purchase') || preg_match('/\bhp\b/',$v) || str_contains($v,'pcp')) return 'vehicle_finance';
+        if (str_contains($v,'mortgage')) return 'mortgage';
+        if (str_contains($v,'payday')) return 'payday_loan';
+        if (str_contains($v,'mobile')) return 'mobile';
+        if (str_contains($v,'utility') || str_contains($v,'energy')) return 'utility';
+        return str_replace(' ','_',$v);
     }
 
     private function rulesFor(int $creditorId, ?int $houseId, ?string $partnerKey, ?string $ipKey): array

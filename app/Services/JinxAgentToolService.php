@@ -15,7 +15,17 @@ use RuntimeException;
 
 class JinxAgentToolService
 {
-    public function __construct(private readonly VicidialCallbackService $callbacks, private readonly VicidialLeadImportService $leadImporter, private readonly JinxAgentIvaService $iva, private readonly LeadDebtService $debtService, private readonly LeadChecklistService $checklists) {}
+    public function __construct(
+        private readonly VicidialCallbackService $callbacks,
+        private readonly VicidialLeadImportService $leadImporter,
+        private readonly JinxAgentIvaService $iva,
+        private readonly LeadDebtService $debtService,
+        private readonly LeadChecklistService $checklists,
+        private readonly DecisionCaseFactService $decisionFacts,
+        private readonly IvaDecisionEngineService $decisionEngine,
+        private readonly PropertyDecisionService $propertyDecision,
+        private readonly RefreshDmpDecisionService $dmpDecision,
+    ) {}
 
     public function definitions(): array
     {
@@ -48,9 +58,19 @@ class JinxAgentToolService
             $this->fn('update_ie_fact','Write one deterministic I&E input fact to the Jinx financial statement. For children ages use a comma-separated value such as 11,8,3.',['lead_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean']]],['lead_id','key','value']),
             $this->fn('calculate_ie','Run the existing deterministic Jinx I&E calculator for a case and persist the resulting financial statement, DI, SFS analysis and calculated expenditure.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('review_iva_case','Build a read-only IVA packaging review context: current deterministic I&E preview, debt total, voting-house exposure, partner profile and outstanding checklist. Follow with internal-rule search for suitability questions.',['lead_id'=>['type'=>'integer']],['lead_id']),
-            $this->fn('analyse_iva_route','Analyse one proposed IVA route using the case debts, voting-house exposure, sourced decision rules and relevant learned corrections/precedents. Use this when deciding whether a case fits Zebra, Lawson Fox, Assure or TIG.',['lead_id'=>['type'=>'integer'],'destination'=>['type'=>'string']],['lead_id','destination']),
+            $this->fn('assess_iva_case_decision','Build the whole-case decision-engine overview using the fixed business route order Zebra, Lawson Fox, AC, Assure, TIG, plus property analysis, recorded decision facts, I&E adjustments and Refresh DMP fallback. This is the starting point for route decisions.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('analyse_iva_route','Analyse one proposed IVA route using the case debts, voting-house exposure, sourced decision rules and relevant learned corrections/precedents. Use this when deciding whether a case fits Zebra, Lawson Fox, AC, Assure or TIG.',['lead_id'=>['type'=>'integer'],'destination'=>['type'=>'string']],['lead_id','destination']),
+            $this->fn('get_decision_case_facts','Read structured decision-engine facts for a case and its debts, including property/evidence/DMP/voting facts and the I&E adjustment ledger.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('set_decision_case_fact','Store one structured decision-engine case fact. Use for facts such as homeownership, property value/mortgage/share, immigration/licence evidence, partner evidence availability, jurisdiction or DMP context.',['lead_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean','null']],'source_detail'=>['type'=>['string','null']]],['lead_id','key','value','source_detail']),
+            $this->fn('set_debt_decision_fact','Store one structured decision-engine fact for a debt line, such as product type, contractual payment, payments made, current-provider status, recent-spend/account dates, attachments or voting override.',['debt_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean','null']],'source_detail'=>['type'=>['string','null']]],['debt_id','key','value','source_detail']),
+            $this->fn('record_ie_adjustment','Record an I&E packaging adjustment in the auditable ledger: original amount, proposed amount, reason, optional supporting rule/evidence and status. This does not silently change the I&E itself.',['lead_id'=>['type'=>'integer'],'section_key'=>['type'=>'string'],'original_amount'=>['type'=>'number'],'proposed_amount'=>['type'=>'number'],'reason'=>['type'=>'string'],'rule_id'=>['type'=>['integer','null']],'evidence'=>['type'=>['string','null']],'status'=>['type'=>'string']],['lead_id','section_key','original_amount','proposed_amount','reason','rule_id','evidence','status']),
+            $this->fn('set_ie_adjustment_status','Change a recorded I&E adjustment to proposed, accepted, rejected or superseded without deleting its audit history.',['lead_id'=>['type'=>'integer'],'adjustment_id'=>['type'=>'integer'],'status'=>['type'=>'string']],['lead_id','adjustment_id','status']),
+            $this->fn('assess_property_case','Calculate attributable property equity from recorded facts and return the supplied property rules for one IVA destination.',['lead_id'=>['type'=>'integer'],'destination'=>['type'=>['string','null']]],['lead_id','destination']),
+            $this->fn('assess_refresh_dmp','Assess Refresh DMP fallback criteria using the supplied September 2026 pack and recorded case/debt facts.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('audit_decision_engine_knowledge','Audit decision-engine source coverage, unresolved creditor mappings and conflicting voting-representative mappings. Optionally audit one case/route. Read-only.',['lead_id'=>['type'=>['integer','null']],'destination'=>['type'=>['string','null']]],['lead_id','destination']),
             $this->fn('record_voting_snapshot','Persist the current route-specific debt voting landscape so later rule changes do not rewrite the historical assessment.',['lead_id'=>['type'=>'integer'],'destination'=>['type'=>'string']],['lead_id','destination']),
+            $this->fn('record_decision_assessment','Persist a final whole-case decision record, including a fresh decision-engine assessment and, for an IVA route, a voting snapshot and full selected-route rule context.',['lead_id'=>['type'=>'integer'],'preferred_route'=>['type'=>'string'],'status'=>['type'=>'string'],'rationale'=>['type'=>'string'],'actions'=>['type'=>['string','null']]],['lead_id','preferred_route','status','rationale','actions']),
+            $this->fn('get_decision_assessments','Read recent persisted whole-case decision assessments for a case, including the historical rule/voting context saved at the time.',['lead_id'=>['type'=>'integer'],'limit'=>['type'=>'integer']],['lead_id','limit']),
             $this->fn('teach_decision_engine','Store an explicit operator correction, technique or case precedent for future IVA route assessments. Use when the user says an assessment was wrong, tells you a proven packaging technique, or gives the actual outcome of a case. This does not overwrite authoritative workbook rules.',['lead_id'=>['type'=>['integer','null']],'knowledge_type'=>['type'=>'string'],'original_decision'=>['type'=>['string','null']],'corrected_decision'=>['type'=>['string','null']],'reason'=>['type'=>'string'],'applicability'=>['type'=>['string','null']],'outcome'=>['type'=>['string','null']]],['lead_id','knowledge_type','original_decision','corrected_decision','reason','applicability','outcome']),
             $this->fn('calculate_target_di','Calculate target monthly DI using the company base-fee formula.',['total_debt'=>['type'=>'number'],'dividend_percent'=>['type'=>'number'],'months'=>['type'=>'integer']],['total_debt','dividend_percent','months']),
             $this->fn('search_creditors','Search Jinx creditor records, including stored three-way-call contact details, before adding/changing a debt or when the user asks how to contact a creditor.',['query'=>['type'=>'string']],['query']),
@@ -72,7 +92,7 @@ class JinxAgentToolService
             'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args), 'search_vicidial_leads'=>$this->searchVicidialLeads($args), 'get_vicidial_history'=>$this->vicidialHistory($args), 'inspect_vicidial_campaign'=>$this->inspectVicidialCampaign($args), 'audit_vicidial_hopper'=>$this->auditVicidialHopper($args), 'summarize_vicidial_activity'=>$this->summarizeVicidialActivity($args), 'diagnose_vicidial_performance'=>$this->diagnoseVicidialPerformance($args), 'trace_vicidial_lead_dial_path'=>$this->traceVicidialLeadDialPath($args), 'get_dialler_change_audit'=>$this->getDiallerChangeAudit($args), 'update_vicidial_lead_status'=>$this->updateVicidialStatus($args), 'remove_vicidial_from_hopper'=>$this->removeVicidialHopper($args), 'update_vicidial_comments'=>$this->updateVicidialComments($args), 'check_crm_dialler_consistency'=>$this->checkCrmDiallerConsistency($args), 'repair_crm_dialler_consistency'=>$this->repairCrmDiallerConsistency($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
-            'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'analyse_iva_route'=>$this->analyseIvaRoute($args), 'audit_decision_engine_knowledge'=>$this->auditDecisionKnowledge($args), 'record_voting_snapshot'=>$this->recordVotingSnapshot($args), 'teach_decision_engine'=>$this->teachDecisionEngine($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
+            'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'assess_iva_case_decision'=>$this->assessIvaCaseDecision($args), 'analyse_iva_route'=>$this->analyseIvaRoute($args), 'get_decision_case_facts'=>$this->getDecisionCaseFacts($args), 'set_decision_case_fact'=>$this->setDecisionCaseFact($args), 'set_debt_decision_fact'=>$this->setDebtDecisionFact($args), 'record_ie_adjustment'=>$this->recordIeAdjustment($args), 'set_ie_adjustment_status'=>$this->setIeAdjustmentStatus($args), 'assess_property_case'=>$this->assessPropertyCase($args), 'assess_refresh_dmp'=>$this->assessRefreshDmp($args), 'audit_decision_engine_knowledge'=>$this->auditDecisionKnowledge($args), 'record_voting_snapshot'=>$this->recordVotingSnapshot($args), 'record_decision_assessment'=>$this->recordDecisionAssessment($args), 'get_decision_assessments'=>$this->getDecisionAssessments($args), 'teach_decision_engine'=>$this->teachDecisionEngine($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
     }
 
@@ -212,9 +232,82 @@ class JinxAgentToolService
     private function updateIeFact(array $a): array {return ['success'=>true,'result'=>$this->iva->updateFact(Lead::findOrFail((int)$a['lead_id']),(string)$a['key'],$a['value'])];}
     private function calculateIe(array $a): array {return ['success'=>true,'result'=>$this->iva->calculate(Lead::findOrFail((int)$a['lead_id']))];}
     private function reviewIvaCase(array $a): array {return $this->iva->review(Lead::findOrFail((int)$a['lead_id']));}
+    private function assessIvaCaseDecision(array $a): array {return $this->decisionEngine->assess(Lead::findOrFail((int)$a['lead_id']));}
     private function analyseIvaRoute(array $a): array {return $this->iva->analyseRoute(Lead::findOrFail((int)$a['lead_id']),(string)$a['destination']);}
+    private function getDecisionCaseFacts(array $a): array
+    {
+        $lead=Lead::findOrFail((int)$a['lead_id']);
+        return $this->decisionFacts->allForLead($lead)+['ie_adjustments'=>$this->decisionFacts->ieAdjustmentSummary($lead),'case_fact_keys'=>DecisionCaseFactService::caseKeys(),'debt_fact_keys'=>DecisionCaseFactService::debtKeys()];
+    }
+    private function setDecisionCaseFact(array $a): array
+    {
+        return $this->decisionFacts->setLeadFact(
+            Lead::findOrFail((int)$a['lead_id']),
+            (string)$a['key'],
+            $a['value'],
+            'operator',
+            filled($a['source_detail']??null)?(string)$a['source_detail']:null
+        );
+    }
+    private function setDebtDecisionFact(array $a): array
+    {
+        return $this->decisionFacts->setDebtFact(
+            Debt::findOrFail((int)$a['debt_id']),
+            (string)$a['key'],
+            $a['value'],
+            'operator',
+            filled($a['source_detail']??null)?(string)$a['source_detail']:null
+        );
+    }
+    private function recordIeAdjustment(array $a): array
+    {
+        return $this->decisionFacts->recordIeAdjustment(
+            Lead::findOrFail((int)$a['lead_id']),
+            (string)$a['section_key'],
+            (float)$a['original_amount'],
+            (float)$a['proposed_amount'],
+            (string)$a['reason'],
+            !empty($a['rule_id'])?(int)$a['rule_id']:null,
+            filled($a['evidence']??null)?(string)$a['evidence']:null,
+            (string)$a['status']
+        );
+    }
+    private function setIeAdjustmentStatus(array $a): array
+    {
+        return $this->decisionFacts->setIeAdjustmentStatus(
+            Lead::findOrFail((int)$a['lead_id']),
+            (int)$a['adjustment_id'],
+            (string)$a['status']
+        );
+    }
+    private function assessPropertyCase(array $a): array
+    {
+        $key=filled($a['destination']??null)?$this->iva->destinationKey((string)$a['destination']):null;
+        return $this->propertyDecision->evaluate(Lead::findOrFail((int)$a['lead_id']),$key);
+    }
+    private function assessRefreshDmp(array $a): array
+    {
+        $lead=Lead::findOrFail((int)$a['lead_id']);
+        $review=$this->iva->review($lead);
+        return $this->dmpDecision->evaluate($lead,$review['ie']);
+    }
     private function auditDecisionKnowledge(array $a): array {return $this->iva->auditDecisionKnowledge(!empty($a['lead_id'])?Lead::findOrFail((int)$a['lead_id']):null,filled($a['destination']??null)?(string)$a['destination']:null);}
     private function recordVotingSnapshot(array $a): array {return $this->iva->recordVotingSnapshot(Lead::findOrFail((int)$a['lead_id']),(string)$a['destination']);}
+    private function recordDecisionAssessment(array $a): array
+    {
+        return $this->decisionEngine->recordDecision(
+            Lead::findOrFail((int)$a['lead_id']),
+            (string)$a['preferred_route'],
+            (string)$a['status'],
+            (string)$a['rationale'],
+            filled($a['actions']??null)?(string)$a['actions']:null
+        );
+    }
+
+    private function getDecisionAssessments(array $a): array
+    {
+        return ['assessments'=>$this->decisionEngine->assessments(Lead::findOrFail((int)$a['lead_id']),(int)$a['limit'])];
+    }
 
     private function teachDecisionEngine(array $a): array
     {
@@ -229,8 +322,14 @@ class JinxAgentToolService
             $lead = Lead::findOrFail($leadId);
             $review = $this->iva->review($lead);
             $context = [
-                'lead_id'=>$leadId, 'source'=>$lead->source, 'known_debt_total'=>$review['known_debt_total'],
-                'profile'=>$review['profile'], 'voting_house_exposure'=>$review['voting_house_exposure'],
+                'lead_id'=>$leadId,
+                'source'=>$lead->source,
+                'known_debt_total'=>$review['known_debt_total'],
+                'profile'=>$review['profile'],
+                'voting_house_exposure'=>$review['voting_house_exposure'],
+                'decision_facts'=>$this->decisionFacts->allForLead($lead),
+                'ie_adjustments'=>$this->decisionFacts->ieAdjustmentSummary($lead),
+                'ie_calculation'=>data_get($review,'ie.calculation'),
             ];
         }
         $applicability = trim((string)($a['applicability'] ?? ''));

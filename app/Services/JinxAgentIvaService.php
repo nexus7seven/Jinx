@@ -70,16 +70,30 @@ class JinxAgentIvaService
                 ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all()
             : [];
 
+        $aliases = match($key) {
+            'zebra' => ['zebra'],
+            'lawson_fox' => ['lawson_fox','lawson fox','lawson'],
+            'avondale_ac' => ['avondale_ac','avondale ac','ac'],
+            'assure' => ['assure'],
+            'tig' => ['tig'],
+            default => [$key],
+        };
         $learning = \Illuminate\Support\Facades\DB::table('decision_learning_records')
             ->where('status','active')
             ->where(function($q) use ($lead) {
                 $q->where('lead_id',$lead->id)->orWhereNull('lead_id');
             })
-            ->where(function($q) use ($key) {
-                $q->where('corrected_decision','like','%'.$key.'%')
-                  ->orWhere('original_decision','like','%'.$key.'%')
-                  ->orWhere('reason','like','%'.$key.'%')
-                  ->orWhereNull('corrected_decision');
+            ->where(function($q) use ($aliases) {
+                foreach ($aliases as $i=>$alias) {
+                    $method=$i===0?'where':'orWhere';
+                    $q->{$method}(function($x) use ($alias) {
+                        $x->where('corrected_decision','like','%'.$alias.'%')
+                          ->orWhere('original_decision','like','%'.$alias.'%')
+                          ->orWhere('reason','like','%'.$alias.'%')
+                          ->orWhere('applicability','like','%'.$alias.'%');
+                    });
+                }
+                $q->orWhereNull('corrected_decision');
             })
             ->orderByRaw('CASE WHEN lead_id = ? THEN 0 ELSE 1 END',[$lead->id])
             ->orderByDesc('last_confirmed_at')->limit(20)->get()
@@ -106,14 +120,15 @@ class JinxAgentIvaService
         return $this->voting->snapshot($lead, $key, null);
     }
 
-    private function destinationKey(string $destination): string
+    public function destinationKey(string $destination): string
     {
         return match (strtolower(trim($destination))) {
             'zebra' => 'zebra',
             'lawson fox', 'lawson', 'lawson_fox' => 'lawson_fox',
+            'ac', 'avondale ac', 'avondale_ac' => 'avondale_ac',
             'assure' => 'assure',
             'tig' => 'tig',
-            default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, Assure or TIG.'),
+            default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, AC, Assure or TIG.'),
         };
     }
 
