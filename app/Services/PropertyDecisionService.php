@@ -80,7 +80,6 @@ class PropertyDecisionService
     private function rules(Lead $lead, ?string $destinationKey): array
     {
         $keys=array_values(array_filter([$destinationKey]));
-        if (in_array($destinationKey,['lawson_fox','assure','tig'],true)) $keys[]='avondale_ac';
         if (!$keys) return [];
 
         $lead->loadMissing('debts');

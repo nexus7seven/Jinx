@@ -29,9 +29,7 @@ class DecisionVotingService
             $percent = $total > 0 ? round(($balance / $total) * 100, 4) : 0.0;
 
             $rules = $this->rulesFor((int) $debt->creditor_id, $route['voting_house_id'] ?? null, $partnerKey, $ipKey);
-            $companyRules = in_array($partnerKey,['assure','lawson_fox','tig'],true)
-                ? $this->rulesFor((int) $debt->creditor_id, $route['voting_house_id'] ?? null, 'avondale_ac', null)
-                : [];
+            $companyRules = [];
             $rows[] = [
                 'debt_id' => $debt->id,
                 'creditor_id' => $debt->creditor_id,
@@ -222,7 +220,6 @@ class DecisionVotingService
     {
         if (!Schema::hasTable('creditor_voting_routes')) return [];
 
-        $isAvondale = in_array($partnerKey,['assure','lawson_fox','tig'],true);
         $query = DB::table('creditor_voting_routes as r')
             ->leftJoin('voting_houses as h', 'h.id', '=', 'r.voting_house_id')
             ->leftJoin('decision_rule_sources as s', 's.id', '=', 'r.source_id')
@@ -230,16 +227,15 @@ class DecisionVotingService
             ->where('r.is_active', true)
             ->where(fn($q) => $q->whereNull('r.effective_from')->orWhere('r.effective_from', '<=', now()->toDateString()))
             ->where(fn($q) => $q->whereNull('r.effective_to')->orWhere('r.effective_to', '>=', now()->toDateString()))
-            ->where(function($q) use ($partnerKey,$isAvondale) {
+            ->where(function($q) use ($partnerKey) {
                 $q->whereNull('r.partner_key');
                 if ($partnerKey) $q->orWhere('r.partner_key',$partnerKey);
-                if ($isAvondale) $q->orWhere('r.partner_key','avondale_ac');
             })
             ->where(fn($q) => $q->whereNull('r.ip_key')->orWhere('r.ip_key', $ipKey))
             ->select('r.*','h.key as house','s.source_type','s.name as source_name','s.sheet as source_sheet','s.location as source_location','s.original_text as source_original_text')
             ->get()
-            ->map(function($r) use ($partnerKey,$isAvondale) {
-                $r->scope_rank = $r->partner_key === $partnerKey ? 0 : (($isAvondale && $r->partner_key === 'avondale_ac') ? 1 : 2);
+            ->map(function($r) use ($partnerKey) {
+                $r->scope_rank = $r->partner_key === $partnerKey ? 0 : 1;
                 return $r;
             })
             ->sortBy(fn($r) => sprintf('%02d-%04d-%01d',$r->scope_rank,$r->priority,$r->is_default?0:1))

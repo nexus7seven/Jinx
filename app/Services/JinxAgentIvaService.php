@@ -54,6 +54,7 @@ class JinxAgentIvaService
         $key = $this->destinationKey($destination);
         $lead->loadMissing('debts.creditor');
         $voting = $this->voting->analyse($lead, $key, null);
+        $routeIe = $this->routeIe($lead, $destination);
         $general = \Illuminate\Support\Facades\DB::table('decision_rules as r')
             ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
             ->where('r.is_active',true)->where('r.partner_key',$key)
@@ -61,10 +62,10 @@ class JinxAgentIvaService
             ->select('r.id','r.scope_type','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
             ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all();
 
-        $company = in_array($key,['assure','lawson_fox','tig'],true)
+        $partnerRules = $key !== 'zebra'
             ? \Illuminate\Support\Facades\DB::table('decision_rules as r')
                 ->leftJoin('decision_rule_sources as s','s.id','=','r.source_id')
-                ->where('r.is_active',true)->where('r.partner_key','avondale_ac')
+                ->where('r.is_active',true)->where('r.partner_key','avondale')
                 ->whereNull('r.voting_house_id')->whereNull('r.creditor_id')
                 ->select('r.id','r.scope_type','r.category','r.requirement_text','r.severity','s.source_type','s.name as source_name','s.sheet','s.location','s.original_text')
                 ->orderBy('r.category')->orderBy('r.id')->get()->map(fn($r)=>(array)$r)->all()
@@ -73,7 +74,7 @@ class JinxAgentIvaService
         $aliases = match($key) {
             'zebra' => ['zebra'],
             'lawson_fox' => ['lawson_fox','lawson fox','lawson'],
-            'avondale_ac' => ['avondale_ac','avondale ac','ac'],
+            'anchorage_chambers' => ['anchorage_chambers','anchorage chambers','anchorage','ac'],
             'assure' => ['assure'],
             'tig' => ['tig'],
             default => [$key],
@@ -102,7 +103,11 @@ class JinxAgentIvaService
         return [
             'lead_id'=>$lead->id, 'destination'=>$destination, 'destination_key'=>$key,
             'known_debt_total'=>$voting['qualifying_debt_total'], 'voting_house_exposure'=>$voting['houses'],
-            'general_route_rules'=>$general, 'company_supporting_rules'=>$company, 'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
+            'route_ie'=>$routeIe,
+            'general_route_rules'=>$general,
+            'partner_supporting_rules'=>$partnerRules,
+            'company_supporting_rules'=>[],
+            'debt_voting_analysis'=>$voting['debts'], 'learned_guidance'=>$learning,
             'instruction'=>'Assess the actual case facts against these sourced rules. Do not treat a voting-house rule breach as an automatic route failure; consider that house percentage, other voting exposure, stated modification/escalation options and relevant learned guidance. Authoritative workbook/internal rules remain distinct from operator corrections, techniques and precedents; learned guidance may refine reasoning but must not be presented as an official rule.',
         ];
     }
@@ -125,11 +130,24 @@ class JinxAgentIvaService
         return match (strtolower(trim($destination))) {
             'zebra' => 'zebra',
             'lawson fox', 'lawson', 'lawson_fox' => 'lawson_fox',
-            'ac', 'avondale ac', 'avondale_ac' => 'avondale_ac',
+            'ac', 'anchorage', 'anchorage chambers', 'anchorage_chambers' => 'anchorage_chambers',
             'assure' => 'assure',
             'tig' => 'tig',
             default => throw new RuntimeException('Unsupported IVA destination. Use Zebra, Lawson Fox, AC, Assure or TIG.'),
         };
+    }
+
+    public function routeIe(Lead $lead, string $destination): array
+    {
+        $key=$this->destinationKey($destination);
+        $profile=match($key) {
+            'zebra'=>['partner'=>'Zebra','ip'=>'Zebra'],
+            'lawson_fox'=>['partner'=>'Avondale','ip'=>'Lawson Fox'],
+            'anchorage_chambers'=>['partner'=>'Avondale','ip'=>'Anchorage Chambers'],
+            'assure'=>['partner'=>'Avondale','ip'=>'Assure'],
+            'tig'=>['partner'=>'Avondale','ip'=>'TIG'],
+        };
+        return $this->calculator->snapshot($this->facts($lead),$profile);
     }
 
     public function targetDi(float $debt,float $dividend,int $months=60): array

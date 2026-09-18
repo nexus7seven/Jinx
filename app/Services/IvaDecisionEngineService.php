@@ -10,7 +10,7 @@ class IvaDecisionEngineService
     public const ROUTE_ORDER = [
         ['label'=>'Zebra','key'=>'zebra'],
         ['label'=>'Lawson Fox','key'=>'lawson_fox'],
-        ['label'=>'AC','key'=>'avondale_ac'],
+        ['label'=>'AC','key'=>'anchorage_chambers'],
         ['label'=>'Assure','key'=>'assure'],
         ['label'=>'TIG','key'=>'tig'],
     ];
@@ -33,11 +33,14 @@ class IvaDecisionEngineService
 
         foreach (self::ROUTE_ORDER as $route) {
             $key=$route['key'];
+            $routeIe=$this->iva->routeIe($lead,$route['label']);
+            $routeReview=$review;
+            $routeReview['ie']=$routeIe;
             $voting=$this->voting->analyse($lead,$key,null);
-            $basic=$this->basicRequirements($key,$review);
-            $evidence=$this->evidenceFeasibility($key,$review,$factContext['case_facts'] ?? []);
+            $basic=$this->basicRequirements($key,$routeReview);
+            $evidence=$this->evidenceFeasibility($key,$routeReview,$factContext['case_facts'] ?? []);
             $property=$this->property->evaluate($lead,$key);
-            $special=$this->specialCircumstances($key,$lead,$review,$factContext['case_facts'] ?? []);
+            $special=$this->specialCircumstances($key,$lead,$routeReview,$factContext['case_facts'] ?? []);
             $routes[]=[
                 'destination'=>$route['label'],
                 'destination_key'=>$key,
@@ -46,11 +49,18 @@ class IvaDecisionEngineService
                 'basic_requirements'=>$basic,
                 'evidence_feasibility'=>$evidence,
                 'special_circumstances'=>$special,
+                'route_ie'=>[
+                    'partner'=>$routeIe['partner'] ?? null,
+                    'calculation'=>$routeIe['calculation'] ?? [],
+                    'sfs_analysis'=>$routeIe['sfs_analysis'] ?? [],
+                    'sfs_expenditure'=>data_get($routeIe,'expenditure.sfs'),
+                ],
                 'voting_house_exposure'=>$voting['houses'],
                 'unresolved_representative_count'=>$voting['unresolved_representative_count'],
                 'unresolved_voting_percent'=>$voting['unresolved_voting_percent'],
                 'property'=>$property,
                 'general_rule_count'=>$this->generalRuleCount($key),
+                'partner_rule_count'=>$key==='zebra'?0:$this->generalRuleCount('avondale'),
                 'creditor_or_voting_rule_count'=>$this->caseRuleCount($voting),
             ];
         }
@@ -69,7 +79,7 @@ class IvaDecisionEngineService
             ],
             'route_overview'=>$routes,
             'dmp_fallback'=>$dmp,
-            'instruction'=>'Assess IVA routes strictly in the configured business order: Zebra, Lawson Fox, AC, Assure, TIG. BASIC_PASS only means the deterministic headline thresholds currently known are not breached; it is not final approval. For each serious route call analyse_iva_route and assess all applicable general, creditor, voting, evidence, property and learned guidance. Stop preferring a higher route only when it is BLOCKED, UNKNOWN on a material requirement that cannot currently be resolved, or a lower route has a documented operational treatment that resolves the blocker. Use Refresh DMP only as fallback where IVA is unsuitable. Do not invent missing AC/general criteria.',
+            'instruction'=>'Assess IVA routes strictly in the configured business order: Zebra, Lawson Fox, AC (Anchorage Chambers), Assure, TIG. Use each route\'s own I&E treatment: Lawson Fox, Anchorage Chambers, Assure and TIG are Avondale routes and use the Avondale 65%-of-SFS-maximum baseline unless an IP-specific rule overrides it. BASIC_PASS only means the deterministic headline thresholds currently known are not breached; it is not final approval. For each serious route call analyse_iva_route and assess all applicable partner, IP, creditor, voting, evidence, property and learned guidance. Stop preferring a higher route only when it is BLOCKED, UNKNOWN on a material requirement that cannot currently be resolved, or a lower route has a documented operational treatment that resolves the blocker. Use Refresh DMP only as fallback where IVA is unsuitable. Do not invent missing Anchorage/general criteria.',
         ];
     }
 
@@ -145,7 +155,7 @@ class IvaDecisionEngineService
             'lawson_fox'=>['minimum_debt'=>7500.0,'minimum_di'=>110.0,'minimum_income'=>1000.0],
             'assure'=>['minimum_debt'=>7000.0,'minimum_di'=>110.0,'minimum_income'=>1000.0,'minimum_term_repayment'=>6600.0],
             'tig'=>['minimum_debt'=>6000.0,'minimum_di'=>100.0],
-            'avondale_ac'=>[],
+            'anchorage_chambers'=>[],
             default=>[],
         };
 
@@ -154,7 +164,7 @@ class IvaDecisionEngineService
             return [
                 'status'=>'UNKNOWN',
                 'checks'=>[],
-                'note'=>'The supplied AC workbook does not provide a complete general minimum-debt/minimum-DI eligibility set. AC remains in the requested route order, but its fit must be assessed from the loaded AC creditor/representative/HMRC rules and any future operator knowledge.',
+                'note'=>'The supplied Anchorage Chambers (AC) workbook does not provide a complete general minimum-debt/minimum-DI eligibility set. AC remains in the requested route order, but its fit must be assessed from the loaded Anchorage creditor/representative/HMRC rules, Avondale partner baseline and any future operator knowledge.',
             ];
         }
 
@@ -250,7 +260,7 @@ class IvaDecisionEngineService
             }
         }
 
-        if ($key==='avondale_ac' && $hasHmrc) {
+        if ($key==='anchorage_chambers' && $hasHmrc) {
             foreach ([
                 ['case.tax_returns_up_to_date',false,'hmrc_tax_returns','Outstanding tax returns/self-assessments are recorded.','OUTSTANDING TAX RETURNS'],
                 ['case.joint_iva',true,'hmrc_joint_iva','Joint IVA is recorded with HMRC present.','ALL JOINT IVA'],
@@ -337,7 +347,7 @@ class IvaDecisionEngineService
                 elseif ($partnerEvidence===false) $items[]=['topic'=>'partner_income','status'=>'EXCEPTION_ESCALATION','reason'=>'TIG normally requires a recent wage slip for each wage; supplied criteria allow exceptional alternatives with manager sign-off.'];
                 else $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'Partner income evidence availability has not been recorded.'];
             } else {
-                $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'No complete AC-wide partner-income evidence rule has been supplied.'];
+                $items[]=['topic'=>'partner_income','status'=>'UNKNOWN','reason'=>'No complete Anchorage Chambers partner-income evidence rule has been supplied.'];
             }
         }
 

@@ -138,6 +138,55 @@ class DecisionEngineTest extends TestCase
         $this->assertSame('sourced_route_resolved_by_debt_fact',$row['route_source']);
     }
 
+    public function test_ac_means_anchorage_chambers_and_not_avondale_support_scope(): void
+    {
+        $lead=$this->lead();
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+
+        $this->assertSame('anchorage_chambers',$iva->destinationKey('AC'));
+        $this->assertSame('anchorage_chambers',$iva->destinationKey('Anchorage Chambers'));
+
+        $ac=$iva->analyseRoute($lead,'AC');
+        $lawson=$iva->analyseRoute($lead,'Lawson Fox');
+
+        $this->assertSame('anchorage_chambers',$ac['destination_key']);
+        $this->assertSame([], $lawson['company_supporting_rules']);
+        $this->assertFalse(collect($lawson['general_route_rules'])->contains(
+            fn($rule)=>($rule['source_name']??null)==='Avondale AC Criteria(1).xlsx'
+        ));
+    }
+
+    public function test_avondale_routes_use_65_percent_sfs_route_specific_ie(): void
+    {
+        $lead=$this->lead();
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+
+        $zebra=$iva->routeIe($lead,'Zebra');
+        $lawson=$iva->routeIe($lead,'Lawson Fox');
+        $ac=$iva->routeIe($lead,'AC');
+
+        $this->assertSame('Zebra',$zebra['partner']);
+        $this->assertSame('Avondale',$lawson['partner']);
+        $this->assertSame('Avondale',$ac['partner']);
+
+        $max=(float)$lawson['ranges']['sfs']['housekeeping']['max'];
+        $this->assertSame((float)ceil($max*0.65),(float)$lawson['expenditure']['sfs']['housekeeping']);
+        $this->assertSame((float)ceil($max*0.65),(float)$ac['expenditure']['sfs']['housekeeping']);
+    }
+
+    public function test_avondale_partner_baseline_is_a_separate_decision_rule(): void
+    {
+        $rule=\DB::table('decision_rules as r')
+            ->join('decision_rule_sources as s','s.id','=','r.source_id')
+            ->where('r.partner_key','avondale')
+            ->where('r.rule_key','avondale_sfs_65_percent')
+            ->first(['r.requirement_text','s.name as source_name']);
+
+        $this->assertNotNull($rule);
+        $this->assertStringContainsString('65%', $rule->requirement_text);
+        $this->assertSame('resources/assistant/knowledge/avondale/00_partner_baseline.md',$rule->source_name);
+    }
+
     public function test_business_route_order_is_fixed(): void
     {
         $lead=$this->lead();
@@ -146,6 +195,7 @@ class DecisionEngineTest extends TestCase
 
         $this->assertSame(['Zebra','Lawson Fox','AC','Assure','TIG'],$result['route_order']);
         $this->assertSame(['Zebra','Lawson Fox','AC','Assure','TIG'],array_column($result['route_overview'],'destination'));
+        $this->assertSame('anchorage_chambers',collect($result['route_overview'])->firstWhere('destination','AC')['destination_key']);
     }
 
     private function houseId(string $key): int

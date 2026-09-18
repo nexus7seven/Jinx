@@ -15,6 +15,15 @@ class ImportDecisionCreditorIntelligence extends Command
         $path = base_path($this->argument('file'));
         if (!is_file($path)) { $this->error("Missing source file: {$path}"); return self::FAILURE; }
         $data = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        // The source JSON originally used "avondale_ac" for the Avondale AC workbook.
+        // AC is Anchorage Chambers, not an Avondale-wide support scope.
+        foreach (['creditor_rules','explicit_routes','representative_catalog','representative_rules','general_rules'] as $section) {
+            foreach ($data[$section] ?? [] as $i => $row) {
+                if (($row['partner'] ?? null) === 'avondale_ac') {
+                    $data[$section][$i]['partner'] = 'anchorage_chambers';
+                }
+            }
+        }
         $creditors = DB::table('creditors')->get(['id','name']);
         $aliases = DB::table('creditor_aliases')->get(['creditor_id','alias']);
         $map = [];
