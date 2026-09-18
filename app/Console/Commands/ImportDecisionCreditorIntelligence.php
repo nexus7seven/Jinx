@@ -20,13 +20,23 @@ class ImportDecisionCreditorIntelligence extends Command
         $map = [];
         foreach ($creditors as $c) $map[$this->norm($c->name)] = ['id'=>$c->id,'method'=>'creditor_name'];
         foreach ($aliases as $a) $map[$this->norm($a->alias)] ??= ['id'=>$a->creditor_id,'method'=>'alias'];
+        $match = function (string $name) use ($map): ?array {
+            $keys = [$this->norm($name)];
+            $clean = preg_replace('/\\s*[-–—]\\s*(IVA|TD|IVA or TD).*$/i','',$name);
+            $clean = preg_replace('/\\s*\\((WATCH|WPM|TIX|EVOLVE)\\)\\s*/i',' ',$clean ?? $name);
+            $keys[] = $this->norm($clean);
+            foreach (array_unique($keys) as $key) if ($key !== '' && isset($map[$key])) {
+                $m=$map[$key]; $m['method']=$key===$keys[0]?$m['method']:$m['method'].'_cleaned'; return $m;
+            }
+            return null;
+        };
         $houses = DB::table('voting_houses')->get()->mapWithKeys(fn($h)=>[strtolower($h->key)=>$h->id]);
         foreach (['WATCH','TIX','Evolve'] as $h) if (!$houses->has(strtolower($h))) {
             $houses[strtolower($h)] = DB::table('voting_houses')->insertGetId(['key'=>$h,'created_at'=>now(),'updated_at'=>now()]);
         }
 
         $stats=['rows'=>0,'matched'=>0,'unmatched'=>0,'rules'=>0,'routes'=>0];
-        DB::transaction(function() use ($data,$map,$houses,&$stats) {
+        DB::transaction(function() use ($data,$match,$houses,&$stats) {
             $oldSources=DB::table('decision_rule_sources')->where('source_type','workbook_creditor_intelligence')->pluck('id');
             DB::table('creditor_voting_routes')->whereIn('source_id',$oldSources)->delete();
             DB::table('decision_rules')->whereIn('source_id',$oldSources)->delete();
@@ -34,37 +44,37 @@ class ImportDecisionCreditorIntelligence extends Command
             DB::table('decision_creditor_source_rows')->delete();
 
             foreach ($data['creditor_rules'] as $r) {
-                $match=$map[$this->norm($r['name'])]??null;
-                $rowId=$this->sourceRow($r,$match,null,null); $stats['rows']++; $match?$stats['matched']++:$stats['unmatched']++;
-                if (!$match) continue;
+                $matched=$match($r['name']);
+                $rowId=$this->sourceRow($r,$matched,null,null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
+                if (!$matched) continue;
                 $text=trim(implode(' | ',array_values(array_filter([$r['status']??null,$r['detail']??null]))));
                 if ($text==='') continue;
                 $source=$this->ruleSource($r,$text);
                 DB::table('decision_rules')->insert([
-                    'scope_type'=>'creditor','creditor_id'=>$match['id'],'partner_key'=>$r['partner'],
+                    'scope_type'=>'creditor','creditor_id'=>$matched['id'],'partner_key'=>$r['partner'],
                     'category'=>$r['sheet']==='Dividends ' ? 'dividend' : 'creditor_specific',
                     'requirement_text'=>$text,'severity'=>$this->severity($text),'source_id'=>$source,
                     'is_active'=>true,'created_at'=>now(),'updated_at'=>now(),
                 ]); $stats['rules']++;
                 if ($house=$this->houseFromText($text)) {
-                    $this->route($match['id'],$houses[strtolower($house)],$r['partner'],$source,'Inferred from creditor workbook wording: '.$text);
+                    $this->route($matched['id'],$houses[strtolower($house)],$r['partner'],$source,'Inferred from creditor workbook wording: '.$text);
                     $stats['routes']++;
                 }
             }
 
             foreach ($data['explicit_routes'] as $r) {
-                $match=$map[$this->norm($r['name'])]??null;
-                $this->sourceRow($r,$match,$r['house'],null); $stats['rows']++; $match?$stats['matched']++:$stats['unmatched']++;
-                if (!$match) continue;
+                $matched=$match($r['name']);
+                $this->sourceRow($r,$matched,$r['house'],null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
+                if (!$matched) continue;
                 $text=$r['name'].' is listed under '.$r['house'].' in '.$r['sheet'];
                 $source=$this->ruleSource($r,$text);
-                $this->route($match['id'],$houses[strtolower($r['house'])],$r['partner'],$source,$text);
+                $this->route($matched['id'],$houses[strtolower($r['house'])],$r['partner'],$source,$text);
                 $stats['routes']++;
             }
 
             foreach ($data['representative_catalog'] as $r) {
-                $match=$map[$this->norm($r['name'])]??null;
-                $this->sourceRow($r,$match,$r['house'],$r['data']??null); $stats['rows']++; $match?$stats['matched']++:$stats['unmatched']++;
+                $matched=$match($r['name']);
+                $this->sourceRow($r,$matched,$r['house'],$r['data']??null); $stats['rows']++; $matched?$stats['matched']++:$stats['unmatched']++;
             }
         });
         $this->info(json_encode($stats));
