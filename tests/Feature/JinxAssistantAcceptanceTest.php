@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\DecisionCaseFactService;
 use App\Services\IvaDecisionEngineService;
 use App\Services\JinxAgentIvaService;
+use App\Services\JinxAgentToolService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -261,7 +262,7 @@ class JinxAssistantAcceptanceTest extends TestCase
             ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
 
         $second = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
-            'message' => 'no',
+            'message' => 'no they live with their family',
         ]);
 
         $second->assertOk()
@@ -282,6 +283,21 @@ class JinxAssistantAcceptanceTest extends TestCase
             'preferred_route' => 'Zebra',
             'status' => 'FIT_WITH_ACTIONS',
         ]);
+    }
+
+    public function test_case_packaging_agent_does_not_receive_code_or_ie_mutation_tools(): void
+    {
+        $definitions = app(JinxAgentToolService::class)->casePackagingDefinitions();
+        $names = collect($definitions)->pluck('name')->filter()->values()->all();
+
+        $this->assertContains('assess_iva_case_decision', $names);
+        $this->assertContains('analyse_iva_route', $names);
+        $this->assertContains('record_decision_assessment', $names);
+        $this->assertNotContains('search_jinx_code', $names);
+        $this->assertNotContains('read_jinx_file', $names);
+        $this->assertNotContains('update_ie_fact', $names);
+        $this->assertNotContains('calculate_ie', $names);
+        $this->assertNotContains('get_vicidial_state', $names);
     }
 
     public function test_straight_zebra_case_flows_from_financial_facts_to_persisted_decision(): void
