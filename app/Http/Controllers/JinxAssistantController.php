@@ -78,13 +78,25 @@ class JinxAssistantController extends Controller
                     );
                 }
 
-                $decisionFacts->setLeadFact(
-                    $lead->fresh(),
-                    (string) $pendingDecisionQuestion['fact_key'],
-                    $parsed['value'],
-                    'operator',
-                    'Captured by Jinx case assistant'
-                );
+                if (($pendingDecisionQuestion['scope'] ?? 'case') === 'debt') {
+                    $debtId = (int) ($pendingDecisionQuestion['debt_id'] ?? 0);
+                    $debt = $lead->debts()->findOrFail($debtId);
+                    $decisionFacts->setDebtFact(
+                        $debt,
+                        (string) $pendingDecisionQuestion['fact_key'],
+                        $parsed['value'],
+                        'operator',
+                        'Captured by Jinx case assistant'
+                    );
+                } else {
+                    $decisionFacts->setLeadFact(
+                        $lead->fresh(),
+                        (string) $pendingDecisionQuestion['fact_key'],
+                        $parsed['value'],
+                        'operator',
+                        'Captured by Jinx case assistant'
+                    );
+                }
                 unset($metadata['pending_decision_question']);
                 $conversation->metadata = $metadata;
                 $conversation->save();
