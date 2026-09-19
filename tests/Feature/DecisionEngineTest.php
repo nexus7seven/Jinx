@@ -369,6 +369,60 @@ class DecisionEngineTest extends TestCase
         $this->assertSame('resources/assistant/knowledge/avondale/00_partner_baseline.md',$rule->source_name);
     }
 
+    public function test_packaging_planner_asks_for_debt_product_to_resolve_voting_conflict(): void
+    {
+        $lead=$this->lead();
+        $creditor=$this->creditor('Planner Voting Conflict');
+        $debt=Debt::create([
+            'lead_id'=>$lead->id,
+            'creditor_id'=>$creditor->id,
+            'balance'=>8000,
+            'source_expected'=>'other',
+            'reference'=>'1234567890123456',
+        ]);
+
+        $watchId=$this->houseId('WATCH');
+        $tixId=$this->houseId('TIX');
+        $sourceId=\DB::table('decision_rule_sources')->insertGetId([
+            'source_type'=>'test','name'=>'decision-test','created_at'=>now(),'updated_at'=>now(),
+        ]);
+        \DB::table('creditor_voting_routes')->insert([
+            [
+                'creditor_id'=>$creditor->id,'voting_house_id'=>$watchId,'partner_key'=>'tig',
+                'condition_text'=>'Planner Voting Conflict - IVA | account_type: Personal Loan',
+                'priority'=>15,'is_default'=>false,'is_active'=>true,'source_id'=>$sourceId,'created_at'=>now(),'updated_at'=>now(),
+            ],
+            [
+                'creditor_id'=>$creditor->id,'voting_house_id'=>$tixId,'partner_key'=>'tig',
+                'condition_text'=>'Planner Voting Conflict | product_type: Credit Card | digits: 16',
+                'priority'=>15,'is_default'=>false,'is_active'=>true,'source_id'=>$sourceId,'created_at'=>now(),'updated_at'=>now(),
+            ],
+        ]);
+
+        $iva=app(\App\Services\JinxAgentIvaService::class);
+        $iva->updateFact($lead,'income.client_salary',1800);
+        $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'property.is_homeowner',false);
+
+        $planner=app(\App\Services\IvaCasePackagingPlannerService::class);
+        $plan=$planner->plan($lead);
+
+        $this->assertSame('needs_fact',$plan['state']);
+        $this->assertSame('debt.product_type',$plan['question']['fact_key']);
+        $this->assertSame('debt',$plan['question']['scope']);
+        $this->assertSame($debt->id,$plan['question']['debt_id']);
+        $this->assertSame('TIG',$plan['question']['route']);
+
+        $parsed=$planner->parseAnswer($plan['question'],'credit card');
+        $this->assertTrue($parsed['valid']);
+        $facts->setDebtFact($debt,'debt.product_type',$parsed['value']);
+
+        $after=$planner->plan($lead);
+        $this->assertSame('ready_for_agent',$after['state']);
+        $tig=collect($after['assessment']['route_overview'])->firstWhere('destination','TIG');
+        $this->assertSame(0,$tig['unresolved_representative_count']);
+    }
+
     public function test_business_route_order_is_fixed(): void
     {
         $lead=$this->lead();
