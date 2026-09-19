@@ -10,6 +10,7 @@ class DecisionCaseReadinessService
     public function __construct(
         private readonly DecisionCaseFactService $facts,
         private readonly DecisionFactRegistryService $registry,
+        private readonly DecisionDynamicRuleService $dynamicRules,
     ) {}
 
     public function check(Lead $lead): array
@@ -37,9 +38,16 @@ class DecisionCaseReadinessService
         $missing = [];
         $notApplicable = [];
 
-        foreach ($this->registry->definitions('case', true) as $definition) {
-            if (($definition['reasoning_required'] ?? false) !== true) continue;
+        $definitions = collect($this->registry->definitions('case', true))
+            ->filter(fn($definition) => ($definition['reasoning_required'] ?? false) === true)
+            ->keyBy('fact_key');
 
+        foreach ($this->dynamicRules->requiredFacts($lead) as $definition) {
+            if (($definition['scope'] ?? 'case') !== 'case') continue;
+            $definitions->put($definition['fact_key'], $definition);
+        }
+
+        foreach ($definitions->sortBy(fn($definition) => (int)($definition['question_priority'] ?? 1000))->values() as $definition) {
             if (!$this->registry->applicabilityMatches(
                 $lead,
                 $definition['applicability'] ?? null,
@@ -66,6 +74,7 @@ class DecisionCaseReadinessService
                 'question' => $definition['question'] ?? null,
                 'type' => $definition['data_type'] ?? 'text',
                 'scope' => 'case',
+                'dynamic_rule_id' => $definition['dynamic_rule_id'] ?? null,
             ];
         }
 
