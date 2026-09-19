@@ -22,11 +22,16 @@ class DecisionCaseFactService
         'case.joint_iva',
         'case.hmrc_majority',
         'case.hmrc_deduction_from_income',
+        'case.hmrc_tax_returns_outstanding',
+        'case.hmrc_previous_failed_iva',
+        'case.hmrc_prolonged_non_compliance',
+        'case.hmrc_non_compliance_notes',
         'case.benefits_only',
         'case.seiss_debt',
         'case.vat_debt',
         'case.tax_returns_up_to_date',
         'case.self_employed',
+        'case.self_employed_returns_due',
         'case.self_employed_trading_months',
         'case.self_employed_profitable',
         'case.self_employed_has_employees',
@@ -97,7 +102,7 @@ class DecisionCaseFactService
 
     public function setLeadFact(Lead $lead, string $key, mixed $value, string $sourceType = 'operator', ?string $sourceDetail = null): array
     {
-        if (!in_array($key, self::CASE_KEYS, true)) {
+        if (!$this->supportsKey($key, 'case')) {
             throw new RuntimeException('Unsupported decision fact key: '.$key);
         }
 
@@ -117,7 +122,7 @@ class DecisionCaseFactService
 
     public function setDebtFact(Debt $debt, string $key, mixed $value, string $sourceType = 'operator', ?string $sourceDetail = null): array
     {
-        if (!in_array($key, self::DEBT_KEYS, true)) {
+        if (!$this->supportsKey($key, 'debt')) {
             throw new RuntimeException('Unsupported debt decision fact key: '.$key);
         }
 
@@ -241,8 +246,37 @@ class DecisionCaseFactService
         ];
     }
 
-    public static function caseKeys(): array { return self::CASE_KEYS; }
-    public static function debtKeys(): array { return self::DEBT_KEYS; }
+    public static function caseKeys(): array
+    {
+        $keys = self::CASE_KEYS;
+        if (\Illuminate\Support\Facades\Schema::hasTable('decision_fact_definitions')) {
+            $dynamic = DB::table('decision_fact_definitions')->where('scope','case')->pluck('fact_key')->all();
+            $keys = array_merge($keys, $dynamic);
+        }
+        return array_values(array_unique($keys));
+    }
+
+    public static function debtKeys(): array
+    {
+        $keys = self::DEBT_KEYS;
+        if (\Illuminate\Support\Facades\Schema::hasTable('decision_fact_definitions')) {
+            $dynamic = DB::table('decision_fact_definitions')->where('scope','debt')->pluck('fact_key')->all();
+            $keys = array_merge($keys, $dynamic);
+        }
+        return array_values(array_unique($keys));
+    }
+
+    private function supportsKey(string $key, string $scope): bool
+    {
+        $legacy = $scope === 'case' ? self::CASE_KEYS : self::DEBT_KEYS;
+        if (in_array($key, $legacy, true)) return true;
+        if (!\Illuminate\Support\Facades\Schema::hasTable('decision_fact_definitions')) return false;
+
+        return DB::table('decision_fact_definitions')
+            ->where('fact_key', $key)
+            ->where('scope', $scope)
+            ->exists();
+    }
 
     private function decode(mixed $value): mixed
     {
