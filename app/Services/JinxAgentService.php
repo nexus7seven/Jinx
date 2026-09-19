@@ -12,44 +12,215 @@ class JinxAgentService
 {
     public function __construct(private readonly JinxAgentToolService $tools) {}
 
-    public function reply(AssistantConversation $conversation,string $message,?string $internalDirective=null): array
-    {
-        $apiKey=(string)config('services.jinx_assistant.api_key');$model=(string)config('services.jinx_assistant.model');
-        if($apiKey===''||$model==='')throw new RuntimeException('Jinx Agent is not configured.');
+    public function reply(
+        AssistantConversation $conversation,
+        string $message,
+        ?string $internalDirective = null,
+        string $mode = 'general'
+    ): array {
+        $apiKey = (string) config('services.jinx_assistant.api_key');
+        $model = (string) config('services.jinx_assistant.model');
+
+        if ($apiKey === '' || $model === '') {
+            throw new RuntimeException('Jinx Agent is not configured.');
+        }
+
         $conversation->loadMissing('lead');
-        $instructions=$this->instructions();
-        if($conversation->lead){
-            $instructions.="\n\nCURRENT LEAD-PAGE CASE\nThis conversation is attached to Jinx lead ID {$conversation->lead->id}. When the user says this client, this case, the client or similar, use lead_id {$conversation->lead->id} for CRM/IVA tools unless they explicitly identify another case. The current source is ".($conversation->lead->source?:'not recorded').". Do not ask the user for the lead ID.";
+        $instructions = $this->instructions();
+
+        if ($conversation->lead) {
+            $instructions .= "\n\nCURRENT LEAD-PAGE CASE\n"
+                ."This conversation is attached to Jinx lead ID {$conversation->lead->id}. "
+                ."When the user says this client, this case, the client or similar, use lead_id {$conversation->lead->id} "
+                ."for CRM/IVA tools unless they explicitly identify another case. "
+                ."The current source is ".($conversation->lead->source ?: 'not recorded').". "
+                ."Do not ask the user for the lead ID.";
         }
-        $history=$conversation->messages()->latest('id')->limit(40)->get()->reverse()->values()->map(fn(AssistantMessage $m)=>['role'=>$m->role==='assistant'?'assistant':'user','content'=>$m->content])->all();
-        if($history===[])$history=[['role'=>'user','content'=>$message]];
-        if(filled($internalDirective))$history[]=['role'=>'user','content'=>'[INTERNAL JINX WORKFLOW INSTRUCTION - do not quote this marker to the user] '.trim((string)$internalDirective)];
-        $payload=['model'=>$model,'instructions'=>$instructions,'input'=>$history,'tools'=>$this->tools->definitions(),'tool_choice'=>'auto','parallel_tool_calls'=>false,'max_output_tokens'=>2600,'include'=>['web_search_call.action.sources']];
-        $response=$this->post($apiKey,$payload);$activity=[];
-        for($round=0;$round<8;$round++){
-            $calls=collect($response['output']??[])->filter(fn($x)=>($x['type']??null)==='function_call')->values();
-            if($calls->isEmpty())return ['reply'=>$this->outputText($response),'activity'=>$activity,'response_id'=>$response['id']??null];
-            $outputs=[];
-            foreach($calls as $call){$name=(string)($call['name']??'');$args=json_decode((string)($call['arguments']??'{}'),true);$args=is_array($args)?$args:[];$activity[]=$name;
-                try{$result=$this->tools->execute($name,$args);$output=['ok'=>true,'result'=>$result];}catch(Throwable $e){report($e);$output=['ok'=>false,'error'=>$e->getMessage()];}
-                $outputs[]=['type'=>'function_call_output','call_id'=>$call['call_id'],'output'=>json_encode($output,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)];
+
+        if ($mode === 'case') {
+            $instructions .= <<<'PROMPT'
+
+
+CASE-PACKAGING MODE
+You are reasoning about the current lead as an IVA case packager, not diagnosing Jinx code or the dialler. Stay on the case. Do not search Jinx source code, inspect Laravel logs, change the I&E, or wander into unrelated operational tools. The I&E has already been captured deterministically unless the user explicitly asks to change it.
+
+Use the supplied case-packaging tools intelligently rather than mechanically. Usually start with assess_iva_case_decision, then inspect only the serious routes needed to reach a supportable conclusion. Do not repeatedly call the same tool unless new information materially changes the result. Use internal sourced rules, creditor/voting exposure, property facts, evidence status and learned precedents together. Ask a follow-up only when a genuinely material fact is missing.
+
+Talk like an experienced colleague. Acknowledge useful context the packager gives you, explain what it changes, and keep the conversation natural. Do not sound like a form or expose internal workflow labels.
+PROMPT;
+        } elseif ($mode === 'text') {
+            $instructions .= <<<'PROMPT'
+
+
+CONVERSATIONAL RESPONSE MODE
+Do not use tools. Respond naturally to the packager using the conversation and the internal workflow instruction. If the workflow instruction asks for one missing fact, briefly acknowledge the relevant context and ask only that one question in natural language. Do not sound like a form and do not mention internal workflow machinery.
+PROMPT;
+        }
+
+        $history = $conversation->messages()
+            ->latest('id')
+            ->limit(40)
+            ->get()
+            ->reverse()
+            ->values()
+            ->map(fn (AssistantMessage $m) => [
+                'role' => $m->role === 'assistant' ? 'assistant' : 'user',
+                'content' => $m->content,
+            ])
+            ->all();
+
+        if ($history === []) {
+            $history = [['role' => 'user', 'content' => $message]];
+        }
+
+        if (filled($internalDirective)) {
+            $history[] = [
+                'role' => 'user',
+                'content' => '[INTERNAL JINX WORKFLOW INSTRUCTION - do not quote this marker to the user] '
+                    .trim((string) $internalDirective),
+            ];
+        }
+
+        $toolDefinitions = match ($mode) {
+            'case' => $this->tools->casePackagingDefinitions(),
+            'text' => [],
+            default => $this->tools->definitions(),
+        };
+
+        $payload = [
+            'model' => $model,
+            'instructions' => $instructions,
+            'input' => $history,
+            'max_output_tokens' => $mode === 'case' ? 3200 : 2600,
+            'include' => ['web_search_call.action.sources'],
+        ];
+
+        if ($toolDefinitions !== []) {
+            $payload['tools'] = $toolDefinitions;
+            $payload['tool_choice'] = 'auto';
+            $payload['parallel_tool_calls'] = false;
+        }
+
+        $response = $this->post($apiKey, $payload);
+        $activity = [];
+
+        if ($toolDefinitions === []) {
+            return [
+                'reply' => $this->outputText($response),
+                'activity' => [],
+                'response_id' => $response['id'] ?? null,
+            ];
+        }
+
+        $toolBudget = $mode === 'case' ? 12 : 8;
+
+        for ($round = 0; $round < $toolBudget; $round++) {
+            $calls = collect($response['output'] ?? [])
+                ->filter(fn ($x) => ($x['type'] ?? null) === 'function_call')
+                ->values();
+
+            if ($calls->isEmpty()) {
+                return [
+                    'reply' => $this->outputText($response),
+                    'activity' => $activity,
+                    'response_id' => $response['id'] ?? null,
+                ];
             }
-            $response=$this->post($apiKey,['model'=>$model,'instructions'=>$instructions,'previous_response_id'=>$response['id'],'input'=>$outputs,'tools'=>$this->tools->definitions(),'tool_choice'=>'auto','parallel_tool_calls'=>false,'max_output_tokens'=>2600,'include'=>['web_search_call.action.sources']]);
+
+            $outputs = [];
+
+            foreach ($calls as $call) {
+                $name = (string) ($call['name'] ?? '');
+                $args = json_decode((string) ($call['arguments'] ?? '{}'), true);
+                $args = is_array($args) ? $args : [];
+                $activity[] = $name;
+
+                try {
+                    $result = $this->tools->execute($name, $args);
+                    $output = ['ok' => true, 'result' => $result];
+                } catch (Throwable $e) {
+                    report($e);
+                    $output = ['ok' => false, 'error' => $e->getMessage()];
+                }
+
+                $outputs[] = [
+                    'type' => 'function_call_output',
+                    'call_id' => $call['call_id'],
+                    'output' => json_encode($output, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ];
+            }
+
+            $response = $this->post($apiKey, [
+                'model' => $model,
+                'instructions' => $instructions,
+                'previous_response_id' => $response['id'],
+                'input' => $outputs,
+                'tools' => $toolDefinitions,
+                'tool_choice' => 'auto',
+                'parallel_tool_calls' => false,
+                'max_output_tokens' => $mode === 'case' ? 3200 : 2600,
+                'include' => ['web_search_call.action.sources'],
+            ]);
         }
-        throw new RuntimeException('Jinx Agent exceeded its tool-call limit: '.implode(', ',$activity));
+
+        // Never dump a tool-loop exception into the user-facing chat. Force a final answer
+        // from the evidence already gathered and be explicit about anything still unresolved.
+        $final = $this->post($apiKey, [
+            'model' => $model,
+            'instructions' => $instructions,
+            'previous_response_id' => $response['id'] ?? null,
+            'input' => [[
+                'role' => 'user',
+                'content' => 'Stop using tools now. Give the packager the best concise answer you can from the evidence already gathered. If something material remains unresolved, say exactly what it is rather than calling more tools.',
+            ]],
+            'max_output_tokens' => $mode === 'case' ? 3200 : 2600,
+        ]);
+
+        return [
+            'reply' => $this->outputText($final),
+            'activity' => $activity,
+            'response_id' => $final['id'] ?? ($response['id'] ?? null),
+            'tool_budget_exhausted' => true,
+        ];
     }
 
-    private function post(string $apiKey,array $payload): array
+    private function post(string $apiKey, array $payload): array
     {
-        $r=Http::timeout(90)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',$payload);
-        if(!$r->successful())throw new RuntimeException('Agent provider error: '.$r->status().' '.$r->body());return $r->json();
+        $r = Http::timeout(90)
+            ->withToken($apiKey)
+            ->acceptJson()
+            ->post('https://api.openai.com/v1/responses', $payload);
+
+        if (! $r->successful()) {
+            throw new RuntimeException('Agent provider error: '.$r->status().' '.$r->body());
+        }
+
+        return $r->json();
     }
 
     private function outputText(array $r): string
     {
-        if(is_string($r['output_text']??null)&&trim($r['output_text'])!=='')return trim($r['output_text']);
-        $parts=[];foreach($r['output']??[] as $item)if(($item['type']??null)==='message')foreach($item['content']??[] as $c)if(($c['type']??null)==='output_text'&&filled($c['text']??null))$parts[]=$c['text'];
-        if(!$parts)throw new RuntimeException('Jinx Agent returned no final answer.');return trim(implode("\n",$parts));
+        if (is_string($r['output_text'] ?? null) && trim($r['output_text']) !== '') {
+            return trim($r['output_text']);
+        }
+
+        $parts = [];
+
+        foreach ($r['output'] ?? [] as $item) {
+            if (($item['type'] ?? null) !== 'message') continue;
+
+            foreach ($item['content'] ?? [] as $c) {
+                if (($c['type'] ?? null) === 'output_text' && filled($c['text'] ?? null)) {
+                    $parts[] = $c['text'];
+                }
+            }
+        }
+
+        if (! $parts) {
+            throw new RuntimeException('Jinx Agent returned no final answer.');
+        }
+
+        return trim(implode("\n", $parts));
     }
 
     private function instructions(): string
@@ -65,6 +236,11 @@ Reason across multiple tools when necessary. A question such as why a WIP client
 
 Be conversational, concise and useful. Do not expose hidden chain-of-thought. You may briefly say what you checked. Current timezone is Europe/London. Current local date/time is {{CURRENT_LOCAL_DATETIME}}.
 PROMPT;
-        return str_replace('{{CURRENT_LOCAL_DATETIME}}', now('Europe/London')->format('Y-m-d H:i T'), $prompt);
+
+        return str_replace(
+            '{{CURRENT_LOCAL_DATETIME}}',
+            now('Europe/London')->format('Y-m-d H:i T'),
+            $prompt
+        );
     }
 }
