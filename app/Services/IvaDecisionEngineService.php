@@ -21,6 +21,7 @@ class IvaDecisionEngineService
         private readonly DecisionCaseFactService $facts,
         private readonly PropertyDecisionService $property,
         private readonly RefreshDmpDecisionService $dmp,
+        private readonly DecisionDynamicRuleService $dynamicRules,
     ) {}
 
     public function assess(Lead $lead): array
@@ -41,14 +42,16 @@ class IvaDecisionEngineService
             $evidence=$this->evidenceFeasibility($key,$routeReview,$factContext['case_facts'] ?? []);
             $property=$this->property->evaluate($lead,$key);
             $special=$this->specialCircumstances($key,$lead,$routeReview,$factContext['case_facts'] ?? []);
+            $dynamic=$this->dynamicRules->evaluate($lead,$key);
             $routes[]=[
                 'destination'=>$route['label'],
                 'destination_key'=>$key,
                 'priority'=>count($routes)+1,
-                'deterministic_status'=>$this->routeStatus($basic,$evidence,$property,$special,$voting),
+                'deterministic_status'=>$this->routeStatus($basic,$evidence,$property,$special,$dynamic,$voting),
                 'basic_requirements'=>$basic,
                 'evidence_feasibility'=>$evidence,
                 'special_circumstances'=>$special,
+                'dynamic_case_checks'=>$dynamic,
                 'route_ie'=>[
                     'partner'=>$routeIe['partner'] ?? null,
                     'calculation'=>$routeIe['calculation'] ?? [],
@@ -209,34 +212,54 @@ class IvaDecisionEngineService
         $hasHmrc=$lead->debts()->whereHas('creditor',fn($q)=>$q->where('name','like','%HMRC%')->orWhere('name','like','%HM Revenue%'))->exists();
 
         if (in_array($key,['zebra','lawson_fox','assure'],true) && $selfEmployed===true) {
-            $months=$v('case.self_employed_trading_months');
-            if (is_numeric($months)) $findings[]=$this->circumstanceFinding(
-                'self_employed_trading_months',
-                (float)$months >= 6 ? 'SATISFIED' : 'BLOCKED',
-                'Client has '.(float)$months.' months trading history; supplied criteria require at least 6 months.',
-                $key,'trading for at least 6 months'
-            );
-            else $findings[]=$this->circumstanceFinding('self_employed_trading_months','UNKNOWN','Trading duration has not been recorded.',$key,'trading for at least 6 months');
+            $returnsDue=$v('case.self_employed_returns_due');
+            $returnsUpToDate=$v('case.tax_returns_up_to_date');
 
-            foreach ([
-                ['case.self_employed_profitable',true,'self_employed_profitability','Must be making a profit','profit'],
-                ['case.self_employed_has_employees',false,'self_employed_employees','Must not have employees','employees'],
-                ['case.self_employed_partnership',false,'self_employed_partnership','Must not be a partnership','partnership'],
-                ['case.tax_returns_up_to_date',true,'tax_returns','Tax Returns must be up to date','Tax Returns must be up to date'],
-            ] as [$fact,$wanted,$topic,$label,$needle]) {
-                $actual=$v($fact);
-                $status=$actual===null?'UNKNOWN':($actual===$wanted?'SATISFIED':'BLOCKED');
-                $findings[]=$this->circumstanceFinding($topic,$status,$actual===null?$label.' fact has not been recorded.':$label.'.',$key,$needle);
+            if ($returnsDue===null) {
+                $findings[]=$this->circumstanceFinding(
+                    'self_employed_returns_due',
+                    'UNKNOWN',
+                    'It has not been established whether the client has been trading long enough for tax returns to be due.',
+                    $key,
+                    'Tax Returns'
+                );
+            } elseif ($returnsDue===false) {
+                $findings[]=$this->circumstanceFinding(
+                    'self_employed_returns_due',
+                    'FIT_WITH_ACTIONS',
+                    'No tax return is recorded as due yet. Apply the route’s sourced new/self-employed trading criteria during final route analysis.',
+                    $key,
+                    'SELF EMPLOYED'
+                );
+            } else {
+                $status=$returnsUpToDate===null?'UNKNOWN':($returnsUpToDate===true?'SATISFIED':'BLOCKED');
+                $findings[]=$this->circumstanceFinding(
+                    'tax_returns',
+                    $status,
+                    $returnsUpToDate===true
+                        ? 'All tax returns currently due are recorded as up to date.'
+                        : ($returnsUpToDate===false
+                            ? 'Tax returns that are due are recorded as outstanding.'
+                            : 'Tax-return status has not been recorded.'),
+                    $key,
+                    'Tax Returns must be up to date'
+                );
             }
         }
 
         if (in_array($key,['zebra','lawson_fox','assure'],true) && is_numeric($gambling)) {
             $contribution=(float)(data_get($review,'ie.calculation.disposable_income') ?? 0);
             if ((float)$gambling > $contribution) {
-                $status=$gamstop===true?'SATISFIED':($gamstop===false?'FIT_WITH_ACTIONS':'FIT_WITH_ACTIONS');
-                $findings[]=$this->circumstanceFinding('gambling_gamstop',$status,
-                    $gamstop===true ? 'Gambling exceeds the proposed monthly contribution and GAMSTOP is recorded.' : 'Gambling exceeds the proposed monthly contribution; GAMSTOP is required before referral.',
-                    $key,'GAMSTOP required');
+                $status=$gamstop===true?'SATISFIED':'FIT_WITH_ACTIONS';
+                $findings[]=$this->circumstanceFinding(
+                    'gambling_gamstop',
+                    $status,
+                    $gamstop===true
+                        ? 'Gambling exceeds the proposed monthly contribution and GAMSTOP is recorded.'
+                        : 'Gambling exceeds the proposed monthly contribution; GAMSTOP is required before referral.',
+                    $key,
+                    'GAMSTOP required'
+                );
             }
         }
 
@@ -251,13 +274,29 @@ class IvaDecisionEngineService
                     }
                 }
             }
+
             if ($selfEmployed===true) {
-                $months=$v('case.self_employed_trading_months');
-                $findings[]=$this->circumstanceFinding('self_employed_trading_months',
-                    $months===null?'UNKNOWN':((float)$months>=3?'SATISFIED':'BLOCKED'),
-                    $months===null?'New self-employed trading duration has not been recorded.':'Recorded trading duration is '.(float)$months.' months.',
-                    $key,"MINIMUM OF 3 MONTH");
+                $returnsDue=$v('case.self_employed_returns_due');
+                $returnsUpToDate=$v('case.tax_returns_up_to_date');
+                if ($returnsDue===true && $returnsUpToDate===false) {
+                    $findings[]=$this->circumstanceFinding(
+                        'tax_returns',
+                        'BLOCKED',
+                        'Tax returns that are due are recorded as outstanding.',
+                        $key,
+                        'TAX RETURN'
+                    );
+                } elseif ($returnsDue===false) {
+                    $findings[]=$this->circumstanceFinding(
+                        'self_employed_new_trader',
+                        'FIT_WITH_ACTIONS',
+                        'No tax return is due yet; apply TIG’s sourced new-trader requirements during route analysis.',
+                        $key,
+                        'MINIMUM OF 3 MONTH'
+                    );
+                }
             }
+
             if ($v('case.hmrc_majority')===true && $v('case.hmrc_deduction_from_income')===true) {
                 $findings[]=$this->circumstanceFinding('hmrc_majority_deduction','BLOCKED','HMRC is recorded as majority and there is a deduction from income/benefits.',$key,'MUST NOT have a deduction');
             }
@@ -269,16 +308,30 @@ class IvaDecisionEngineService
             }
         }
 
-        if ($key==='anchorage_chambers' && $hasHmrc) {
-            foreach ([
-                ['case.tax_returns_up_to_date',false,'hmrc_tax_returns','Outstanding tax returns/self-assessments are recorded.','OUTSTANDING TAX RETURNS'],
-                ['case.joint_iva',true,'hmrc_joint_iva','Joint IVA is recorded with HMRC present.','ALL JOINT IVA'],
-                ['case.previous_iva_failed',true,'hmrc_failed_iva','Previous failed IVA is recorded with HMRC present.','failed previous IVA'],
-                ['case.seiss_debt',true,'hmrc_seiss','SEISS-related debt is recorded.','SEISS'],
-                ['case.vat_debt',true,'hmrc_vat','VAT debt is recorded.','VAT DEBT'],
-            ] as [$fact,$bad,$topic,$message,$needle]) {
-                $actual=$v($fact);
-                if ($actual===$bad) $findings[]=$this->circumstanceFinding($topic,'BLOCKED',$message,$key,$needle);
+        if ($hasHmrc) {
+            $outstanding=$v('case.hmrc_tax_returns_outstanding');
+            $failedHmrcIva=$v('case.hmrc_previous_failed_iva');
+            $nonCompliance=$v('case.hmrc_prolonged_non_compliance');
+
+            if ($key==='anchorage_chambers') {
+                if ($outstanding===true) {
+                    $findings[]=$this->circumstanceFinding('hmrc_tax_returns','BLOCKED','Outstanding tax returns/self-assessments are recorded.',$key,'OUTSTANDING TAX RETURNS');
+                }
+                if ($v('case.joint_iva')===true) {
+                    $findings[]=$this->circumstanceFinding('hmrc_joint_iva','BLOCKED','Joint IVA is recorded with HMRC present.',$key,'ALL JOINT IVA');
+                }
+                if ($failedHmrcIva===true) {
+                    $findings[]=$this->circumstanceFinding('hmrc_failed_iva','BLOCKED','HMRC was included in a previous IVA that failed.',$key,'failed previous IVA');
+                }
+            }
+
+            if ($nonCompliance===true) {
+                $findings[]=[
+                    'topic'=>'hmrc_compliance_history',
+                    'status'=>'FIT_WITH_ACTIONS',
+                    'message'=>'Prolonged HMRC non-compliance is recorded. Treat this as a material conduct fact and assess it against the sourced route/HMRC criteria rather than inventing an automatic outcome.',
+                    'source'=>null,
+                ];
             }
         }
 
@@ -305,14 +358,15 @@ class IvaDecisionEngineService
         return collect($findings)->sortByDesc(fn($x)=>$order[$x['status']]??0)->first()['status'];
     }
 
-    private function routeStatus(array $basic,array $evidence,array $property,array $special,array $voting): string
+    private function routeStatus(array $basic,array $evidence,array $property,array $special,array $dynamic,array $voting): string
     {
-        if (in_array('BLOCKED',[$basic['status']??null,$evidence['status']??null,$special['status']??null],true)) return 'BLOCKED';
+        if (in_array('BLOCKED',[$basic['status']??null,$evidence['status']??null,$special['status']??null,$dynamic['status']??null],true)) return 'BLOCKED';
         if (($voting['unresolved_representative_count']??0)>0) return 'UNKNOWN';
         if (($property['status']??null)==='UNKNOWN') return 'UNKNOWN';
-        if (in_array('UNKNOWN',[$basic['status']??null,$evidence['status']??null,$special['status']??null],true)) return 'UNKNOWN';
+        if (in_array('UNKNOWN',[$basic['status']??null,$evidence['status']??null,$special['status']??null,$dynamic['status']??null],true)) return 'UNKNOWN';
         if (in_array($evidence['status']??null,['FIT_WITH_ACTIONS','EXCEPTION_ESCALATION'],true)
-            || in_array($special['status']??null,['FIT_WITH_ACTIONS','EXCEPTION_ESCALATION'],true)) return 'FIT_WITH_ACTIONS';
+            || in_array($special['status']??null,['FIT_WITH_ACTIONS','EXCEPTION_ESCALATION'],true)
+            || in_array($dynamic['status']??null,['FIT_WITH_ACTIONS','EXCEPTION_ESCALATION'],true)) return 'FIT_WITH_ACTIONS';
         return 'BASIC_PASS';
     }
 
