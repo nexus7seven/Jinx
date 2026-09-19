@@ -242,7 +242,7 @@ class JinxAssistantController extends Controller
             // checkpoint (e.g. target DI 110 becoming salary 110, or rent 600 becoming council tax 600).
             $activeFacts = data_get($conversation->fresh()->metadata, 'established_facts', []);
             $assistantInput = (($activeFacts['workflow.ie_active'] ?? false) === true && $answerFacts !== [])
-                ? '[Current I&E checkpoint answer already persisted deterministically. Advance to the next unresolved checkpoint.]'
+                ? '[Current I&E checkpoint answer already persisted deterministically. Do not reinterpret the checkpoint value as the next I&E answer. Advance to the next unresolved checkpoint. The original packager message was: '.json_encode($userMessage->content, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).'. You may still capture any separate non-I&E case-reasoning facts clearly supplied in that message.]'
                 : $userMessage->content;
             $result = $assistant->reply($conversation->fresh(), $assistantInput);
 
