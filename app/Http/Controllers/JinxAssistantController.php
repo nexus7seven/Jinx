@@ -130,7 +130,7 @@ class JinxAssistantController extends Controller
             }
 
             if ($ieCompleteBefore && !$this->isIeStartRequest($messageText)) {
-                if ($this->isPackagingRequest($messageText)) {
+                if ($this->isPackagingRequest($messageText) || $this->isContinueCaseRequest($messageText)) {
                     $plan = $packagingPlanner->plan($lead->fresh());
                     if (($plan['state'] ?? null) === 'needs_fact' && is_array($plan['question'] ?? null)) {
                         $metadata['pending_decision_question'] = $plan['question'];
@@ -473,6 +473,11 @@ class JinxAssistantController extends Controller
     private function isPackagingRequest(string $message): bool
     {
         return preg_match('/\b(?:assess|assessment|review|route|routing|suitable|suitability|refer|referral|package|packaging|which\s+(?:ip|route)|iva\s+fit|dmp\s+fallback)\b/i', $message) === 1;
+    }
+
+    private function isContinueCaseRequest(string $message): bool
+    {
+        return preg_match('/\b(?:continue|carry\s+on|go\s+ahead|proceed|keep\s+going|what(?:\s+do\s+we\s+do)?\s+next|next\s+step)\b/i', $message) === 1;
     }
 
     private function withoutIeFacts(array $facts): array
