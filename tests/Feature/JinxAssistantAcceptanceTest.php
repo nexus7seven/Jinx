@@ -257,13 +257,6 @@ class JinxAssistantAcceptanceTest extends TestCase
         $lead = $this->lead('Zebra');
         $this->debt($lead, 'Acceptance Planner Bank', 9000);
         $this->baseIe($lead, 3000, 110);
-        $lead->update(['employment_status' => 'Employed']);
-        $facts = app(DecisionCaseFactService::class);
-        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
-        $facts->setLeadFact($lead, 'case.previous_iva', false);
-        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
-        $facts->setLeadFact($lead, 'case.self_employed', false);
-        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
 
         AssistantConversation::create([
             'lead_id' => $lead->id,
@@ -295,6 +288,13 @@ class JinxAssistantAcceptanceTest extends TestCase
         $lead = $this->lead('Zebra');
         $this->debt($lead, 'Acceptance Agent Bank', 9000);
         $this->baseIe($lead, 3000, 110);
+        $lead->update(['employment_status' => 'Employed']);
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'case.previous_iva', false);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.self_employed', false);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
 
         AssistantConversation::create([
             'lead_id' => $lead->id,
