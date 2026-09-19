@@ -8,6 +8,7 @@ use App\Models\AssistantMessage;
 use App\Models\Lead;
 use App\Services\AssistantLeadFactSyncService;
 use App\Services\DecisionCaseFactService;
+use App\Services\DecisionFactRegistryService;
 use App\Services\IvaCasePackagingPlannerService;
 use App\Services\JinxAgentService;
 use App\Services\JinxAssistantService;
@@ -49,6 +50,7 @@ class JinxAssistantController extends Controller
         VicidialCallbackService $callbacks,
         IvaCasePackagingPlannerService $packagingPlanner,
         DecisionCaseFactService $decisionFacts,
+        DecisionFactRegistryService $factRegistry,
     ): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
@@ -274,6 +276,21 @@ class JinxAssistantController extends Controller
                 }
                 $metadata['established_facts'] = array_replace($existingFacts, $updates);
                 $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $updates));
+
+                foreach ($updates as $key => $value) {
+                    $definition = $factRegistry->definition((string) $key);
+                    if (!$definition || ($definition['scope'] ?? null) !== 'case') continue;
+                    if (($definition['storage_type'] ?? null) !== 'lead_decision_fact') continue;
+
+                    $decisionFacts->setLeadFact(
+                        $lead->fresh(),
+                        (string) $key,
+                        $value,
+                        'operator',
+                        'Captured from Jinx case conversation'
+                    );
+                }
+
                 $result['fact_updates'] = $updates;
             }
 
