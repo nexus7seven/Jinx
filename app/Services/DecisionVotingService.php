@@ -21,9 +21,10 @@ class DecisionVotingService
         foreach ($lead->debts as $debt) {
             $debtFacts = $this->facts->debtValues($debt);
             $override = $debtFacts['voting.representative_override'] ?? null;
+            $reference = $debtFacts['debt.account_reference'] ?? $debt->reference;
             $route = $override
                 ? $this->overrideRoute((string)$override)
-                : $this->resolveRoute((int) $debt->creditor_id, $partnerKey, $ipKey, $debtFacts, $debt->reference);
+                : $this->resolveRoute((int) $debt->creditor_id, $partnerKey, $ipKey, $debtFacts, $reference);
             $house = $route['house'] ?? ($route['unresolved'] ?? false ? 'Unresolved representative' : trim((string) ($debt->creditor?->voting_house ?: 'Independent / ungrouped')));
             $balance = (float) $debt->balance;
             $percent = $total > 0 ? round(($balance / $total) * 100, 4) : 0.0;
@@ -249,13 +250,18 @@ class DecisionVotingService
         $scopePool = $pool->where('scope_rank',$bestScope)->values();
 
         $product = trim((string)($debtFacts['debt.product_type'] ?? ''));
-        $specificMatches = collect();
-        if ($product !== '') {
-            $specificMatches = $scopePool->filter(function($r) use ($product,$reference) {
-                $match=$this->candidateDebtMatch($r,$product,$reference);
-                return $match['specific'] && $match['matches'];
-            })->values();
-        }
+        $evaluated=$scopePool->map(function($r) use ($product,$reference) {
+            $match=$this->candidateDebtMatch($r,$product,$reference);
+            return ['route'=>$r,'match'=>$match];
+        })->values();
+
+        $specificMatches=$evaluated
+            ->filter(fn($x)=>$x['match']['specific'] && $x['match']['matches'])
+            ->pluck('route')->values();
+
+        $pendingSpecific=$evaluated
+            ->filter(fn($x)=>$x['match']['specific'] && !$x['match']['matches'] && $x['match']['compatible'] && $x['match']['missing_required_fact'])
+            ->values();
 
         $resolution = null;
         if ($specificMatches->isNotEmpty()) {
@@ -269,6 +275,10 @@ class DecisionVotingService
                 $unresolved=true;
                 $resolution='Recorded debt product/account facts still match more than one representative.';
             }
+        } elseif ($pendingSpecific->isNotEmpty()) {
+            $route=null;
+            $unresolved=true;
+            $resolution='A specific representative route is compatible with the recorded debt product, but an additional account/reference fact is required before it can be selected.';
         } else {
             $bestPriority = (int)$scopePool->min('priority');
             $best = $scopePool->where('priority',$bestPriority)->values();
@@ -281,12 +291,14 @@ class DecisionVotingService
         $conflict = $allHouses->count() > 1;
 
         $candidates = $pool->map(function($r) use ($route,$product,$reference) {
-            $match=$product!=='' ? $this->candidateDebtMatch($r,$product,$reference) : ['specific'=>false,'matches'=>false,'reasons'=>[]];
+            $match=$this->candidateDebtMatch($r,$product,$reference);
             return [
                 'route_id'=>$r->id,'house'=>$r->house,'partner_key'=>$r->partner_key,'priority'=>$r->priority,
                 'condition'=>$r->condition_text,'source_type'=>$r->source_type,'source_name'=>$r->source_name,
                 'source_sheet'=>$r->source_sheet,'source_location'=>$r->source_location,
-                'debt_fact_specific'=>$match['specific'],'debt_fact_match'=>$match['matches'],'debt_fact_match_reasons'=>$match['reasons'],
+                'debt_fact_specific'=>$match['specific'],'debt_fact_match'=>$match['matches'],
+                'debt_fact_compatible'=>$match['compatible'],'debt_fact_missing_required_fact'=>$match['missing_required_fact'],
+                'debt_fact_match_reasons'=>$match['reasons'],
                 'selected'=>$route && $route->id===$r->id,
             ];
         })->all();
@@ -319,7 +331,7 @@ class DecisionVotingService
             $route->condition_text ?? null,
             $route->source_original_text ?? null,
         ])));
-        $specific=false;$matches=true;$reasons=[];
+        $specific=false;$matches=true;$compatible=true;$missingRequiredFact=false;$reasons=[];
 
         $routeProduct=null;
         if (preg_match('/(?:account_type|product_type)\s*:\s*([^|]+)/i',$text,$m)) {
@@ -333,8 +345,15 @@ class DecisionVotingService
             $wanted=$this->canonicalProduct($routeProduct);
             $actual=$this->canonicalProduct($product);
             $productMatch=$wanted!=='' && $actual!=='' && $wanted===$actual;
-            $matches=$matches && $productMatch;
-            $reasons[]='product '.($productMatch?'matches':'does not match').' (case: '.$product.'; route: '.$routeProduct.')';
+            if ($actual==='') {
+                $matches=false;
+                $missingRequiredFact=true;
+                $reasons[]='route requires a debt product/account type but none is recorded';
+            } else {
+                $matches=$matches && $productMatch;
+                $compatible=$compatible && $productMatch;
+                $reasons[]='product '.($productMatch?'matches':'does not match').' (case: '.$product.'; route: '.$routeProduct.')';
+            }
         }
 
         if (preg_match('/\bdigits\s*:\s*(\d+)\b/i',$text,$m)) {
@@ -344,9 +363,11 @@ class DecisionVotingService
             if ($actualDigits !== '') {
                 $lengthMatch=strlen($actualDigits)===$requiredDigits;
                 $matches=$matches && $lengthMatch;
+                $compatible=$compatible && $lengthMatch;
                 $reasons[]='reference digit length '.($lengthMatch?'matches':'does not match').' (case: '.strlen($actualDigits).'; route: '.$requiredDigits.')';
             } else {
                 $matches=false;
+                $missingRequiredFact=true;
                 $reasons[]='route requires a '.$requiredDigits.'-digit reference but no debt reference is recorded';
             }
         }
@@ -358,15 +379,23 @@ class DecisionVotingService
             $actualDigits=preg_replace('/\D+/','',(string)$reference) ?? '';
             if ($actualDigits==='') {
                 $matches=false;
+                $missingRequiredFact=true;
                 $reasons[]='route has an explicit reference-prefix condition but no debt reference is recorded';
             } else {
                 $prefixOk=collect($prefixes)->contains(fn($prefix)=>str_starts_with($actualDigits,$prefix));
                 $matches=$matches && $prefixOk;
+                $compatible=$compatible && $prefixOk;
                 $reasons[]='reference prefix '.($prefixOk?'matches':'does not match').' route prefix condition';
             }
         }
 
-        return ['specific'=>$specific,'matches'=>$matches,'reasons'=>$reasons];
+        return [
+            'specific'=>$specific,
+            'matches'=>$matches,
+            'compatible'=>$compatible,
+            'missing_required_fact'=>$missingRequiredFact,
+            'reasons'=>$reasons,
+        ];
     }
 
     private function canonicalProduct(string $value): string
