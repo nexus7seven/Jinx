@@ -68,6 +68,7 @@ class DecisionCaseFactService
 
     private const DEBT_KEYS = [
         'debt.product_type',
+        'debt.account_reference',
         'debt.contractual_payment',
         'debt.payments_made',
         'debt.current_provider',
