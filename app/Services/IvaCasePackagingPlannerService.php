@@ -31,6 +31,9 @@ class IvaCasePackagingPlannerService
         $question = $this->propertyQuestion($values);
         if ($question) return $this->questionPlan($assessment, $question);
 
+        $question = $this->votingConflictQuestion($assessment, $lead);
+        if ($question) return $this->questionPlan($assessment, $question);
+
         $question = $this->specialCircumstanceQuestion($assessment, $values);
         if ($question) return $this->questionPlan($assessment, $question);
 
@@ -140,6 +143,38 @@ class IvaCasePackagingPlannerService
         return null;
     }
 
+    private function votingConflictQuestion(array $assessment, Lead $lead): ?array
+    {
+        $lead->loadMissing('debts.creditor');
+
+        foreach ($this->seriousRoutes($assessment) as $route) {
+            if ((int) ($route['unresolved_representative_count'] ?? 0) <= 0) continue;
+
+            foreach (($route['unresolved_voting_debts'] ?? []) as $debt) {
+                $debtId = (int) ($debt['debt_id'] ?? 0);
+                if ($debtId <= 0) continue;
+
+                $debtModel = $lead->debts->firstWhere('id', $debtId);
+                if (!$debtModel) continue;
+
+                $debtFacts = $this->facts->debtValues($debtModel);
+                if (!array_key_exists('debt.product_type', $debtFacts)) {
+                    $creditor = trim((string) ($debt['creditor'] ?? $debtModel->creditor?->name ?? 'this creditor'));
+                    return $this->question(
+                        'debt.product_type',
+                        'text',
+                        'What type of debt/account is the '.$creditor.' debt (for example credit card, personal loan, overdraft or catalogue)?',
+                        (string) ($route['destination'] ?? ''),
+                        'debt',
+                        $debtId
+                    );
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function specialCircumstanceQuestion(array $assessment, array $values): ?array
     {
         $map = [
@@ -239,14 +274,17 @@ class IvaCasePackagingPlannerService
         ];
     }
 
-    private function question(string $key, string $type, string $question, string $route): array
+    private function question(string $key, string $type, string $question, string $route, string $scope = 'case', ?int $debtId = null): array
     {
-        return [
+        $out = [
             'fact_key' => $key,
             'type' => $type,
             'question' => $question,
             'route' => $route,
+            'scope' => $scope,
         ];
+        if ($debtId !== null) $out['debt_id'] = $debtId;
+        return $out;
     }
 
     private function bool(mixed $value): ?bool
