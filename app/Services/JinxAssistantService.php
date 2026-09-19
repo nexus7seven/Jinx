@@ -57,6 +57,10 @@ class JinxAssistantService
             if($direct!==[]) $facts=array_replace($facts,$direct);
         }
 
+        $nextIeQuestion=(($profile['partner']??null)==='Zebra' && (($facts['workflow.ie_active']??false)===true))
+            ? $this->zebraAnswers->nextQuestion($facts)
+            : null;
+
         $knowledge=$this->knowledgeForProfile($profile);
         $history=$conversation->messages()->latest('id')->limit(24)->get()->reverse()->values()->map(fn(AssistantMessage $item)=>['role'=>$item->role,'content'=>$item->content])->all();
         $similarCases=$this->findSimilarCases($conversation,$message);
@@ -82,6 +86,9 @@ Child Benefit is calculator-owned and must not be asked. Universal Credit is a s
 CALCULATED ITEMS
 Never ask for rule-driven SFS figures, Zebra utility figures, TV Licence, Child Benefit or other calculator-owned/default amounts merely because CRM fields are blank.
 
+CONVERSATIONAL I&E
+When NEXT_REQUIRED_IE_QUESTION is present, it is the single deterministic checkpoint that still needs answering. Sound like an experienced colleague rather than a form: briefly acknowledge any useful context the packager gave you, then ask that one required question naturally. You may rephrase it conversationally, but do not change what fact is being requested and do not stack extra questions onto it. If the packager gives extra information alongside the answer, acknowledge it and preserve any clear fact updates rather than ignoring the context.
+
 TRAINING / NEW RULES
 Durable rules must be proposed at company, partner or IP scope and confirmed before saving. Do not save case facts as organisational knowledge.
 
@@ -92,7 +99,7 @@ Return ONLY valid JSON:
 {"reply":"natural-language reply","fact_updates":{},"suitability_assessment":null,"proposed_knowledge":null,"confirm_pending_knowledge":false,"requested_action":null,"case_summary":"brief rolling summary"}
 PROMPT;
 
-        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'WORKSPACE_CONTEXT'=>$workspaceContext];
+        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'NEXT_REQUIRED_IE_QUESTION'=>$nextIeQuestion,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'WORKSPACE_CONTEXT'=>$workspaceContext];
         $response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>$instructions,'input'=>json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>$comparisonRequested?2600:1800]);
         if(!$response->successful())throw new RuntimeException('Assistant provider error: '.$response->status().' '.$response->body());
         $decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);
@@ -111,7 +118,12 @@ PROMPT;
             $next=$this->zebraAnswers->nextQuestion($factsAfter);
             $incomeComplete=$this->zebraAnswers->incomeComplete($factsAfter);
             $factUpdates['workflow.income_complete']=$incomeComplete;$factsAfter['workflow.income_complete']=$incomeComplete;
-            if($next!==null){$factUpdates['workflow.ie_complete']=false;$factsAfter['workflow.ie_complete']=false;$reply=$next;$suitability=null;}
+            if($next!==null){
+                $factUpdates['workflow.ie_complete']=false;
+                $factsAfter['workflow.ie_complete']=false;
+                if($nextIeQuestion===null || $nextIeQuestion!==$next || !str_contains($reply,'?')) $reply=$next;
+                $suitability=null;
+            }
             else{$factUpdates['workflow.ie_complete']=true;$factsAfter['workflow.ie_complete']=true;}
         }
 
