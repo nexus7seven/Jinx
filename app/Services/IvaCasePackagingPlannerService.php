@@ -158,12 +158,32 @@ class IvaCasePackagingPlannerService
                 if (!$debtModel) continue;
 
                 $debtFacts = $this->facts->debtValues($debtModel);
+                $creditor = trim((string) ($debt['creditor'] ?? $debtModel->creditor?->name ?? 'this creditor'));
+
                 if (!array_key_exists('debt.product_type', $debtFacts)) {
-                    $creditor = trim((string) ($debt['creditor'] ?? $debtModel->creditor?->name ?? 'this creditor'));
                     return $this->question(
                         'debt.product_type',
                         'text',
                         'What type of debt/account is the '.$creditor.' debt (for example credit card, personal loan, overdraft or catalogue)?',
+                        (string) ($route['destination'] ?? ''),
+                        'debt',
+                        $debtId
+                    );
+                }
+
+                $needsReference = collect($debt['route_candidates'] ?? [])->contains(function($candidate) {
+                    if (($candidate['debt_fact_missing_required_fact'] ?? false) !== true) return false;
+                    return collect($candidate['debt_fact_match_reasons'] ?? [])->contains(
+                        fn($reason)=>str_contains(Str::lower((string)$reason),'reference')
+                    );
+                });
+
+                $knownReference = trim((string) ($debtFacts['debt.account_reference'] ?? $debtModel->reference ?? ''));
+                if ($needsReference && $knownReference === '') {
+                    return $this->question(
+                        'debt.account_reference',
+                        'text',
+                        'What is the account/reference number for the '.$creditor.' debt? It is needed to resolve which voting representative applies. If it is not available, reply unknown.',
                         (string) ($route['destination'] ?? ''),
                         'debt',
                         $debtId
