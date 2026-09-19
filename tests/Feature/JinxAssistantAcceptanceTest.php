@@ -84,7 +84,7 @@ class JinxAssistantAcceptanceTest extends TestCase
         $this->assertSame(count($messages) * 2, $storedMessages);
     }
 
-    public function test_finishing_ie_with_debts_moves_directly_into_the_decision_planner(): void
+    public function test_finishing_ie_waits_for_packager_before_case_reasoning(): void
     {
         $this->fakeAssistant([]);
         $user = User::factory()->create();
@@ -113,17 +113,19 @@ class JinxAssistantAcceptanceTest extends TestCase
             $last->assertOk();
         }
 
-        $last->assertJsonPath('decision_plan_state', 'needs_fact')
-            ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+        $last->assertJsonPath('decision_plan_state', 'awaiting_user')
+            ->assertJsonPath('decision_question', null);
 
         $this->assertStringContainsString('I&E complete', (string) $last->json('message.content'));
-        $this->assertStringContainsString('homeowner', strtolower((string) $last->json('message.content')));
+        $this->assertStringContainsString('until you ask me to assess', strtolower((string) $last->json('message.content')));
+        $this->assertDatabaseMissing('lead_decision_assessments', ['lead_id' => $lead->id]);
     }
 
     public function test_full_natural_case_conversation_reaches_and_persists_a_real_route_decision(): void
     {
         $user = User::factory()->create();
         $lead = $this->lead('Zebra');
+        $lead->update(['employment_status' => 'Employed']);
         $this->debt($lead, 'Acceptance Full Journey Bank', 9000);
         $this->fakeUnifiedCaseJourney($lead->id);
 
@@ -149,14 +151,38 @@ class JinxAssistantAcceptanceTest extends TestCase
             $last->assertOk();
         }
 
-        $last->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+        $last->assertJsonPath('decision_plan_state', 'awaiting_user');
 
-        $decision = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+        $step = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'Assess this case',
+        ]);
+        $step->assertOk()->assertJsonPath('decision_question.fact_key', 'case.jurisdiction');
+
+        $step = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'England',
+        ]);
+        $step->assertOk()->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+
+        $step = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'no they live with their family',
+        ]);
+        $step->assertOk()->assertJsonPath('decision_question.fact_key', 'case.previous_iva');
+
+        $step = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
             'message' => 'no',
         ]);
+        $step->assertOk()->assertJsonPath('decision_question.fact_key', 'case.previous_bankruptcy');
 
-        $decision->assertOk()
-            ->assertJsonPath('decision_plan_state', 'ready_for_agent');
+        $step = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'no',
+        ]);
+        $step->assertOk()->assertJsonPath('decision_question.fact_key', 'case.gambling_monthly');
+
+        $decision = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'none',
+        ]);
+
+        $decision->assertOk()->assertJsonPath('decision_plan_state', 'ready_for_agent');
 
         $this->assertContains('record_decision_assessment', $decision->json('agent_activity'));
         $this->assertDatabaseHas('lead_decision_assessments', [
@@ -168,6 +194,28 @@ class JinxAssistantAcceptanceTest extends TestCase
         $lead->refresh();
         $this->assertGreaterThanOrEqual(110.0, (float) data_get($lead->financial_statement, 'calculation.disposable_income'));
         $this->assertFalse((bool) app(DecisionCaseFactService::class)->leadValues($lead)['property.is_homeowner']);
+    }
+
+    public function test_casually_supplied_reasoning_fact_is_persisted_before_ie_starts(): void
+    {
+        $this->fakeAssistant([
+            'case.previous_iva' => true,
+        ], 'I’ve saved that the client has had an IVA before. Would you like me to carry out the I&E?');
+
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+
+        $response = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'Client had an IVA before',
+        ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseHas('lead_decision_facts', [
+            'lead_id' => $lead->id,
+            'fact_key' => 'case.previous_iva',
+        ]);
+        $this->assertTrue((bool) app(DecisionCaseFactService::class)->leadValues($lead)['case.previous_iva']);
     }
 
     public function test_bulk_agent_fact_message_updates_the_case_without_the_old_is_string_failure(): void
@@ -228,9 +276,9 @@ class JinxAssistantAcceptanceTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('decision_plan_state', 'needs_fact')
-            ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+            ->assertJsonPath('decision_question.fact_key', 'case.jurisdiction');
 
-        $this->assertStringContainsString('homeowner', strtolower((string) $response->json('message.content')));
+        $this->assertStringContainsString('jurisdiction', strtolower((string) $response->json('message.content')));
         $this->assertDatabaseMissing('lead_decision_assessments', ['lead_id' => $lead->id]);
     }
 
@@ -240,6 +288,13 @@ class JinxAssistantAcceptanceTest extends TestCase
         $lead = $this->lead('Zebra');
         $this->debt($lead, 'Acceptance Agent Bank', 9000);
         $this->baseIe($lead, 3000, 110);
+        $lead->update(['employment_status' => 'Employed']);
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'case.previous_iva', false);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.self_employed', false);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
 
         AssistantConversation::create([
             'lead_id' => $lead->id,
@@ -380,8 +435,7 @@ class JinxAssistantAcceptanceTest extends TestCase
         $facts->setLeadFact($lead, 'property.is_homeowner', true);
         $facts->setLeadFact($lead, 'property.value', 200000);
         $facts->setLeadFact($lead, 'property.mortgage_balance', 120000);
-        $facts->setLeadFact($lead, 'property.secured_loans_total', 10000);
-        $facts->setLeadFact($lead, 'property.ownership_percent', 50);
+        $facts->setLeadFact($lead, 'property.joint_ownership', true);
         $facts->setLeadFact($lead, 'evidence.bank_statement_months', 3);
         $facts->setLeadFact($lead, 'evidence.bank_statements_continuous', true);
         $facts->setLeadFact($lead, 'evidence.income_proof_available', true);
@@ -390,9 +444,9 @@ class JinxAssistantAcceptanceTest extends TestCase
         $result = app(IvaDecisionEngineService::class)->assess($lead);
         $zebra = collect($result['route_overview'])->firstWhere('destination', 'Zebra');
 
-        $this->assertSame(70000.0, (float) data_get($zebra, 'property.calculation.gross_equity'));
-        $this->assertSame(35000.0, (float) data_get($zebra, 'property.calculation.client_attributable_equity'));
-        $this->assertSame(50.0, (float) data_get($zebra, 'property.calculation.ownership_percent'));
+        $this->assertSame(80000.0, (float) data_get($zebra, 'property.calculation.gross_equity'));
+        $this->assertSame(40000.0, (float) data_get($zebra, 'property.calculation.client_attributable_equity'));
+        $this->assertSame(50.0, (float) data_get($zebra, 'property.calculation.ownership_percent_used'));
     }
 
     public function test_self_employed_hmrc_problem_case_is_blocked_by_the_supplied_special_rules(): void
@@ -404,11 +458,11 @@ class JinxAssistantAcceptanceTest extends TestCase
         $facts = app(DecisionCaseFactService::class);
         $facts->setLeadFact($lead, 'property.is_homeowner', false);
         $facts->setLeadFact($lead, 'case.self_employed', true);
-        $facts->setLeadFact($lead, 'case.self_employed_trading_months', 4);
-        $facts->setLeadFact($lead, 'case.self_employed_profitable', true);
-        $facts->setLeadFact($lead, 'case.self_employed_has_employees', false);
-        $facts->setLeadFact($lead, 'case.self_employed_partnership', false);
-        $facts->setLeadFact($lead, 'case.tax_returns_up_to_date', true);
+        $facts->setLeadFact($lead, 'case.self_employed_returns_due', true);
+        $facts->setLeadFact($lead, 'case.tax_returns_up_to_date', false);
+        $facts->setLeadFact($lead, 'case.hmrc_tax_returns_outstanding', true);
+        $facts->setLeadFact($lead, 'case.hmrc_previous_failed_iva', false);
+        $facts->setLeadFact($lead, 'case.hmrc_prolonged_non_compliance', true);
         $facts->setLeadFact($lead, 'case.hmrc_majority', true);
         $facts->setLeadFact($lead, 'case.hmrc_deduction_from_income', true);
         $facts->setLeadFact($lead, 'evidence.self_employed_docs_complete', true);

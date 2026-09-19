@@ -40,28 +40,29 @@ class PropertyDecisionService
         }
 
         $missing = [];
-        foreach (['property.value','property.mortgage_balance','property.ownership_percent'] as $key) {
-            if (!array_key_exists($key,$values) || !is_numeric($values[$key])) $missing[]=$key;
+        foreach (['property.value','property.mortgage_balance','property.joint_ownership'] as $key) {
+            if (!array_key_exists($key,$values)) $missing[]=$key;
         }
-
-        $secured = isset($values['property.secured_loans_total']) && is_numeric($values['property.secured_loans_total'])
-            ? (float)$values['property.secured_loans_total'] : 0.0;
+        if (array_key_exists('property.value',$values) && !is_numeric($values['property.value'])) $missing[]='property.value';
+        if (array_key_exists('property.mortgage_balance',$values) && !is_numeric($values['property.mortgage_balance'])) $missing[]='property.mortgage_balance';
+        $missing=array_values(array_unique($missing));
 
         $calc = null;
         if (!$missing) {
             $value=(float)$values['property.value'];
             $mortgage=(float)$values['property.mortgage_balance'];
-            $share=max(0,min(100,(float)$values['property.ownership_percent']));
-            $gross=round($value-$mortgage-$secured,2);
-            $attributable=round(max(0,$gross)*($share/100),2);
+            $joint=$this->bool($values['property.joint_ownership'])===true;
+            $share=$joint?50.0:100.0;
+            $gross=round(max(0,$value-$mortgage),2);
+            $attributable=round($gross*($share/100),2);
             $calc=[
                 'property_value'=>round($value,2),
                 'mortgage_balance'=>round($mortgage,2),
-                'secured_loans_total'=>round($secured,2),
-                'gross_equity'=>round($gross,2),
-                'ownership_percent'=>$share,
+                'joint_ownership'=>$joint,
+                'gross_equity'=>$gross,
+                'ownership_percent_used'=>$share,
                 'client_attributable_equity'=>$attributable,
-                'formula'=>'max(0, property value - mortgage - secured lending) × client ownership share',
+                'formula'=>'max(0, property value - mortgage balance) × ownership share; joint ownership is treated as 50% for this reasoning calculation',
             ];
         }
 
@@ -73,7 +74,7 @@ class PropertyDecisionService
             'calculation'=>$calc,
             'missing_facts'=>$missing,
             'route_rules'=>$rules,
-            'instruction'=>'Apply only the client’s evidenced ownership/beneficial share. Compare the calculated property position with the supplied route and creditor/voting rules; this calculator does not itself decide whether an IVA is acceptable.',
+            'instruction'=>'For case reasoning, equity is calculated from property value and mortgage balance. Joint ownership is treated as a 50% client share; sole ownership as 100%. Compare the result with the supplied route and creditor/voting rules.',
         ];
     }
 

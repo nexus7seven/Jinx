@@ -24,14 +24,14 @@ class DecisionEngineTest extends TestCase
         $facts->setLeadFact($lead,'property.is_homeowner',true);
         $facts->setLeadFact($lead,'property.value',200000);
         $facts->setLeadFact($lead,'property.mortgage_balance',120000);
-        $facts->setLeadFact($lead,'property.secured_loans_total',10000);
-        $facts->setLeadFact($lead,'property.ownership_percent',50);
+        $facts->setLeadFact($lead,'property.joint_ownership',true);
 
         $result=app(PropertyDecisionService::class)->evaluate($lead,'tig');
 
         $this->assertSame('CALCULATED',$result['status']);
-        $this->assertSame(70000.0,$result['calculation']['gross_equity']);
-        $this->assertSame(35000.0,$result['calculation']['client_attributable_equity']);
+        $this->assertSame(80000.0,$result['calculation']['gross_equity']);
+        $this->assertSame(50.0,$result['calculation']['ownership_percent_used']);
+        $this->assertSame(40000.0,$result['calculation']['client_attributable_equity']);
     }
 
     public function test_refresh_dmp_clear_fit_uses_25_percent_contractual_payment_test(): void
@@ -402,7 +402,12 @@ class DecisionEngineTest extends TestCase
         $iva=app(\App\Services\JinxAgentIvaService::class);
         $iva->updateFact($lead,'income.client_salary',1800);
         $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'case.jurisdiction','England');
         $facts->setLeadFact($lead,'property.is_homeowner',false);
+        $facts->setLeadFact($lead,'case.previous_iva',false);
+        $facts->setLeadFact($lead,'case.previous_bankruptcy',false);
+        $facts->setLeadFact($lead,'case.self_employed',false);
+        $facts->setLeadFact($lead,'case.gambling_monthly',0);
 
         $planner=app(\App\Services\IvaCasePackagingPlannerService::class);
         $plan=$planner->plan($lead);

@@ -8,6 +8,7 @@ use App\Models\AssistantMessage;
 use App\Models\Lead;
 use App\Services\AssistantLeadFactSyncService;
 use App\Services\DecisionCaseFactService;
+use App\Services\DecisionFactRegistryService;
 use App\Services\IvaCasePackagingPlannerService;
 use App\Services\JinxAgentService;
 use App\Services\JinxAssistantService;
@@ -49,6 +50,7 @@ class JinxAssistantController extends Controller
         VicidialCallbackService $callbacks,
         IvaCasePackagingPlannerService $packagingPlanner,
         DecisionCaseFactService $decisionFacts,
+        DecisionFactRegistryService $factRegistry,
     ): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
@@ -110,7 +112,7 @@ class JinxAssistantController extends Controller
 
                     return $this->directAssistantReply(
                         $conversation,
-                        (string) $plan['message'],
+                        'Got it. '.$plan['message'],
                         $existingFacts,
                         [],
                         [
@@ -151,7 +153,7 @@ class JinxAssistantController extends Controller
 
                         return $this->directAssistantReply(
                             $conversation,
-                            (string) $plan['message'],
+                            'I’ve checked what is already recorded on the case. Before I run the full reasoning, '.$this->lowercaseFirst((string) $plan['message']),
                             $existingFacts,
                             [],
                             ['decision_plan_state' => 'needs_fact', 'decision_question' => $plan['question']]
@@ -240,7 +242,7 @@ class JinxAssistantController extends Controller
             // checkpoint (e.g. target DI 110 becoming salary 110, or rent 600 becoming council tax 600).
             $activeFacts = data_get($conversation->fresh()->metadata, 'established_facts', []);
             $assistantInput = (($activeFacts['workflow.ie_active'] ?? false) === true && $answerFacts !== [])
-                ? '[Current I&E checkpoint answer already persisted deterministically. Advance to the next unresolved checkpoint.]'
+                ? '[Current I&E checkpoint answer already persisted deterministically. Do not reinterpret the checkpoint value as the next I&E answer. Advance to the next unresolved checkpoint. The original packager message was: '.json_encode($userMessage->content, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).'. You may still capture any separate non-I&E case-reasoning facts clearly supplied in that message.]'
                 : $userMessage->content;
             $result = $assistant->reply($conversation->fresh(), $assistantInput);
 
@@ -274,6 +276,21 @@ class JinxAssistantController extends Controller
                 }
                 $metadata['established_facts'] = array_replace($existingFacts, $updates);
                 $syncedFields = array_merge($syncedFields, $factSync->sync($lead->fresh(), $updates));
+
+                foreach ($updates as $key => $value) {
+                    $definition = $factRegistry->definition((string) $key);
+                    if (!$definition || ($definition['scope'] ?? null) !== 'case') continue;
+                    if (($definition['storage_type'] ?? null) !== 'lead_decision_fact') continue;
+
+                    $decisionFacts->setLeadFact(
+                        $lead->fresh(),
+                        (string) $key,
+                        $value,
+                        'operator',
+                        'Captured from Jinx case conversation'
+                    );
+                }
+
                 $result['fact_updates'] = $updates;
             }
 
@@ -307,35 +324,9 @@ class JinxAssistantController extends Controller
             $conversation->save();
 
             if (!$ieCompleteBefore && $ieCompleteAfter) {
-                $plan = $packagingPlanner->plan($lead->fresh());
-                $decisionPlanState = $plan['state'] ?? null;
-
-                if ($decisionPlanState === 'needs_fact' && is_array($plan['question'] ?? null)) {
-                    $decisionQuestion = $plan['question'];
-                    $metadata = $conversation->fresh()->metadata ?? [];
-                    $metadata['pending_decision_question'] = $decisionQuestion;
-                    $conversation->metadata = $metadata;
-                    $conversation->save();
-                    $result['reply'] = trim((string) $result['reply'])."
-
-".$plan['message'];
-                } elseif ($decisionPlanState === 'needs_debts') {
-                    $result['reply'] = trim((string) $result['reply'])."
-
-".$plan['message'];
-                } elseif ($decisionPlanState === 'ready_for_agent') {
-                    $agentResult = $agent->reply(
-                        $conversation->fresh(),
-                        $messageText,
-                        $this->packagingDirective($lead),
-                        'case'
-                    );
-                    $agentActivity = $agentResult['activity'] ?? [];
-                    $agentResponseId = $agentResult['response_id'] ?? null;
-                    $result['reply'] = trim((string) $result['reply'])."
-
-".trim((string) $agentResult['reply']);
-                }
+                $decisionPlanState = 'awaiting_user';
+                $result['reply'] = trim((string) $result['reply'])
+                    ."\n\nI’ve saved the I&E. I won’t run the full case reasoning until you ask me to assess the case. You can keep giving me case details in the meantime and I’ll store them as we go.";
             }
 
             $assistantMessage = AssistantMessage::create([
@@ -441,7 +432,7 @@ class JinxAssistantController extends Controller
 
     private function packagingDirective(Lead $lead): string
     {
-        return 'The deterministic I&E for lead ID '.$lead->id.' is already complete. Reason about the case as an experienced IVA packager. Call assess_iva_case_decision once, then analyse only the serious routes needed in the fixed order Zebra → Lawson Fox → AC (Anchorage Chambers) → Assure → TIG. Do not re-enter or alter I&E figures, do not inspect Jinx code, and do not repeat tools without a material reason. Use route-specific I&E, creditor/voting exposure, sourced evidence/property rules and learned guidance together. Missing documentary evidence can be an action rather than a reason to keep interrogating the packager. Do not invent unsupported Anchorage criteria. If a route conclusion is supportable now, persist it with record_decision_assessment. Use Refresh DMP only where the IVA routes are unsuitable. If one genuinely material fact is still missing, ask for that fact naturally and stop. Reply like a colleague: acknowledge what the packager has told you, explain what matters, and state the leading route plus practical next actions.';
+        return 'The packager has explicitly asked to run case reasoning for lead ID '.$lead->id.', and the readiness questionnaire has completed. The deterministic I&E is already complete. Call assess_iva_case_decision once, then analyse only the serious routes needed in the fixed order Zebra → Lawson Fox → AC (Anchorage Chambers) → Assure → TIG. Do not re-enter or alter I&E figures, inspect Jinx code, or repeat tools without a material reason. Use route-specific I&E, creditor/voting exposure, sourced property/conduct criteria, dynamic operator checks and learned guidance together. Missing documentary evidence is normally a referral action, not a reason to restart the fact questionnaire. Do not invent unsupported Anchorage criteria. If a route conclusion is supportable now, persist it with record_decision_assessment. Use Refresh DMP only where IVA routes are unsuitable. Reply like an experienced colleague: explain the leading route, any genuine blocker, and the practical next actions.';
     }
 
     private function conversationFor(Request $request, Lead $lead): AssistantConversation
@@ -490,6 +481,13 @@ class JinxAssistantController extends Controller
     private function isContinueCaseRequest(string $message): bool
     {
         return preg_match('/\b(?:continue|carry\s+on|go\s+ahead|proceed|keep\s+going|what(?:\s+do\s+we\s+do)?\s+next|next\s+step)\b/i', $message) === 1;
+    }
+
+    private function lowercaseFirst(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') return $value;
+        return mb_strtolower(mb_substr($value,0,1)).mb_substr($value,1);
     }
 
     private function withoutIeFacts(array $facts): array

@@ -19,6 +19,7 @@ class JinxAssistantService
         private readonly AssistantIeCalculationService $ieCalculator,
         private readonly ZebraIeInterviewAnswerService $zebraAnswers,
         private readonly AssistantDebtImportService $debtImporter,
+        private readonly DecisionFactRegistryService $factRegistry,
     ) {}
 
     public function reply(AssistantConversation $conversation,string $message,?array $workspaceContext=null): array
@@ -80,6 +81,9 @@ Supplying case facts does not start an I&E. If workflow.ie_active is not true, c
 FACT STORAGE
 Return every clear case fact in fact_updates using stable dot-notated keys. Never re-ask established facts. Treat typed equivalents such as 0/none/no consistently in the context of the question asked.
 
+CASE REASONING FACTS
+The context includes REASONING_FACT_DEFINITIONS. If the packager casually gives a clear case-reasoning fact covered by that registry (for example previous IVA, homeownership, gambling, HMRC history or self-employed tax status), include it in fact_updates under the exact registered fact_key. Do not start route reasoning automatically; just capture the fact. The application will persist registered decision facts separately from the I&E.
+
 ZEBRA INCOME RULES
 Child Benefit is calculator-owned and must not be asked. Universal Credit is a separate mandatory manual-input checkpoint in the Zebra interview when no amount has already been established. Do not infer UC = 0 from silence. The grouped secondary-income screen does not include Universal Credit and cannot substitute for the UC question.
 
@@ -99,7 +103,7 @@ Return ONLY valid JSON:
 {"reply":"natural-language reply","fact_updates":{},"suitability_assessment":null,"proposed_knowledge":null,"confirm_pending_knowledge":false,"requested_action":null,"case_summary":"brief rolling summary"}
 PROMPT;
 
-        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'NEXT_REQUIRED_IE_QUESTION'=>$nextIeQuestion,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'WORKSPACE_CONTEXT'=>$workspaceContext];
+        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'NEXT_REQUIRED_IE_QUESTION'=>$nextIeQuestion,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'REASONING_FACT_DEFINITIONS'=>collect($this->factRegistry->definitions('case',true))->map(fn($d)=>['fact_key'=>$d['fact_key'],'label'=>$d['label'],'data_type'=>$d['data_type']])->values()->all(),'WORKSPACE_CONTEXT'=>$workspaceContext];
         $response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>$instructions,'input'=>json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>$comparisonRequested?2600:1800]);
         if(!$response->successful())throw new RuntimeException('Assistant provider error: '.$response->status().' '.$response->body());
         $decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);
