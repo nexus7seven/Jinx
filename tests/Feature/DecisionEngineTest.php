@@ -378,7 +378,7 @@ class DecisionEngineTest extends TestCase
             'creditor_id'=>$creditor->id,
             'balance'=>8000,
             'source_expected'=>'other',
-            'reference'=>'1234567890123456',
+            'reference'=>null,
         ]);
 
         $watchId=$this->houseId('WATCH');
@@ -416,6 +416,18 @@ class DecisionEngineTest extends TestCase
         $parsed=$planner->parseAnswer($plan['question'],'credit card');
         $this->assertTrue($parsed['valid']);
         $facts->setDebtFact($debt,'debt.product_type',$parsed['value']);
+
+        $needsReference=$planner->plan($lead);
+        $this->assertSame('needs_fact',$needsReference['state']);
+        $this->assertSame('debt.account_reference',$needsReference['question']['fact_key']);
+        $this->assertSame('debt',$needsReference['question']['scope']);
+        $this->assertSame($debt->id,$needsReference['question']['debt_id']);
+        $tigBeforeReference=collect($needsReference['assessment']['route_overview'])->firstWhere('destination','TIG');
+        $this->assertSame(1,$tigBeforeReference['unresolved_representative_count']);
+
+        $parsedReference=$planner->parseAnswer($needsReference['question'],'1234567890123456');
+        $this->assertTrue($parsedReference['valid']);
+        $facts->setDebtFact($debt,'debt.account_reference',$parsedReference['value']);
 
         $after=$planner->plan($lead);
         $this->assertSame('ready_for_agent',$after['state']);
