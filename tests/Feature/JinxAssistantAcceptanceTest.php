@@ -413,8 +413,7 @@ class JinxAssistantAcceptanceTest extends TestCase
         $facts->setLeadFact($lead, 'property.is_homeowner', true);
         $facts->setLeadFact($lead, 'property.value', 200000);
         $facts->setLeadFact($lead, 'property.mortgage_balance', 120000);
-        $facts->setLeadFact($lead, 'property.secured_loans_total', 10000);
-        $facts->setLeadFact($lead, 'property.ownership_percent', 50);
+        $facts->setLeadFact($lead, 'property.joint_ownership', true);
         $facts->setLeadFact($lead, 'evidence.bank_statement_months', 3);
         $facts->setLeadFact($lead, 'evidence.bank_statements_continuous', true);
         $facts->setLeadFact($lead, 'evidence.income_proof_available', true);
@@ -423,9 +422,9 @@ class JinxAssistantAcceptanceTest extends TestCase
         $result = app(IvaDecisionEngineService::class)->assess($lead);
         $zebra = collect($result['route_overview'])->firstWhere('destination', 'Zebra');
 
-        $this->assertSame(70000.0, (float) data_get($zebra, 'property.calculation.gross_equity'));
-        $this->assertSame(35000.0, (float) data_get($zebra, 'property.calculation.client_attributable_equity'));
-        $this->assertSame(50.0, (float) data_get($zebra, 'property.calculation.ownership_percent'));
+        $this->assertSame(80000.0, (float) data_get($zebra, 'property.calculation.gross_equity'));
+        $this->assertSame(40000.0, (float) data_get($zebra, 'property.calculation.client_attributable_equity'));
+        $this->assertSame(50.0, (float) data_get($zebra, 'property.calculation.ownership_percent_used'));
     }
 
     public function test_self_employed_hmrc_problem_case_is_blocked_by_the_supplied_special_rules(): void
@@ -437,11 +436,11 @@ class JinxAssistantAcceptanceTest extends TestCase
         $facts = app(DecisionCaseFactService::class);
         $facts->setLeadFact($lead, 'property.is_homeowner', false);
         $facts->setLeadFact($lead, 'case.self_employed', true);
-        $facts->setLeadFact($lead, 'case.self_employed_trading_months', 4);
-        $facts->setLeadFact($lead, 'case.self_employed_profitable', true);
-        $facts->setLeadFact($lead, 'case.self_employed_has_employees', false);
-        $facts->setLeadFact($lead, 'case.self_employed_partnership', false);
-        $facts->setLeadFact($lead, 'case.tax_returns_up_to_date', true);
+        $facts->setLeadFact($lead, 'case.self_employed_returns_due', true);
+        $facts->setLeadFact($lead, 'case.tax_returns_up_to_date', false);
+        $facts->setLeadFact($lead, 'case.hmrc_tax_returns_outstanding', true);
+        $facts->setLeadFact($lead, 'case.hmrc_previous_failed_iva', false);
+        $facts->setLeadFact($lead, 'case.hmrc_prolonged_non_compliance', true);
         $facts->setLeadFact($lead, 'case.hmrc_majority', true);
         $facts->setLeadFact($lead, 'case.hmrc_deduction_from_income', true);
         $facts->setLeadFact($lead, 'evidence.self_employed_docs_complete', true);
