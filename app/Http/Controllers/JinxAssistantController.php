@@ -7,6 +7,9 @@ use App\Models\AssistantKnowledgeItem;
 use App\Models\AssistantMessage;
 use App\Models\Lead;
 use App\Services\AssistantLeadFactSyncService;
+use App\Services\DecisionCaseFactService;
+use App\Services\IvaCasePackagingPlannerService;
+use App\Services\JinxAgentService;
 use App\Services\JinxAssistantService;
 use App\Services\VicidialCallbackService;
 use App\Services\ZebraIeInterviewAnswerService;
@@ -36,7 +39,17 @@ class JinxAssistantController extends Controller
         ]);
     }
 
-    public function send(Request $request, Lead $lead, JinxAssistantService $assistant, AssistantLeadFactSyncService $factSync, ZebraIeInterviewAnswerService $zebraAnswers, VicidialCallbackService $callbacks): JsonResponse
+    public function send(
+        Request $request,
+        Lead $lead,
+        JinxAssistantService $assistant,
+        JinxAgentService $agent,
+        AssistantLeadFactSyncService $factSync,
+        ZebraIeInterviewAnswerService $zebraAnswers,
+        VicidialCallbackService $callbacks,
+        IvaCasePackagingPlannerService $packagingPlanner,
+        DecisionCaseFactService $decisionFacts,
+    ): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
         $messageText = trim($validated['message']);
@@ -50,6 +63,108 @@ class JinxAssistantController extends Controller
             $metadata = $conversation->metadata ?? [];
             $existingFacts = data_get($metadata, 'established_facts', []);
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
+            $ieCompleteBefore = ($existingFacts['workflow.ie_complete'] ?? false) === true;
+
+            $pendingDecisionQuestion = data_get($metadata, 'pending_decision_question');
+            if ($ieCompleteBefore && is_array($pendingDecisionQuestion) && !$this->isIeStartRequest($messageText)) {
+                $parsed = $packagingPlanner->parseAnswer($pendingDecisionQuestion, $messageText);
+                if (($parsed['valid'] ?? false) !== true) {
+                    return $this->directAssistantReply(
+                        $conversation,
+                        $packagingPlanner->invalidAnswerMessage($pendingDecisionQuestion),
+                        $existingFacts,
+                        [],
+                        ['decision_question' => $pendingDecisionQuestion]
+                    );
+                }
+
+                $decisionFacts->setLeadFact(
+                    $lead->fresh(),
+                    (string) $pendingDecisionQuestion['fact_key'],
+                    $parsed['value'],
+                    'operator',
+                    'Captured by Jinx case assistant'
+                );
+                unset($metadata['pending_decision_question']);
+                $conversation->metadata = $metadata;
+                $conversation->save();
+
+                $plan = $packagingPlanner->plan($lead->fresh());
+                if (($plan['state'] ?? null) === 'needs_fact' && is_array($plan['question'] ?? null)) {
+                    $metadata = $conversation->fresh()->metadata ?? [];
+                    $metadata['pending_decision_question'] = $plan['question'];
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+
+                    return $this->directAssistantReply(
+                        $conversation,
+                        (string) $plan['message'],
+                        $existingFacts,
+                        [],
+                        [
+                            'decision_fact_changed' => true,
+                            'decision_plan_state' => 'needs_fact',
+                            'decision_question' => $plan['question'],
+                        ]
+                    );
+                }
+
+                if (($plan['state'] ?? null) === 'needs_debts') {
+                    return $this->directAssistantReply(
+                        $conversation,
+                        (string) $plan['message'],
+                        $existingFacts,
+                        [],
+                        ['decision_fact_changed' => true, 'decision_plan_state' => 'needs_debts']
+                    );
+                }
+
+                return $this->agentAssistantReply(
+                    $conversation,
+                    $agent,
+                    $messageText,
+                    $this->packagingDirective($lead),
+                    ['decision_fact_changed' => true, 'decision_plan_state' => 'ready_for_agent']
+                );
+            }
+
+            if ($ieCompleteBefore && !$this->isIeStartRequest($messageText)) {
+                if ($this->isPackagingRequest($messageText)) {
+                    $plan = $packagingPlanner->plan($lead->fresh());
+                    if (($plan['state'] ?? null) === 'needs_fact' && is_array($plan['question'] ?? null)) {
+                        $metadata['pending_decision_question'] = $plan['question'];
+                        $conversation->metadata = $metadata;
+                        $conversation->save();
+
+                        return $this->directAssistantReply(
+                            $conversation,
+                            (string) $plan['message'],
+                            $existingFacts,
+                            [],
+                            ['decision_plan_state' => 'needs_fact', 'decision_question' => $plan['question']]
+                        );
+                    }
+                    if (($plan['state'] ?? null) === 'needs_debts') {
+                        return $this->directAssistantReply(
+                            $conversation,
+                            (string) $plan['message'],
+                            $existingFacts,
+                            [],
+                            ['decision_plan_state' => 'needs_debts']
+                        );
+                    }
+
+                    return $this->agentAssistantReply(
+                        $conversation,
+                        $agent,
+                        $messageText,
+                        $this->packagingDirective($lead),
+                        ['decision_plan_state' => 'ready_for_agent']
+                    );
+                }
+
+                return $this->agentAssistantReply($conversation, $agent, $messageText);
+            }
 
             if (($metadata['pending_ie_reset_confirmation'] ?? false) === true) {
                 $answer = strtolower(trim($messageText));
@@ -58,13 +173,13 @@ class JinxAssistantController extends Controller
                     $cleanFacts = $this->withoutIeFacts($existingFacts);
                     $startFacts = $zebraAnswers->start($cleanFacts);
                     $metadata['established_facts'] = array_replace($cleanFacts, $startFacts);
-                    unset($metadata['pending_ie_reset_confirmation'], $metadata['deterministic_ie'], $metadata['last_suitability_assessment'], $metadata['last_proactive_route_signature']);
+                    unset($metadata['pending_ie_reset_confirmation'], $metadata['pending_decision_question'], $metadata['deterministic_ie'], $metadata['last_suitability_assessment'], $metadata['last_proactive_route_signature']);
                     $conversation->metadata = $metadata;
                     $conversation->save();
                     return $this->directAssistantReply($conversation, 'Financial Statement cleared. '.$zebraAnswers->nextQuestion($metadata['established_facts']), $metadata['established_facts'], $syncedFields);
                 }
                 if (in_array($answer, ['no','n','nope','keep it','keep','use existing'], true)) {
-                    unset($metadata['pending_ie_reset_confirmation']);
+                    unset($metadata['pending_ie_reset_confirmation'], $metadata['pending_decision_question']);
                     $startFacts = $zebraAnswers->start($existingFacts);
                     $metadata['established_facts'] = array_replace($existingFacts, $startFacts);
                     $conversation->metadata = $metadata;
@@ -167,8 +282,46 @@ class JinxAssistantController extends Controller
             }
             if (is_array($result['proposed_knowledge'] ?? null) && filled($result['proposed_knowledge']['content'] ?? null)) $metadata['pending_knowledge'] = $result['proposed_knowledge'];
             if (filled($result['case_summary'] ?? null)) $conversation->summary = $result['case_summary'];
+
+            $decisionPlanState = null;
+            $decisionQuestion = null;
+            $agentActivity = [];
+            $agentResponseId = null;
+            $ieCompleteAfter = (($metadata['established_facts']['workflow.ie_complete'] ?? false) === true);
+
             $conversation->metadata = $metadata;
             $conversation->save();
+
+            if (!$ieCompleteBefore && $ieCompleteAfter) {
+                $plan = $packagingPlanner->plan($lead->fresh());
+                $decisionPlanState = $plan['state'] ?? null;
+
+                if ($decisionPlanState === 'needs_fact' && is_array($plan['question'] ?? null)) {
+                    $decisionQuestion = $plan['question'];
+                    $metadata = $conversation->fresh()->metadata ?? [];
+                    $metadata['pending_decision_question'] = $decisionQuestion;
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+                    $result['reply'] = trim((string) $result['reply'])."
+
+".$plan['message'];
+                } elseif ($decisionPlanState === 'needs_debts') {
+                    $result['reply'] = trim((string) $result['reply'])."
+
+".$plan['message'];
+                } elseif ($decisionPlanState === 'ready_for_agent') {
+                    $agentResult = $agent->reply(
+                        $conversation->fresh(),
+                        $messageText,
+                        $this->packagingDirective($lead)
+                    );
+                    $agentActivity = $agentResult['activity'] ?? [];
+                    $agentResponseId = $agentResult['response_id'] ?? null;
+                    $result['reply'] = trim((string) $result['reply'])."
+
+".trim((string) $agentResult['reply']);
+                }
+            }
 
             $assistantMessage = AssistantMessage::create([
                 'conversation_id' => $conversation->id,
@@ -177,6 +330,8 @@ class JinxAssistantController extends Controller
                     'knowledge_saved_id' => $savedKnowledge?->id, 'knowledge_proposal' => $result['proposed_knowledge'] ?? null,
                     'fact_updates' => array_replace($preFacts, $result['fact_updates'] ?? []), 'synced_fields' => $syncedFields,
                     'deterministic_ie' => $result['deterministic_ie'] ?? [], 'suitability_assessment' => $result['suitability_assessment'] ?? null,
+                    'agent_activity' => $agentActivity, 'agent_response_id' => $agentResponseId,
+                    'decision_plan_state' => $decisionPlanState, 'decision_question' => $decisionQuestion,
                 ],
             ]);
 
@@ -189,7 +344,10 @@ class JinxAssistantController extends Controller
                 'synced_fields' => $syncedFields,
                 'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
                 'debt_import_complete' => (bool) ($result['debt_import_complete'] ?? false),
-                'established_facts' => data_get($metadata, 'established_facts', []),
+                'established_facts' => data_get($conversation->fresh()->metadata, 'established_facts', []),
+                'agent_activity' => $agentActivity,
+                'decision_plan_state' => $decisionPlanState,
+                'decision_question' => $decisionQuestion,
             ]);
         } catch (Throwable $e) {
             report($e);
@@ -203,15 +361,69 @@ class JinxAssistantController extends Controller
         return response()->json(['ok' => true, 'conversation_id' => $conversation->id]);
     }
 
-    private function directAssistantReply(AssistantConversation $conversation, string $content, array $facts, array $syncedFields = []): JsonResponse
+    private function directAssistantReply(AssistantConversation $conversation, string $content, array $facts, array $syncedFields = [], array $extra = []): JsonResponse
     {
-        $assistantMessage = AssistantMessage::create(['conversation_id' => $conversation->id, 'role' => 'assistant', 'content' => $content, 'metadata' => ['fact_updates' => [], 'synced_fields' => $syncedFields]]);
-        return response()->json([
+        $assistantMessage = AssistantMessage::create([
+            'conversation_id' => $conversation->id,
+            'role' => 'assistant',
+            'content' => $content,
+            'metadata' => array_merge(['fact_updates' => [], 'synced_fields' => $syncedFields], $extra),
+        ]);
+
+        return response()->json(array_merge([
             'ok' => true,
             'message' => ['id' => $assistantMessage->id, 'role' => 'assistant', 'content' => $assistantMessage->content, 'created_at' => $assistantMessage->created_at?->toIso8601String()],
-            'knowledge_saved' => null, 'knowledge_proposed' => null, 'suitability_assessment' => null,
-            'synced_fields' => $syncedFields, 'financial_statement_changed' => in_array('financial_statement', $syncedFields, true), 'established_facts' => $facts,
+            'knowledge_saved' => null,
+            'knowledge_proposed' => null,
+            'suitability_assessment' => null,
+            'synced_fields' => $syncedFields,
+            'financial_statement_changed' => in_array('financial_statement', $syncedFields, true),
+            'established_facts' => $facts,
+        ], $extra));
+    }
+
+    private function agentAssistantReply(
+        AssistantConversation $conversation,
+        JinxAgentService $agent,
+        string $message,
+        ?string $internalDirective = null,
+        array $extra = []
+    ): JsonResponse {
+        $result = $agent->reply($conversation->fresh(), $message, $internalDirective);
+        $metadata = [
+            'agent_activity' => $result['activity'] ?? [],
+            'response_id' => $result['response_id'] ?? null,
+        ] + $extra;
+
+        $assistantMessage = AssistantMessage::create([
+            'conversation_id' => $conversation->id,
+            'role' => 'assistant',
+            'content' => (string) $result['reply'],
+            'metadata' => $metadata,
         ]);
+
+        return response()->json(array_merge([
+            'ok' => true,
+            'message' => [
+                'id' => $assistantMessage->id,
+                'role' => 'assistant',
+                'content' => $assistantMessage->content,
+                'created_at' => $assistantMessage->created_at?->toIso8601String(),
+                'metadata' => $metadata,
+            ],
+            'knowledge_saved' => null,
+            'knowledge_proposed' => null,
+            'suitability_assessment' => null,
+            'synced_fields' => [],
+            'financial_statement_changed' => false,
+            'agent_activity' => $result['activity'] ?? [],
+            'established_facts' => data_get($conversation->fresh()->metadata, 'established_facts', []),
+        ], $extra));
+    }
+
+    private function packagingDirective(Lead $lead): string
+    {
+        return 'Run a full current IVA case-packaging assessment for lead ID '.$lead->id.'. Start with assess_iva_case_decision, then analyse every serious IVA route in the fixed business order Zebra → Lawson Fox → AC (Anchorage Chambers) → Assure → TIG. Use route-specific I&E, creditor/voting exposure, evidence, property, special circumstances and learned guidance. Do not invent unsupported Anchorage criteria. If a route is supportable now, persist the current conclusion with record_decision_assessment using CLEAR_FIT, FIT_WITH_ACTIONS, EXCEPTION_MANUAL_ESCALATION, BLOCKED, UNKNOWN or DMP_FALLBACK as appropriate. Use Refresh DMP only if the IVA routes are unsuitable. If a material fact is still genuinely missing, ask one concise question and do not persist a final decision yet. Give the packager a concise explanation of the leading route, blockers/actions and what to obtain next.';
     }
 
     private function conversationFor(Request $request, Lead $lead): AssistantConversation
@@ -250,6 +462,11 @@ class JinxAssistantController extends Controller
     private function isIeStartRequest(string $message): bool
     {
         return preg_match('/\b(?:run|start|carry\s*out|calculate|complete|do)\b.*\b(?:i\s*(?:&|and)\s*e|income\s*(?:&|and)\s*expenditure)\b/i', $message) === 1;
+    }
+
+    private function isPackagingRequest(string $message): bool
+    {
+        return preg_match('/\b(?:assess|assessment|review|route|routing|suitable|suitability|refer|referral|package|packaging|which\s+(?:ip|route)|iva\s+fit|dmp\s+fallback)\b/i', $message) === 1;
     }
 
     private function withoutIeFacts(array $facts): array

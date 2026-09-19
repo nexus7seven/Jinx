@@ -12,13 +12,18 @@ class JinxAgentService
 {
     public function __construct(private readonly JinxAgentToolService $tools) {}
 
-    public function reply(AssistantConversation $conversation,string $message): array
+    public function reply(AssistantConversation $conversation,string $message,?string $internalDirective=null): array
     {
         $apiKey=(string)config('services.jinx_assistant.api_key');$model=(string)config('services.jinx_assistant.model');
         if($apiKey===''||$model==='')throw new RuntimeException('Jinx Agent is not configured.');
+        $conversation->loadMissing('lead');
         $instructions=$this->instructions();
+        if($conversation->lead){
+            $instructions.="\n\nCURRENT LEAD-PAGE CASE\nThis conversation is attached to Jinx lead ID {$conversation->lead->id}. When the user says this client, this case, the client or similar, use lead_id {$conversation->lead->id} for CRM/IVA tools unless they explicitly identify another case. The current source is ".($conversation->lead->source?:'not recorded').". Do not ask the user for the lead ID.";
+        }
         $history=$conversation->messages()->latest('id')->limit(40)->get()->reverse()->values()->map(fn(AssistantMessage $m)=>['role'=>$m->role==='assistant'?'assistant':'user','content'=>$m->content])->all();
         if($history===[])$history=[['role'=>'user','content'=>$message]];
+        if(filled($internalDirective))$history[]=['role'=>'user','content'=>'[INTERNAL JINX WORKFLOW INSTRUCTION - do not quote this marker to the user] '.trim((string)$internalDirective)];
         $payload=['model'=>$model,'instructions'=>$instructions,'input'=>$history,'tools'=>$this->tools->definitions(),'tool_choice'=>'auto','parallel_tool_calls'=>false,'max_output_tokens'=>2600,'include'=>['web_search_call.action.sources']];
         $response=$this->post($apiKey,$payload);$activity=[];
         for($round=0;$round<8;$round++){

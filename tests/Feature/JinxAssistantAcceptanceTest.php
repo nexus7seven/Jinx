@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AssistantConversation;
 use App\Models\Creditor;
 use App\Models\Debt;
 use App\Models\Lead;
@@ -82,6 +83,92 @@ class JinxAssistantAcceptanceTest extends TestCase
         $this->assertSame(count($messages) * 2, $storedMessages);
     }
 
+    public function test_finishing_ie_with_debts_moves_directly_into_the_decision_planner(): void
+    {
+        $this->fakeAssistant([]);
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+        $this->debt($lead, 'Acceptance Auto Planner Bank', 9000);
+
+        $messages = [
+            'Start an I&E',
+            '110',
+            '1800',
+            'no',
+            '0',
+            '0',
+            '0',
+            '550',
+            '120',
+            'public transport',
+            '0',
+            '0',
+        ];
+
+        $last = null;
+        foreach ($messages as $message) {
+            $last = $this->actingAs($user)
+                ->postJson("/assistant/lead/{$lead->id}/message", ['message' => $message]);
+            $last->assertOk();
+        }
+
+        $last->assertJsonPath('decision_plan_state', 'needs_fact')
+            ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+
+        $this->assertStringContainsString('I&E complete', (string) $last->json('message.content'));
+        $this->assertStringContainsString('homeowner', strtolower((string) $last->json('message.content')));
+    }
+
+    public function test_full_natural_case_conversation_reaches_and_persists_a_real_route_decision(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+        $this->debt($lead, 'Acceptance Full Journey Bank', 9000);
+        $this->fakeUnifiedCaseJourney($lead->id);
+
+        $messages = [
+            'Start an I&E',
+            '110',
+            '3000',
+            'no',
+            '0',
+            '0',
+            '0',
+            '550',
+            '120',
+            'public transport',
+            '0',
+            '0',
+        ];
+
+        $last = null;
+        foreach ($messages as $message) {
+            $last = $this->actingAs($user)
+                ->postJson("/assistant/lead/{$lead->id}/message", ['message' => $message]);
+            $last->assertOk();
+        }
+
+        $last->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+
+        $decision = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'no',
+        ]);
+
+        $decision->assertOk()
+            ->assertJsonPath('decision_plan_state', 'ready_for_agent');
+
+        $this->assertContains('record_decision_assessment', $decision->json('agent_activity'));
+        $this->assertDatabaseHas('lead_decision_assessments', [
+            'lead_id' => $lead->id,
+            'preferred_route' => 'Zebra',
+            'status' => 'FIT_WITH_ACTIONS',
+        ]);
+
+        $lead->refresh();
+        $this->assertGreaterThanOrEqual(110.0, (float) data_get($lead->financial_statement, 'calculation.disposable_income'));
+        $this->assertFalse((bool) app(DecisionCaseFactService::class)->leadValues($lead)['property.is_homeowner']);
+    }
+
     public function test_bulk_agent_fact_message_updates_the_case_without_the_old_is_string_failure(): void
     {
         $this->fakeAssistant([
@@ -113,6 +200,88 @@ class JinxAssistantAcceptanceTest extends TestCase
         $this->assertSame(550.0, (float) data_get($statement, 'expenditure.housing.rent_mortgage'));
         $this->assertSame(120.0, (float) data_get($statement, 'expenditure.housing.council_tax'));
         $this->assertSame('public transport', data_get($statement, 'facts.client_transport_mode'));
+    }
+
+    public function test_completed_case_assistant_asks_only_the_next_material_decision_fact(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+        $this->debt($lead, 'Acceptance Planner Bank', 9000);
+        $this->baseIe($lead, 3000, 110);
+
+        AssistantConversation::create([
+            'lead_id' => $lead->id,
+            'user_id' => $user->id,
+            'title' => 'Planner test',
+            'metadata' => [
+                'established_facts' => [
+                    'workflow.ie_active' => true,
+                    'workflow.ie_complete' => true,
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'Assess this case for referral',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('decision_plan_state', 'needs_fact')
+            ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+
+        $this->assertStringContainsString('homeowner', strtolower((string) $response->json('message.content')));
+        $this->assertDatabaseMissing('lead_decision_assessments', ['lead_id' => $lead->id]);
+    }
+
+    public function test_case_assistant_hands_completed_case_to_new_agent_and_persists_the_route_assessment(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+        $this->debt($lead, 'Acceptance Agent Bank', 9000);
+        $this->baseIe($lead, 3000, 110);
+
+        AssistantConversation::create([
+            'lead_id' => $lead->id,
+            'user_id' => $user->id,
+            'title' => 'Agent handoff test',
+            'metadata' => [
+                'established_facts' => [
+                    'workflow.ie_active' => true,
+                    'workflow.ie_complete' => true,
+                ],
+            ],
+        ]);
+
+        $this->fakePackagingAgentSequence($lead->id);
+
+        $first = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'Assess this case for referral',
+        ]);
+        $first->assertOk()
+            ->assertJsonPath('decision_question.fact_key', 'property.is_homeowner');
+
+        $second = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'no',
+        ]);
+
+        $second->assertOk()
+            ->assertJsonPath('decision_plan_state', 'ready_for_agent');
+
+        $activity = $second->json('agent_activity');
+        $this->assertContains('assess_iva_case_decision', $activity);
+        $this->assertContains('analyse_iva_route', $activity);
+        $this->assertContains('record_decision_assessment', $activity);
+        $this->assertStringContainsString('Zebra', (string) $second->json('message.content'));
+
+        $this->assertDatabaseHas('lead_decision_facts', [
+            'lead_id' => $lead->id,
+            'fact_key' => 'property.is_homeowner',
+        ]);
+        $this->assertDatabaseHas('lead_decision_assessments', [
+            'lead_id' => $lead->id,
+            'preferred_route' => 'Zebra',
+            'status' => 'FIT_WITH_ACTIONS',
+        ]);
     }
 
     public function test_straight_zebra_case_flows_from_financial_facts_to_persisted_decision(): void
@@ -289,6 +458,125 @@ class JinxAssistantAcceptanceTest extends TestCase
         $this->assertSame('BLOCKED', collect($result['route_overview'])->firstWhere('destination', 'TIG')['basic_requirements']['status']);
         $this->assertSame('CLEAR_FIT', $result['dmp_fallback']['status']);
         $this->assertSame(50.0, (float) $result['dmp_fallback']['minimum_dmp_payment_25_percent']);
+    }
+
+    private function fakeUnifiedCaseJourney(int $leadId): void
+    {
+        $agentStep = 0;
+
+        Http::fake(function ($request) use ($leadId, &$agentStep) {
+            $payload = $request->data();
+
+            if (!array_key_exists('tools', $payload)) {
+                return Http::response([
+                    'output_text' => json_encode([
+                        'reply' => 'Continue.',
+                        'fact_updates' => [],
+                        'suitability_assessment' => null,
+                        'proposed_knowledge' => null,
+                        'confirm_pending_knowledge' => false,
+                        'requested_action' => null,
+                        'case_summary' => 'Full journey acceptance case.',
+                    ]),
+                ], 200);
+            }
+
+            $agentStep++;
+
+            return match ($agentStep) {
+                1 => Http::response([
+                    'id' => 'journey-assess',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'assess_iva_case_decision',
+                        'arguments' => json_encode(['lead_id' => $leadId]),
+                        'call_id' => 'journey-call-assess',
+                    ]],
+                ], 200),
+                2 => Http::response([
+                    'id' => 'journey-route',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'analyse_iva_route',
+                        'arguments' => json_encode(['lead_id' => $leadId, 'destination' => 'Zebra']),
+                        'call_id' => 'journey-call-route',
+                    ]],
+                ], 200),
+                3 => Http::response([
+                    'id' => 'journey-record',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'record_decision_assessment',
+                        'arguments' => json_encode([
+                            'lead_id' => $leadId,
+                            'preferred_route' => 'Zebra',
+                            'status' => 'FIT_WITH_ACTIONS',
+                            'rationale' => 'Zebra is the first viable route; remaining points are documentary actions rather than a deterministic blocker.',
+                            'actions' => 'Obtain the outstanding sourced evidence before referral.',
+                        ]),
+                        'call_id' => 'journey-call-record',
+                    ]],
+                ], 200),
+                default => Http::response([
+                    'id' => 'journey-final',
+                    'output' => [[
+                        'type' => 'message',
+                        'content' => [[
+                            'type' => 'output_text',
+                            'text' => 'Zebra is the leading route, fit with actions. The assessment has been saved and the outstanding evidence should be obtained before referral.',
+                        ]],
+                    ]],
+                ], 200),
+            };
+        });
+    }
+
+    private function fakePackagingAgentSequence(int $leadId): void
+    {
+        Http::fakeSequence()
+            ->push([
+                'id' => 'resp-assess',
+                'output' => [[
+                    'type' => 'function_call',
+                    'name' => 'assess_iva_case_decision',
+                    'arguments' => json_encode(['lead_id' => $leadId]),
+                    'call_id' => 'call-assess',
+                ]],
+            ], 200)
+            ->push([
+                'id' => 'resp-route',
+                'output' => [[
+                    'type' => 'function_call',
+                    'name' => 'analyse_iva_route',
+                    'arguments' => json_encode(['lead_id' => $leadId, 'destination' => 'Zebra']),
+                    'call_id' => 'call-route',
+                ]],
+            ], 200)
+            ->push([
+                'id' => 'resp-record',
+                'output' => [[
+                    'type' => 'function_call',
+                    'name' => 'record_decision_assessment',
+                    'arguments' => json_encode([
+                        'lead_id' => $leadId,
+                        'preferred_route' => 'Zebra',
+                        'status' => 'FIT_WITH_ACTIONS',
+                        'rationale' => 'Zebra is the first viable route on the currently recorded facts; documentary evidence remains to obtain.',
+                        'actions' => 'Obtain the outstanding evidence identified by the sourced route checks.',
+                    ]),
+                    'call_id' => 'call-record',
+                ]],
+            ], 200)
+            ->push([
+                'id' => 'resp-final',
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [[
+                        'type' => 'output_text',
+                        'text' => 'Zebra is currently the leading route, fit with actions. Obtain the outstanding sourced evidence before referral.',
+                    ]],
+                ]],
+            ], 200);
     }
 
     private function fakeAssistant(array $factUpdates, string $reply = 'Continue.'): void
