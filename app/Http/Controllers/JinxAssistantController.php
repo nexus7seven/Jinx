@@ -124,7 +124,8 @@ class JinxAssistantController extends Controller
                     $agent,
                     $messageText,
                     $this->packagingDirective($lead),
-                    ['decision_fact_changed' => true, 'decision_plan_state' => 'ready_for_agent']
+                    ['decision_fact_changed' => true, 'decision_plan_state' => 'ready_for_agent'],
+                    'case'
                 );
             }
 
@@ -159,7 +160,8 @@ class JinxAssistantController extends Controller
                         $agent,
                         $messageText,
                         $this->packagingDirective($lead),
-                        ['decision_plan_state' => 'ready_for_agent']
+                        ['decision_plan_state' => 'ready_for_agent'],
+                        'case'
                     );
                 }
 
@@ -313,7 +315,8 @@ class JinxAssistantController extends Controller
                     $agentResult = $agent->reply(
                         $conversation->fresh(),
                         $messageText,
-                        $this->packagingDirective($lead)
+                        $this->packagingDirective($lead),
+                        'case'
                     );
                     $agentActivity = $agentResult['activity'] ?? [];
                     $agentResponseId = $agentResult['response_id'] ?? null;
@@ -387,12 +390,14 @@ class JinxAssistantController extends Controller
         JinxAgentService $agent,
         string $message,
         ?string $internalDirective = null,
-        array $extra = []
+        array $extra = [],
+        string $mode = 'general'
     ): JsonResponse {
-        $result = $agent->reply($conversation->fresh(), $message, $internalDirective);
+        $result = $agent->reply($conversation->fresh(), $message, $internalDirective, $mode);
         $metadata = [
             'agent_activity' => $result['activity'] ?? [],
             'response_id' => $result['response_id'] ?? null,
+            'tool_budget_exhausted' => (bool) ($result['tool_budget_exhausted'] ?? false),
         ] + $extra;
 
         $assistantMessage = AssistantMessage::create([
@@ -417,13 +422,14 @@ class JinxAssistantController extends Controller
             'synced_fields' => [],
             'financial_statement_changed' => false,
             'agent_activity' => $result['activity'] ?? [],
+            'tool_budget_exhausted' => (bool) ($result['tool_budget_exhausted'] ?? false),
             'established_facts' => data_get($conversation->fresh()->metadata, 'established_facts', []),
         ], $extra));
     }
 
     private function packagingDirective(Lead $lead): string
     {
-        return 'Run a full current IVA case-packaging assessment for lead ID '.$lead->id.'. Start with assess_iva_case_decision, then analyse every serious IVA route in the fixed business order Zebra → Lawson Fox → AC (Anchorage Chambers) → Assure → TIG. Use route-specific I&E, creditor/voting exposure, evidence, property, special circumstances and learned guidance. Do not invent unsupported Anchorage criteria. If a route is supportable now, persist the current conclusion with record_decision_assessment using CLEAR_FIT, FIT_WITH_ACTIONS, EXCEPTION_MANUAL_ESCALATION, BLOCKED, UNKNOWN or DMP_FALLBACK as appropriate. Use Refresh DMP only if the IVA routes are unsuitable. If a material fact is still genuinely missing, ask one concise question and do not persist a final decision yet. Give the packager a concise explanation of the leading route, blockers/actions and what to obtain next.';
+        return 'The deterministic I&E for lead ID '.$lead->id.' is already complete. Reason about the case as an experienced IVA packager. Call assess_iva_case_decision once, then analyse only the serious routes needed in the fixed order Zebra → Lawson Fox → AC (Anchorage Chambers) → Assure → TIG. Do not re-enter or alter I&E figures, do not inspect Jinx code, and do not repeat tools without a material reason. Use route-specific I&E, creditor/voting exposure, sourced evidence/property rules and learned guidance together. Missing documentary evidence can be an action rather than a reason to keep interrogating the packager. Do not invent unsupported Anchorage criteria. If a route conclusion is supportable now, persist it with record_decision_assessment. Use Refresh DMP only where the IVA routes are unsuitable. If one genuinely material fact is still missing, ask for that fact naturally and stop. Reply like a colleague: acknowledge what the packager has told you, explain what matters, and state the leading route plus practical next actions.';
     }
 
     private function conversationFor(Request $request, Lead $lead): AssistantConversation
