@@ -25,6 +25,9 @@ class JinxAgentToolService
         private readonly IvaDecisionEngineService $decisionEngine,
         private readonly PropertyDecisionService $propertyDecision,
         private readonly RefreshDmpDecisionService $dmpDecision,
+        private readonly DecisionFactRegistryService $factRegistry,
+        private readonly DecisionCaseReadinessService $caseReadiness,
+        private readonly DecisionDynamicRuleService $dynamicRules,
     ) {}
 
     public function definitions(): array
@@ -61,6 +64,9 @@ class JinxAgentToolService
             $this->fn('assess_iva_case_decision','Build the whole-case decision-engine overview using the fixed business route order Zebra, Lawson Fox, AC (Anchorage Chambers), Assure, TIG, plus route-specific I&E, property analysis, recorded decision facts, I&E adjustments and Refresh DMP fallback. This is the starting point for route decisions.',['lead_id'=>['type'=>'integer']],['lead_id']),
             $this->fn('analyse_iva_route','Analyse one proposed IVA route using the case debts, voting-house exposure, sourced decision rules and relevant learned corrections/precedents. Use this when deciding whether a case fits Zebra, Lawson Fox, AC (Anchorage Chambers), Assure or TIG.',['lead_id'=>['type'=>'integer'],'destination'=>['type'=>'string']],['lead_id','destination']),
             $this->fn('get_decision_case_facts','Read structured decision-engine facts for a case and its debts, including property/evidence/DMP/voting facts and the I&E adjustment ledger.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('get_case_readiness','Check whether the current case has the material structured facts needed before full route reasoning. Returns known, missing and not-applicable facts plus the next question.',['lead_id'=>['type'=>'integer']],['lead_id']),
+            $this->fn('list_reasoning_fact_definitions','List the active case/debt reasoning fact registry so you can map casually supplied information to the correct structured field.',['scope'=>['type'=>['string','null']],'active_only'=>['type'=>'boolean']],['scope','active_only']),
+            $this->fn('teach_case_check_rule','Add a confirmed operator case-check rule. If its required fact does not exist, this creates a reusable structured fact definition and questionnaire prompt, then links the new rule to it. Use only when the user explicitly says to add/teach/change a case-check rule.',['lead_id'=>['type'=>['integer','null']],'destination'=>['type'=>['string','null']],'title'=>['type'=>'string'],'fact_key'=>['type'=>'string'],'fact_label'=>['type'=>'string'],'scope'=>['type'=>'string','enum'=>['case','debt']],'data_type'=>['type'=>'string','enum'=>['boolean','money','money_or_none','integer','date','text','percentage']],'question'=>['type'=>'string'],'requires_hmrc_debt'=>['type'=>'boolean'],'applies_when_fact_key'=>['type'=>['string','null']],'applies_when_operator'=>['type'=>'string'],'applies_when_value'=>['type'=>['string','null']],'operator'=>['type'=>'string'],'comparison_value'=>['type'=>['string','null']],'result_status'=>['type'=>'string'],'reason'=>['type'=>'string'],'source_detail'=>['type'=>['string','null']],'question_priority'=>['type'=>'integer'],'confirmed_by_operator'=>['type'=>'boolean']],['lead_id','destination','title','fact_key','fact_label','scope','data_type','question','requires_hmrc_debt','applies_when_fact_key','applies_when_operator','applies_when_value','operator','comparison_value','result_status','reason','source_detail','question_priority','confirmed_by_operator']),
             $this->fn('set_decision_case_fact','Store one structured decision-engine case fact. Use for facts such as homeownership, property value/mortgage/share, immigration/licence evidence, partner evidence availability, jurisdiction or DMP context.',['lead_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean','null']],'source_detail'=>['type'=>['string','null']]],['lead_id','key','value','source_detail']),
             $this->fn('set_debt_decision_fact','Store one structured decision-engine fact for a debt line, such as product type, contractual payment, payments made, current-provider status, recent-spend/account dates, attachments or voting override.',['debt_id'=>['type'=>'integer'],'key'=>['type'=>'string'],'value'=>['type'=>['string','number','boolean','null']],'source_detail'=>['type'=>['string','null']]],['debt_id','key','value','source_detail']),
             $this->fn('record_ie_adjustment','Record an I&E packaging adjustment in the auditable ledger: original amount, proposed amount, reason, optional supporting rule/evidence and status. This does not silently change the I&E itself.',['lead_id'=>['type'=>'integer'],'section_key'=>['type'=>'string'],'original_amount'=>['type'=>'number'],'proposed_amount'=>['type'=>'number'],'reason'=>['type'=>'string'],'rule_id'=>['type'=>['integer','null']],'evidence'=>['type'=>['string','null']],'status'=>['type'=>'string']],['lead_id','section_key','original_amount','proposed_amount','reason','rule_id','evidence','status']),
@@ -97,6 +103,8 @@ class JinxAgentToolService
             'assess_iva_case_decision',
             'analyse_iva_route',
             'get_decision_case_facts',
+            'get_case_readiness',
+            'list_reasoning_fact_definitions',
             'set_decision_case_fact',
             'set_debt_decision_fact',
             'record_ie_adjustment',
@@ -132,7 +140,7 @@ class JinxAgentToolService
             'import_vicidial_lead_to_jinx'=>$this->importVicidialLead($args), 'search_cases'=>$this->searchCases($args), 'get_case'=>$this->getCase($args),
             'search_internal_knowledge'=>$this->searchKnowledge($args), 'save_internal_knowledge'=>$this->saveKnowledge($args), 'get_vicidial_state'=>$this->vicidialState($args), 'search_vicidial_leads'=>$this->searchVicidialLeads($args), 'get_vicidial_history'=>$this->vicidialHistory($args), 'inspect_vicidial_campaign'=>$this->inspectVicidialCampaign($args), 'audit_vicidial_hopper'=>$this->auditVicidialHopper($args), 'summarize_vicidial_activity'=>$this->summarizeVicidialActivity($args), 'diagnose_vicidial_performance'=>$this->diagnoseVicidialPerformance($args), 'trace_vicidial_lead_dial_path'=>$this->traceVicidialLeadDialPath($args), 'get_dialler_change_audit'=>$this->getDiallerChangeAudit($args), 'update_vicidial_lead_status'=>$this->updateVicidialStatus($args), 'remove_vicidial_from_hopper'=>$this->removeVicidialHopper($args), 'update_vicidial_comments'=>$this->updateVicidialComments($args), 'check_crm_dialler_consistency'=>$this->checkCrmDiallerConsistency($args), 'repair_crm_dialler_consistency'=>$this->repairCrmDiallerConsistency($args),
             'schedule_callback'=>$this->scheduleCallback($args), 'cancel_callback'=>$this->cancelCallback($args), 'update_wip_status'=>$this->updateStatus($args),
-            'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'assess_iva_case_decision'=>$this->assessIvaCaseDecision($args), 'analyse_iva_route'=>$this->analyseIvaRoute($args), 'get_decision_case_facts'=>$this->getDecisionCaseFacts($args), 'set_decision_case_fact'=>$this->setDecisionCaseFact($args), 'set_debt_decision_fact'=>$this->setDebtDecisionFact($args), 'record_ie_adjustment'=>$this->recordIeAdjustment($args), 'set_ie_adjustment_status'=>$this->setIeAdjustmentStatus($args), 'assess_property_case'=>$this->assessPropertyCase($args), 'assess_refresh_dmp'=>$this->assessRefreshDmp($args), 'audit_decision_engine_knowledge'=>$this->auditDecisionKnowledge($args), 'record_voting_snapshot'=>$this->recordVotingSnapshot($args), 'record_decision_assessment'=>$this->recordDecisionAssessment($args), 'get_decision_assessments'=>$this->getDecisionAssessments($args), 'teach_decision_engine'=>$this->teachDecisionEngine($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
+            'add_case_note'=>$this->addNote($args), 'update_case_field'=>$this->updateCaseField($args), 'update_ie_fact'=>$this->updateIeFact($args), 'calculate_ie'=>$this->calculateIe($args), 'review_iva_case'=>$this->reviewIvaCase($args), 'assess_iva_case_decision'=>$this->assessIvaCaseDecision($args), 'analyse_iva_route'=>$this->analyseIvaRoute($args), 'get_decision_case_facts'=>$this->getDecisionCaseFacts($args), 'get_case_readiness'=>$this->getCaseReadiness($args), 'list_reasoning_fact_definitions'=>$this->listReasoningFactDefinitions($args), 'teach_case_check_rule'=>$this->teachCaseCheckRule($args), 'set_decision_case_fact'=>$this->setDecisionCaseFact($args), 'set_debt_decision_fact'=>$this->setDebtDecisionFact($args), 'record_ie_adjustment'=>$this->recordIeAdjustment($args), 'set_ie_adjustment_status'=>$this->setIeAdjustmentStatus($args), 'assess_property_case'=>$this->assessPropertyCase($args), 'assess_refresh_dmp'=>$this->assessRefreshDmp($args), 'audit_decision_engine_knowledge'=>$this->auditDecisionKnowledge($args), 'record_voting_snapshot'=>$this->recordVotingSnapshot($args), 'record_decision_assessment'=>$this->recordDecisionAssessment($args), 'get_decision_assessments'=>$this->getDecisionAssessments($args), 'teach_decision_engine'=>$this->teachDecisionEngine($args), 'calculate_target_di'=>$this->calculateTargetDi($args), 'search_creditors'=>$this->searchCreditors($args), 'update_creditor_contact'=>$this->updateCreditorContact($args), 'add_debt'=>$this->addDebt($args), 'update_debt'=>$this->updateDebt($args), 'delete_debt'=>$this->deleteDebt($args), 'set_checklist_item'=>$this->setChecklistItem($args), 'search_jinx_code'=>$this->searchCode($args), 'read_jinx_file'=>$this->readCodeFile($args), 'search_laravel_log'=>$this->searchLog($args), default=>throw new RuntimeException('Unknown Jinx agent tool: '.$name),
         };
     }
 
@@ -277,8 +285,53 @@ class JinxAgentToolService
     private function getDecisionCaseFacts(array $a): array
     {
         $lead=Lead::findOrFail((int)$a['lead_id']);
-        return $this->decisionFacts->allForLead($lead)+['ie_adjustments'=>$this->decisionFacts->ieAdjustmentSummary($lead),'case_fact_keys'=>DecisionCaseFactService::caseKeys(),'debt_fact_keys'=>DecisionCaseFactService::debtKeys()];
+        return $this->decisionFacts->allForLead($lead)+[
+            'ie_adjustments'=>$this->decisionFacts->ieAdjustmentSummary($lead),
+            'case_fact_keys'=>DecisionCaseFactService::caseKeys(),
+            'debt_fact_keys'=>DecisionCaseFactService::debtKeys(),
+            'active_fact_definitions'=>$this->factRegistry->definitions(null,true),
+        ];
     }
+    private function getCaseReadiness(array $a): array
+    {
+        return $this->caseReadiness->check(Lead::findOrFail((int)$a['lead_id']));
+    }
+
+    private function listReasoningFactDefinitions(array $a): array
+    {
+        $scope = filled($a['scope'] ?? null) ? strtolower(trim((string)$a['scope'])) : null;
+        if ($scope !== null && !in_array($scope,['case','debt'],true)) throw new RuntimeException('scope must be case, debt or null.');
+        return [
+            'definitions'=>$this->factRegistry->definitions($scope,(bool)$a['active_only']),
+        ];
+    }
+
+    private function teachCaseCheckRule(array $a): array
+    {
+        $result = $this->dynamicRules->teachRule($a);
+
+        $leadId = isset($a['lead_id']) && $a['lead_id'] !== null ? (int)$a['lead_id'] : null;
+        if ($leadId && DB::table('decision_learning_records')->getConnection()->getSchemaBuilder()->hasTable('decision_learning_records')) {
+            DB::table('decision_learning_records')->insert([
+                'lead_id'=>$leadId,
+                'knowledge_type'=>'technique',
+                'status'=>'active',
+                'original_decision'=>null,
+                'corrected_decision'=>'Dynamic case check rule #'.$result['rule_id'],
+                'reason'=>(string)$a['reason'],
+                'case_context'=>json_encode(['lead_id'=>$leadId,'fact_key'=>$a['fact_key'],'destination'=>$a['destination']]),
+                'applicability'=>json_encode(['description'=>'Machine-readable case check stored in decision_dynamic_rules']),
+                'outcome'=>null,
+                'times_confirmed'=>1,
+                'last_confirmed_at'=>now(),
+                'created_at'=>now(),
+                'updated_at'=>now(),
+            ]);
+        }
+
+        return $result + ['stored_as'=>'operator_rule','questionnaire_updated'=>true];
+    }
+
     private function setDecisionCaseFact(array $a): array
     {
         return $this->decisionFacts->setLeadFact(
