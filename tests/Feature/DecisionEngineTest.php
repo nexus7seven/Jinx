@@ -402,7 +402,12 @@ class DecisionEngineTest extends TestCase
         $iva=app(\App\Services\JinxAgentIvaService::class);
         $iva->updateFact($lead,'income.client_salary',1800);
         $facts=app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead,'case.jurisdiction','England');
         $facts->setLeadFact($lead,'property.is_homeowner',false);
+        $facts->setLeadFact($lead,'case.previous_iva',false);
+        $facts->setLeadFact($lead,'case.previous_bankruptcy',false);
+        $facts->setLeadFact($lead,'case.self_employed',false);
+        $facts->setLeadFact($lead,'case.gambling_monthly',0);
 
         $planner=app(\App\Services\IvaCasePackagingPlannerService::class);
         $plan=$planner->plan($lead);
