@@ -58,6 +58,15 @@ class IvaDecisionEngineService
                 'voting_house_exposure'=>$voting['houses'],
                 'unresolved_representative_count'=>$voting['unresolved_representative_count'],
                 'unresolved_voting_percent'=>$voting['unresolved_voting_percent'],
+                'unresolved_voting_debts'=>collect($voting['debts'] ?? [])
+                    ->filter(fn($debt)=>($debt['route_source'] ?? null)==='unresolved_conflict')
+                    ->map(fn($debt)=>[
+                        'debt_id'=>$debt['debt_id'],
+                        'creditor'=>$debt['creditor'],
+                        'balance'=>$debt['balance'],
+                        'conflict_reason'=>$debt['route_conflict_reason'] ?? null,
+                        'route_candidates'=>$debt['route_candidates'] ?? [],
+                    ])->values()->all(),
                 'property'=>$property,
                 'general_rule_count'=>$this->generalRuleCount($key),
                 'partner_rule_count'=>$key==='zebra'?0:$this->generalRuleCount('avondale'),
