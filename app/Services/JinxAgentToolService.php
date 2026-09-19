@@ -86,6 +86,46 @@ class JinxAgentToolService
         ];
     }
 
+    public function casePackagingDefinitions(): array
+    {
+        $allowed = [
+            'get_case',
+            'search_internal_knowledge',
+            'add_case_note',
+            'update_wip_status',
+            'review_iva_case',
+            'assess_iva_case_decision',
+            'analyse_iva_route',
+            'get_decision_case_facts',
+            'set_decision_case_fact',
+            'set_debt_decision_fact',
+            'record_ie_adjustment',
+            'set_ie_adjustment_status',
+            'assess_property_case',
+            'assess_refresh_dmp',
+            'record_voting_snapshot',
+            'record_decision_assessment',
+            'get_decision_assessments',
+            'teach_decision_engine',
+            'calculate_target_di',
+            'search_creditors',
+            'add_debt',
+            'update_debt',
+            'delete_debt',
+            'set_checklist_item',
+        ];
+
+        return collect($this->definitions())
+            ->filter(function (array $tool) use ($allowed) {
+                if (($tool['type'] ?? null) === 'web_search_preview') return true;
+
+                return ($tool['type'] ?? null) === 'function'
+                    && in_array($tool['name'] ?? null, $allowed, true);
+            })
+            ->values()
+            ->all();
+    }
+
     public function execute(string $name,array $args): array
     {
         return match($name) {
