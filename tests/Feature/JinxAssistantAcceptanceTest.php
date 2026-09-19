@@ -196,6 +196,28 @@ class JinxAssistantAcceptanceTest extends TestCase
         $this->assertFalse((bool) app(DecisionCaseFactService::class)->leadValues($lead)['property.is_homeowner']);
     }
 
+    public function test_casually_supplied_reasoning_fact_is_persisted_before_ie_starts(): void
+    {
+        $this->fakeAssistant([
+            'case.previous_iva' => true,
+        ], 'I’ve saved that the client has had an IVA before. Would you like me to carry out the I&E?');
+
+        $user = User::factory()->create();
+        $lead = $this->lead('Zebra');
+
+        $response = $this->actingAs($user)->postJson("/assistant/lead/{$lead->id}/message", [
+            'message' => 'Client had an IVA before',
+        ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseHas('lead_decision_facts', [
+            'lead_id' => $lead->id,
+            'fact_key' => 'case.previous_iva',
+        ]);
+        $this->assertTrue((bool) app(DecisionCaseFactService::class)->leadValues($lead)['case.previous_iva']);
+    }
+
     public function test_bulk_agent_fact_message_updates_the_case_without_the_old_is_string_failure(): void
     {
         $this->fakeAssistant([
