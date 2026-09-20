@@ -193,6 +193,115 @@ class CaseAssessmentTabTest extends TestCase
         $this->assertSame('Add income source', $income['add_control_label']);
     }
 
+    public function test_case_assessment_exposes_full_manual_household_expenditure_sections(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Expenditure Bank', 9000);
+        $this->baseIe($lead);
+
+        $response = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $response->assertOk();
+
+        $sections = collect($response->json('assessment.form_sections'))->keyBy('key');
+
+        foreach (['core_outgoings','food_housekeeping','communications_leisure','personal','care_health','transport','other_costs'] as $key) {
+            $this->assertArrayHasKey($key, $sections->all());
+        }
+
+        $core = collect($sections['core_outgoings']['fields'])->keyBy('fact_key');
+        $this->assertArrayHasKey('housing.tv_licence', $core->all());
+        $this->assertFalse((bool) $core['housing.tv_licence']['editable']);
+
+        $food = collect($sections['food_housekeeping']['fields'])->pluck('fact_key')->all();
+        $this->assertContains('sfs.housekeeping', $food);
+
+        $comms = collect($sections['communications_leisure']['fields'])->pluck('fact_key')->all();
+        $this->assertContains('sfs.comms.home_internet_tv', $comms);
+        $this->assertContains('sfs.comms.mobile', $comms);
+        $this->assertContains('sfs.comms.leisure', $comms);
+
+        $personal = collect($sections['personal']['fields'])->pluck('fact_key')->all();
+        $this->assertContains('sfs.personal.clothing', $personal);
+        $this->assertContains('sfs.personal.hairdressing', $personal);
+        $this->assertContains('sfs.personal.toiletries', $personal);
+
+        $care = collect($sections['care_health']['fields'])->pluck('fact_key')->all();
+        $this->assertContains('other.adult_care', $care);
+        $this->assertContains('other.pip_care', $care);
+        $this->assertContains('other.prescriptions', $care);
+        $this->assertContains('other.dentistry', $care);
+        $this->assertContains('other.maintenance_paid', $care);
+
+        $other = collect($sections['other_costs']['fields'])->pluck('fact_key')->all();
+        $this->assertContains('other.other', $other);
+    }
+
+    public function test_manual_household_expenditure_from_case_assessment_updates_financial_statement_and_di(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Manual Expenditure Bank', 9000);
+        $this->baseIe($lead);
+
+        $before = app(JinxAgentIvaService::class)->review($lead);
+        $beforeDi = (float) data_get($before, 'ie.calculation.disposable_income');
+
+        foreach ([
+            'other.pip_care' => 85,
+            'other.prescriptions' => 20,
+            'other.dentistry' => 15,
+            'other.adult_care' => 40,
+            'other.other' => 25,
+            'sfs.comms.mobile' => 90,
+        ] as $factKey => $value) {
+            $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+                'scope' => 'ie',
+                'fact_key' => $factKey,
+                'value' => $value,
+            ])->assertOk()->assertJsonPath('success', true);
+        }
+
+        $facts = app(JinxAgentIvaService::class)->facts($lead->fresh());
+        $this->assertSame(85.0, (float) $facts['other.pip_care']);
+        $this->assertSame(20.0, (float) $facts['other.prescriptions']);
+        $this->assertSame(15.0, (float) $facts['other.dentistry']);
+        $this->assertSame(40.0, (float) $facts['other.adult_care']);
+        $this->assertSame(25.0, (float) $facts['other.other']);
+        $this->assertGreaterThanOrEqual(90.0, (float) $facts['sfs.comms.mobile']);
+
+        $after = app(JinxAgentIvaService::class)->review($lead->fresh());
+        $this->assertLessThan($beforeDi, (float) data_get($after, 'ie.calculation.disposable_income'));
+    }
+
+    public function test_breakdown_cover_appears_for_car_transport_and_is_editable(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Breakdown Bank', 9000);
+        $this->baseIe($lead);
+
+        $changed = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'transport.client.mode',
+            'value' => 'car',
+        ]);
+        $changed->assertOk();
+
+        $transport = collect($changed->json('assessment.form_sections'))->firstWhere('key', 'transport');
+        $keys = collect($transport['fields'])->pluck('fact_key')->all();
+        $this->assertContains('transport.household.breakdown_cover', $keys);
+
+        $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'transport.household.breakdown_cover',
+            'value' => 18,
+        ])->assertOk();
+
+        $facts = app(JinxAgentIvaService::class)->facts($lead->fresh());
+        $this->assertSame(18.0, (float) $facts['transport.household.breakdown_cover']);
+    }
+
     public function test_postcode_can_populate_jurisdiction_and_manual_override_is_preserved(): void
     {
         Cache::flush();
