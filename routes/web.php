@@ -21,6 +21,7 @@ use App\Http\Controllers\WipAssistantController;
 use App\Http\Controllers\JinxAssistantController;
 use App\Http\Controllers\RemarketingController;
 use App\Http\Controllers\LeadCaseController;
+use App\Http\Controllers\CaseAssessmentController;
 use App\Services\LeadChecklistService;
 use App\Services\LeadPortalLinkService;
 use App\Services\LeadPortalTokenService;
@@ -372,6 +373,9 @@ Route::middleware('auth')->group(function () {
             'expires_at' => optional($portalToken->expires_at)?->toIso8601String(),
         ]);
     })->name('lead.portal-link');
+
+    Route::get('/lead/{lead}/case-assessment', [CaseAssessmentController::class, 'show'])->name('lead.case-assessment.show');
+    Route::patch('/lead/{lead}/case-assessment/fact', [CaseAssessmentController::class, 'updateFact'])->name('lead.case-assessment.fact.update');
 
     Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
     Route::patch('/lead/{lead}/lead-feedback', [LeadCaseController::class, 'updateLeadFeedback'])->name('lead.lead-feedback.update');
