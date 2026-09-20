@@ -87,6 +87,7 @@ class AssistantLeadFactSyncService
         $paths = [
             'calculation.target_di'=>'facts.target_di','household.partner_exists'=>'household.partner_exists',
             'housing.rent_mortgage'=>'expenditure.housing.rent_mortgage','housing.council_tax'=>'expenditure.housing.council_tax',
+            'housing.tv_licence'=>'expenditure.housing.tv_licence',
             'utilities.electricity'=>'expenditure.utilities.electricity','utilities.gas'=>'expenditure.utilities.gas','utilities.water'=>'expenditure.utilities.water',
             'sfs.housekeeping'=>'expenditure.sfs.housekeeping','sfs.comms.home_internet_tv'=>'expenditure.sfs.comms.home_internet_tv',
             'sfs.comms.mobile'=>'expenditure.sfs.comms.mobile','sfs.comms.leisure'=>'expenditure.sfs.comms.leisure',
@@ -96,9 +97,13 @@ class AssistantLeadFactSyncService
             'transport.client.car_finance'=>'expenditure.transport.client.car_finance','transport.client.car_insurance'=>'expenditure.transport.client.car_insurance','transport.client.public_transport'=>'expenditure.transport.client.public_transport',
             'transport.partner.fuel'=>'expenditure.transport.partner.fuel','transport.partner.mot_maintenance'=>'expenditure.transport.partner.mot_maintenance',
             'transport.partner.road_tax'=>'expenditure.transport.partner.road_tax','transport.partner.car_finance'=>'expenditure.transport.partner.car_finance','transport.partner.car_insurance'=>'expenditure.transport.partner.car_insurance',
-            'transport.partner.public_transport'=>'expenditure.transport.partner.public_transport','other.childcare'=>'expenditure.other.childcare',
+            'transport.partner.public_transport'=>'expenditure.transport.partner.public_transport',
+            'transport.household.breakdown_cover'=>'expenditure.transport.household.breakdown_cover',
+            'other.childcare'=>'expenditure.other.childcare',
             'other.maintenance_paid'=>'expenditure.other.maintenance_paid','other.dla_care'=>'expenditure.other.dla_care',
             'other.pip_care'=>'expenditure.other.pip_care','other.student_offset'=>'expenditure.other.student_offset',
+            'other.adult_care'=>'expenditure.other.adult_care','other.prescriptions'=>'expenditure.other.prescriptions',
+            'other.dentistry'=>'expenditure.other.dentistry','other.other'=>'expenditure.other.other',
         ];
         foreach ($paths as $factKey=>$path) if (array_key_exists($factKey,$facts)) $this->set($statement,$path,$facts[$factKey]);
 
