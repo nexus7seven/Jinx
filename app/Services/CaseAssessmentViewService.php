@@ -244,8 +244,36 @@ class CaseAssessmentViewService
             $this->ieFormField('transport.partner.car_insurance', 'Partner car insurance', 'money', $ieFacts, $partnerExists),
         ])->filter()->values();
 
-        $propertyHmrc = $byGroup->get('property_hmrc_conduct', collect())->values();
-        $evidence = $byGroup->get('evidence_readiness', collect())->values();
+        $specialist = $byGroup->get('property_hmrc_conduct', collect());
+        $property = $specialist
+            ->filter(fn($field) => Str::startsWith((string)($field['fact_key'] ?? ''), 'property.'))
+            ->values();
+        $selfEmployedDetails = $specialist
+            ->filter(fn($field) => in_array((string)($field['fact_key'] ?? ''), [
+                'case.self_employed_returns_due',
+                'case.tax_returns_up_to_date',
+            ], true))
+            ->values();
+        $hmrc = $specialist
+            ->filter(fn($field) => Str::startsWith((string)($field['fact_key'] ?? ''), 'case.hmrc_')
+                || (string)($field['fact_key'] ?? '') === 'case.joint_iva')
+            ->values();
+        $conduct = $specialist
+            ->reject(fn($field) => Str::startsWith((string)($field['fact_key'] ?? ''), 'property.')
+                || Str::startsWith((string)($field['fact_key'] ?? ''), 'case.hmrc_')
+                || in_array((string)($field['fact_key'] ?? ''), [
+                    'case.joint_iva',
+                    'case.self_employed_returns_due',
+                    'case.tax_returns_up_to_date',
+                ], true))
+            ->values();
+        $partnerEvidence = $specialist
+            ->filter(fn($field) => Str::startsWith((string)($field['fact_key'] ?? ''), 'partner.'))
+            ->values();
+        $evidence = $byGroup->get('evidence_readiness', collect())
+            ->merge($partnerEvidence)
+            ->unique('fact_key')
+            ->values();
 
         $calculation = (array) data_get($ieReview, 'ie.calculation', []);
         $summary = [
@@ -291,11 +319,32 @@ class CaseAssessmentViewService
                 'fields' => $transport->all(),
             ],
             [
-                'key' => 'property_hmrc_conduct',
-                'label' => 'Property, HMRC & conduct',
-                'description' => 'Only currently applicable specialist questions are shown.',
-                'default_open' => $propertyHmrc->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
-                'fields' => $propertyHmrc->all(),
+                'key' => 'property',
+                'label' => 'Property',
+                'description' => 'Property-interest and equity information. This section only appears while property facts are applicable.',
+                'default_open' => $property->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
+                'fields' => $property->all(),
+            ],
+            [
+                'key' => 'self_employed',
+                'label' => 'Self-employed',
+                'description' => 'Tax-return readiness facts for self-employed cases.',
+                'default_open' => $selfEmployedDetails->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
+                'fields' => $selfEmployedDetails->all(),
+            ],
+            [
+                'key' => 'hmrc',
+                'label' => 'HMRC',
+                'description' => 'HMRC-specific history and compliance facts. Hidden when HMRC is not relevant.',
+                'default_open' => $hmrc->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
+                'fields' => $hmrc->all(),
+            ],
+            [
+                'key' => 'conduct',
+                'label' => 'Conduct',
+                'description' => 'Currently applicable conduct and specialist case facts.',
+                'default_open' => $conduct->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
+                'fields' => $conduct->all(),
             ],
             [
                 'key' => 'evidence_readiness',
@@ -511,13 +560,14 @@ class CaseAssessmentViewService
 
     private function groupFor(string $key): string
     {
-        if (Str::startsWith($key, 'evidence.')) return 'evidence_readiness';
+        if ($key === 'property.is_homeowner') return 'case_household';
+        if (Str::startsWith($key, ['evidence.', 'partner.'])) return 'evidence_readiness';
         if (
             Str::startsWith($key, ['income.', 'household.', 'calculation.', 'client.'])
             || in_array($key, ['case.self_employed'], true)
         ) return 'income_affordability';
         if (
-            Str::startsWith($key, ['property.', 'partner.'])
+            Str::startsWith($key, 'property.')
             || Str::startsWith($key, 'case.hmrc_')
             || in_array($key, [
                 'case.gambling_monthly',

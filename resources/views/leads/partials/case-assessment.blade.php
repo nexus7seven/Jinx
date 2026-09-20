@@ -16,6 +16,22 @@
         .case-assessment-readiness-note { margin-top:5px; color:#cbd5e1; font-size:13px; line-height:1.45; }
         .case-assessment-latest { margin-top:10px; color:#cbd5e1; font-size:12px; line-height:1.45; }
 
+        .case-assessment-workspace { display:grid; grid-template-columns:220px minmax(0,1fr); gap:14px; align-items:start; }
+        .case-assessment-side-nav { position:sticky; top:0; align-self:start; background:#0b1220; border:1px solid #273449; border-radius:12px; padding:8px; max-height:calc(100vh - 210px); overflow:auto; }
+        .case-assessment-side-kicker { padding:7px 8px 9px; color:#64748b; font-size:9px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+        .case-assessment-nav-btn { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid transparent; border-radius:8px; background:transparent; color:#94a3b8; padding:9px 10px; text-align:left; font:inherit; font-size:12px; font-weight:800; cursor:pointer; margin-bottom:3px; }
+        .case-assessment-nav-btn:hover { background:#111827; color:#f8fafc; border-color:#334155; }
+        .case-assessment-nav-btn.is-active { background:#172554; border-color:#1d4ed8; color:#dbeafe; }
+        .case-assessment-nav-btn.is-alert { color:#fde68a; }
+        .case-assessment-nav-count { min-width:22px; height:20px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; background:#1e293b; color:#cbd5e1; font-size:9px; font-weight:900; padding:0 5px; }
+        .case-assessment-nav-btn.is-alert .case-assessment-nav-count { background:#78350f; color:#fef3c7; }
+        .case-assessment-main-panel { min-width:0; }
+        .case-assessment-workspace-panel { display:none; min-width:0; }
+        .case-assessment-workspace-panel.is-active { display:block; }
+        .case-assessment-panel-heading { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin:0 0 12px; }
+        .case-assessment-panel-title { margin:0; color:#f8fafc; font-size:19px; }
+        .case-assessment-panel-description { margin-top:4px; color:#94a3b8; font-size:12px; line-height:1.45; }
+
         .case-assessment-attention { margin:14px 0 18px; padding:14px; border:1px solid #92400e; background:#451a03; border-radius:12px; }
         .case-assessment-attention-title { color:#fef3c7; font-size:14px; font-weight:900; margin-bottom:8px; }
         .case-assessment-attention-list { display:flex; gap:7px; flex-wrap:wrap; }
@@ -100,6 +116,12 @@
             .case-assessment-summary { grid-template-columns:repeat(2,minmax(120px,1fr)); }
             .case-assessment-routes { grid-template-columns:repeat(2,minmax(180px,1fr)); }
         }
+        @media (max-width:900px) {
+            .case-assessment-workspace { grid-template-columns:1fr; }
+            .case-assessment-side-nav { position:static; display:flex; gap:6px; overflow:auto; max-height:none; padding:7px; }
+            .case-assessment-side-kicker { display:none; }
+            .case-assessment-nav-btn { width:auto; min-width:max-content; margin:0; }
+        }
         @media (max-width:780px) {
             .case-assessment-summary, .case-assessment-routes, .case-assessment-form-grid { grid-template-columns:1fr; }
         }
@@ -134,6 +156,8 @@
         const openFsButton = document.getElementById('caseAssessmentOpenFs');
         const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         let loading = false;
+        let currentAssessmentData = null;
+        let activeSectionKey = sessionStorage.getItem('jinxCaseAssessmentSection:' + leadId) || 'overview';
 
         const esc = (value) => String(value ?? '')
             .replaceAll('&','&amp;')
@@ -259,19 +283,13 @@
                 + '</div>';
         }
 
-        function renderFormSections(sections) {
-            if (!Array.isArray(sections) || !sections.length) return '';
-            return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Case information</h3>'
-                + sections.map(section => {
-                    const missing = (section.fields || []).filter(field => field.status === 'missing').length;
-                    return '<details class="case-assessment-form-section"' + (section.default_open ? ' open' : '') + '>'
-                        + '<summary><div><div class="case-assessment-form-section-title">' + esc(section.label) + '</div>'
-                        + '<div class="case-assessment-form-section-description">' + esc(section.description || '') + '</div></div>'
-                        + '<div class="case-assessment-form-section-count">' + esc(section.fields.length) + ' fields'
-                        + (missing ? ' · ' + esc(missing) + ' missing' : '') + '</div></summary>'
-                        + '<div class="case-assessment-form-grid">' + (section.fields || []).map(field => renderFormField(field)).join('') + '</div>'
-                        + '</details>';
-                }).join('') + '</section>';
+        function renderFormSection(section) {
+            const missing = (section.fields || []).filter(field => field.status === 'missing').length;
+            return '<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">' + esc(section.label) + '</h3>'
+                + '<div class="case-assessment-panel-description">' + esc(section.description || '') + '</div></div>'
+                + '<div class="case-assessment-form-section-count">' + esc(section.fields.length) + ' fields'
+                + (missing ? ' · ' + esc(missing) + ' missing' : '') + '</div></div>'
+                + '<div class="case-assessment-form-grid" style="padding:0;">' + (section.fields || []).map(field => renderFormField(field)).join('') + '</div>';
         }
 
         function renderDebtForms(debts) {
@@ -348,20 +366,129 @@
         }
 
         function renderAudit(groups) {
-            return '<details class="case-assessment-audit"><summary>Assessment detail & provenance</summary><div class="case-assessment-audit-body">'
+            return '<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">Assessment detail & provenance</h3>'
+                + '<div class="case-assessment-panel-description">Technical view of the active fact registry, where each value came from, and how Jinx is using it.</div></div></div>'
                 + (groups || []).map(group => '<section class="case-assessment-section"><h3 class="case-assessment-section-title">' + esc(group.label) + '</h3>'
-                    + factTable(group.facts || []) + '</section>').join('')
-                + '</div></details>';
+                    + factTable(group.facts || []) + '</section>').join('');
+        }
+
+        function workspaceSections(data) {
+            const sections = [];
+            sections.push({
+                key:'overview',
+                label:'Overview',
+                count:null,
+                alert:false,
+                html:renderSummary(data)
+            });
+
+            const attention = data.needs_attention || [];
+            if (attention.length) {
+                sections.push({
+                    key:'attention',
+                    label:'Needs attention',
+                    count:attention.length,
+                    alert:true,
+                    html:'<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">Needs attention</h3>'
+                        + '<div class="case-assessment-panel-description">Only the currently applicable missing facts are shown here. Click one to jump straight to its field.</div></div></div>'
+                        + renderAttention(attention)
+                });
+            }
+
+            (data.form_sections || []).forEach(section => {
+                const missing = (section.fields || []).filter(field => field.status === 'missing').length;
+                sections.push({
+                    key:'form:' + section.key,
+                    label:section.label,
+                    count:missing || null,
+                    alert:missing > 0,
+                    html:renderFormSection(section)
+                });
+            });
+
+            const debtMissing = (data.debts || []).reduce((total, debt) => total + (debt.facts || []).filter(f => f.status === 'missing').length, 0);
+            sections.push({
+                key:'debts',
+                label:'Debts',
+                count:debtMissing || null,
+                alert:debtMissing > 0,
+                html:'<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">Debt information</h3>'
+                    + '<div class="case-assessment-panel-description">Creditor-by-creditor reasoning data and voting-house resolution.</div></div></div>'
+                    + renderDebtForms(data.debts || [])
+            });
+
+            const routeIssues = (data.routes || []).filter(route => !['BASIC_PASS','CLEAR_FIT','SATISFIED'].includes(route.status)).length;
+            sections.push({
+                key:'routes',
+                label:'Route checks',
+                count:routeIssues || null,
+                alert:false,
+                html:'<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">Route checks</h3>'
+                    + '<div class="case-assessment-panel-description">Current deterministic route checks. This does not start a new full AI case-reasoning run.</div></div></div>'
+                    + renderRoutes(data.routes || [])
+            });
+
+            sections.push({
+                key:'audit',
+                label:'Detail / audit',
+                count:null,
+                alert:false,
+                html:renderAudit(data.groups || [])
+            });
+
+            return sections;
+        }
+
+        function activateWorkspaceSection(key, focus = false) {
+            const available = Array.from(content.querySelectorAll('[data-assessment-workspace-panel]')).map(panel => panel.dataset.assessmentWorkspacePanel);
+            if (!available.includes(key)) key = available.includes('overview') ? 'overview' : available[0];
+            if (!key) return;
+
+            activeSectionKey = key;
+            sessionStorage.setItem('jinxCaseAssessmentSection:' + leadId, key);
+
+            content.querySelectorAll('[data-assessment-nav]').forEach(button => {
+                const on = button.dataset.assessmentNav === key;
+                button.classList.toggle('is-active', on);
+                button.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            content.querySelectorAll('[data-assessment-workspace-panel]').forEach(panel => {
+                panel.classList.toggle('is-active', panel.dataset.assessmentWorkspacePanel === key);
+            });
+
+            const activeButton = content.querySelector('[data-assessment-nav="' + CSS.escape(key) + '"]');
+            const label = activeButton ? activeButton.dataset.assessmentLabel : 'Case Assessment';
+            window.dispatchEvent(new CustomEvent('jinx:assessment-section', { detail:{ key, label } }));
+
+            if (focus) {
+                const panel = content.querySelector('[data-assessment-workspace-panel="' + CSS.escape(key) + '"]');
+                if (panel) panel.scrollIntoView({ block:'start' });
+            }
         }
 
         function render(data) {
-            content.innerHTML = renderSummary(data)
-                + renderAttention(data.needs_attention || [])
-                + renderFormSections(data.form_sections || [])
-                + renderDebtForms(data.debts || [])
-                + renderRoutes(data.routes || [])
-                + renderAudit(data.groups || []);
+            currentAssessmentData = data;
+            const sections = workspaceSections(data);
+            if (!sections.some(section => section.key === activeSectionKey)) {
+                activeSectionKey = (data.needs_attention || []).length ? 'attention' : 'overview';
+            }
+
+            const nav = sections.map(section => '<button type="button" class="case-assessment-nav-btn'
+                    + (section.alert ? ' is-alert' : '') + '" data-assessment-nav="' + esc(section.key) + '" data-assessment-label="' + esc(section.label) + '">'
+                    + '<span>' + esc(section.label) + '</span>'
+                    + (section.count ? '<span class="case-assessment-nav-count">' + esc(section.count) + '</span>' : '')
+                    + '</button>').join('');
+
+            const panels = sections.map(section => '<div class="case-assessment-workspace-panel" data-assessment-workspace-panel="' + esc(section.key) + '">'
+                    + section.html + '</div>').join('');
+
+            content.innerHTML = '<div class="case-assessment-workspace">'
+                + '<nav class="case-assessment-side-nav" aria-label="Case Assessment sections"><div class="case-assessment-side-kicker">Case sections</div>' + nav + '</nav>'
+                + '<div class="case-assessment-main-panel">' + panels + '</div></div>';
+
             bindControls();
+            bindWorkspaceNav();
+            activateWorkspaceSection(activeSectionKey, false);
         }
 
         async function load(force = false) {
@@ -434,6 +561,12 @@
             }
         }
 
+        function bindWorkspaceNav() {
+            content.querySelectorAll('[data-assessment-nav]').forEach(button => {
+                button.addEventListener('click', () => activateWorkspaceSection(button.dataset.assessmentNav, true));
+            });
+        }
+
         function bindControls() {
             content.querySelectorAll('[data-assessment-boolean="1"]').forEach(button => {
                 button.addEventListener('click', async () => {
@@ -463,14 +596,19 @@
                     const target = content.querySelector(selector);
                     if (!target) return;
 
-                    let parent = target.parentElement;
-                    while (parent && parent !== content) {
-                        if (parent.tagName === 'DETAILS') parent.open = true;
-                        parent = parent.parentElement;
-                    }
-                    target.scrollIntoView({ behavior:'smooth', block:'center' });
-                    const focusable = target.querySelector('input,button,select,textarea');
-                    if (focusable) window.setTimeout(() => focusable.focus(), 250);
+                    const panel = target.closest('[data-assessment-workspace-panel]');
+                    if (panel) activateWorkspaceSection(panel.dataset.assessmentWorkspacePanel, false);
+
+                    window.setTimeout(() => {
+                        let parent = target.parentElement;
+                        while (parent && parent !== content) {
+                            if (parent.tagName === 'DETAILS') parent.open = true;
+                            parent = parent.parentElement;
+                        }
+                        target.scrollIntoView({ behavior:'smooth', block:'center' });
+                        const focusable = target.querySelector('input,button,select,textarea');
+                        if (focusable) focusable.focus();
+                    }, 80);
                 });
             });
         }
