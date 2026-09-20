@@ -29,7 +29,7 @@
         html, body { height: 100%; }
         .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
         .lead-page-frame { max-width: min(1760px, 100%); margin: 0 auto; padding: 12px 16px 12px; box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; min-height: 0; }
-        .lead-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(380px, 1fr); gap: 16px; align-items: stretch; }
+        .lead-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: stretch; }
         .lead-workspace-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
         .case-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
         .case-tab { flex: 1; min-height: 46px; border-radius: 10px; border: 1px solid #334155; background: #111827; color: #cbd5e1; padding: 10px 14px; font-size: 14px; font-weight: 800; letter-spacing: 0.01em; cursor: pointer; font-family: inherit; }
@@ -80,7 +80,6 @@
             .lead-page-frame { height: auto; min-height: 100vh; }
             .lead-workspace { grid-template-columns: 1fr; }
             .lead-main-scroll { overflow: visible; }
-            .case-assistant { min-height: 520px; }
         }
         @media (max-width: 720px) {
             .lead-top-nav { gap: 5px; padding: 7px; }
