@@ -600,6 +600,11 @@
                     if (panel) activateWorkspaceSection(panel.dataset.assessmentWorkspacePanel, false);
 
                     window.setTimeout(() => {
+                        let parent = target.parentElement;
+                        while (parent && parent !== content) {
+                            if (parent.tagName === 'DETAILS') parent.open = true;
+                            parent = parent.parentElement;
+                        }
                         target.scrollIntoView({ behavior:'smooth', block:'center' });
                         const focusable = target.querySelector('input,button,select,textarea');
                         if (focusable) focusable.focus();
