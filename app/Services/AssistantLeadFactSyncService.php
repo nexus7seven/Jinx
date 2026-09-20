@@ -87,7 +87,6 @@ class AssistantLeadFactSyncService
         $paths = [
             'calculation.target_di'=>'facts.target_di','household.partner_exists'=>'household.partner_exists',
             'housing.rent_mortgage'=>'expenditure.housing.rent_mortgage','housing.council_tax'=>'expenditure.housing.council_tax',
-            'housing.tv_licence'=>'expenditure.housing.tv_licence',
             'utilities.electricity'=>'expenditure.utilities.electricity','utilities.gas'=>'expenditure.utilities.gas','utilities.water'=>'expenditure.utilities.water',
             'sfs.housekeeping'=>'expenditure.sfs.housekeeping','sfs.comms.home_internet_tv'=>'expenditure.sfs.comms.home_internet_tv',
             'sfs.comms.mobile'=>'expenditure.sfs.comms.mobile','sfs.comms.leisure'=>'expenditure.sfs.comms.leisure',
