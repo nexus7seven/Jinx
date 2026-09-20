@@ -11,6 +11,7 @@ class DecisionCaseReadinessService
         private readonly DecisionCaseFactService $facts,
         private readonly DecisionFactRegistryService $registry,
         private readonly DecisionDynamicRuleService $dynamicRules,
+        private readonly PostcodeJurisdictionService $postcodeJurisdiction,
     ) {}
 
     public function check(Lead $lead): array
@@ -103,14 +104,20 @@ class DecisionCaseReadinessService
     public function syncDerivedFacts(Lead $lead): void
     {
         $lead->loadMissing('debts.creditor');
-        $values = $this->facts->leadValues($lead);
+        $this->postcodeJurisdiction->syncIfNeeded($lead, $this->facts);
+
+        $factRows = $this->facts->leadFacts($lead);
+        $values = collect($factRows)->mapWithKeys(fn($row, $key) => [$key => $row['value'] ?? null])->all();
         $statement = is_array($lead->financial_statement) ? $lead->financial_statement : [];
 
-        if (!array_key_exists('case.self_employed', $values)) {
+        $selfEmploymentSource = $factRows['case.self_employed']['source_type'] ?? null;
+        if (!array_key_exists('case.self_employed', $values) || $selfEmploymentSource === 'derived') {
             $selfEmployedIncome = (float) data_get($statement, 'income.self_employed', 0);
             $employment = Str::lower(trim((string) $lead->employment_status));
 
-            if ($selfEmployedIncome > 0 || str_contains($employment, 'self employ')) {
+            $employmentNormalised = str_replace(['-','_'], ' ', $employment);
+
+            if ($selfEmployedIncome > 0 || str_contains($employmentNormalised, 'self employ')) {
                 $this->facts->setLeadFact(
                     $lead,
                     'case.self_employed',

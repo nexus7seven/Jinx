@@ -94,7 +94,8 @@ class CaseAssessmentViewService
                     ? (($definition['storage_type'] ?? null) === 'derived' ? 'derived' : 'known')
                     : (($definition['reasoning_required'] ?? false) ? 'missing' : 'not_recorded');
 
-                $rows[] = [
+                $rows[] = $this->withControlMeta([
+                    'scope' => 'debt',
                     'fact_key' => $key,
                     'label' => $definition['label'],
                     'data_type' => $definition['data_type'],
@@ -107,7 +108,7 @@ class CaseAssessmentViewService
                     'recorded_at' => $meta['recorded_at'] ?? null,
                     'assessment' => $this->assessmentForDebtFact($key, $status, $votingDebt),
                     'editable' => ($definition['storage_type'] ?? null) === 'debt_decision_fact',
-                ];
+                ]);
             }
 
             return [
@@ -178,6 +179,7 @@ class CaseAssessmentViewService
         $case = collect($caseRows)
             ->reject(fn($row) => ($row['status'] ?? null) === 'not_applicable')
             ->filter(fn($row) => ($row['editable'] ?? false) === true)
+            ->reject(fn($row) => ($row['fact_key'] ?? null) === 'case.self_employed')
             ->map(fn($row) => $this->caseFormField($row))
             ->values();
 
@@ -188,7 +190,7 @@ class CaseAssessmentViewService
             $this->ieFormField('client.employment_status', 'Employment status', 'text', $ieFacts, true, 'Stored on the lead and used by case reasoning.'),
             $this->ieFormField('household.partner_exists', 'Partner?', 'boolean', $ieFacts, true, 'Controls partner income and partner-specific branches.'),
             $this->ieFormField('household.children_count', 'Resident children', 'integer', $ieFacts, true, 'Number of resident children used by the Financial Statement.'),
-            $this->ieFormField('household.children_ages', 'Children ages', 'text', $ieFacts, true, 'Enter ages separated by commas, for example 11, 8, 3.'),
+            $this->ieFormField('household.children_ages', 'Children ages', 'text', $ieFacts, (int)($ieFacts['household.children_count'] ?? 0) > 0, 'Enter ages separated by commas, for example 11, 8, 3.'),
         ])->merge($byGroup->get('case_household', collect()))
           ->filter()
           ->unique('fact_key')
@@ -198,10 +200,13 @@ class CaseAssessmentViewService
         $selfEmployedRow = collect($caseRows)->firstWhere('fact_key', 'case.self_employed');
         $selfEmployed = (bool) ($selfEmployedRow['value'] ?? false);
 
-        $income = collect([
+        $incomeBase = collect([
             $this->ieFormField('income.client_salary', 'Client salary', 'money', $ieFacts, true),
             $this->ieFormField('income.self_employed', 'Self-employed income', 'money', $ieFacts, $selfEmployed || (float)($ieFacts['income.self_employed'] ?? 0) > 0),
             $this->ieFormField('income.partner_salary', 'Partner income', 'money', $ieFacts, $partnerExists),
+        ])->filter()->values();
+
+        $optionalIncome = collect([
             $this->ieFormField('income.universal_credit', 'Universal Credit', 'money', $ieFacts, true),
             $this->ieFormField('income.child_benefit', 'Child Benefit', 'money', $ieFacts, true),
             $this->ieFormField('income.pip_dla', 'PIP / DLA', 'money', $ieFacts, true),
@@ -212,10 +217,22 @@ class CaseAssessmentViewService
             $this->ieFormField('income.student', 'Student loan / grant / bursary', 'money', $ieFacts, true),
             $this->ieFormField('income.foster_guardianship', 'Foster / Guardianship Allowance', 'money', $ieFacts, true),
             $this->ieFormField('income.other_income', 'Other income', 'money', $ieFacts, true),
-        ])->merge($byGroup->get('income_affordability', collect()))
-          ->filter()
-          ->unique('fact_key')
-          ->values();
+        ])->filter()->values();
+
+        $activeOptionalIncome = $optionalIncome
+            ->filter(fn($field) => is_numeric($field['value'] ?? null) && (float)$field['value'] > 0)
+            ->values();
+
+        $addableIncome = $optionalIncome
+            ->reject(fn($field) => is_numeric($field['value'] ?? null) && (float)$field['value'] > 0)
+            ->values();
+
+        $income = $incomeBase
+            ->merge($activeOptionalIncome)
+            ->merge($byGroup->get('income_affordability', collect()))
+            ->filter()
+            ->unique('fact_key')
+            ->values();
 
         $coreOutgoings = collect([
             $this->ieFormField('housing.rent_mortgage', 'Rent / mortgage', 'money', $ieFacts, true),
@@ -227,21 +244,28 @@ class CaseAssessmentViewService
             $this->ieFormField('other.maintenance_paid', 'Maintenance paid', 'money', $ieFacts, true),
         ])->filter()->values();
 
+        $clientMode = $this->canonicalTransportMode($ieFacts['transport.client.mode'] ?? null);
+        $partnerMode = $this->canonicalTransportMode($ieFacts['transport.partner.mode'] ?? null);
+        $clientCar = in_array($clientMode, ['car','both'], true);
+        $clientPublic = in_array($clientMode, ['public transport','both'], true);
+        $partnerCar = in_array($partnerMode, ['car','both'], true);
+        $partnerPublic = in_array($partnerMode, ['public transport','both'], true);
+
         $transport = collect([
             $this->ieFormField('transport.client.mode', 'Client transport', 'text', $ieFacts, true),
-            $this->ieFormField('transport.client.public_transport', 'Client public transport', 'money', $ieFacts, true),
-            $this->ieFormField('transport.client.fuel', 'Client fuel', 'money', $ieFacts, true),
-            $this->ieFormField('transport.client.mot_maintenance', 'Client MOT / maintenance', 'money', $ieFacts, true),
-            $this->ieFormField('transport.client.road_tax', 'Client road tax', 'money', $ieFacts, true),
-            $this->ieFormField('transport.client.car_finance', 'Client car finance', 'money', $ieFacts, true),
-            $this->ieFormField('transport.client.car_insurance', 'Client car insurance', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.public_transport', 'Client public transport', 'money', $ieFacts, $clientPublic),
+            $this->ieFormField('transport.client.fuel', 'Client fuel', 'money', $ieFacts, $clientCar),
+            $this->ieFormField('transport.client.mot_maintenance', 'Client MOT / maintenance', 'money', $ieFacts, $clientCar),
+            $this->ieFormField('transport.client.road_tax', 'Client road tax', 'money', $ieFacts, $clientCar),
+            $this->ieFormField('transport.client.car_finance', 'Client car finance', 'money', $ieFacts, $clientCar),
+            $this->ieFormField('transport.client.car_insurance', 'Client car insurance', 'money', $ieFacts, $clientCar),
             $this->ieFormField('transport.partner.mode', 'Partner transport', 'text', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.public_transport', 'Partner public transport', 'money', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.fuel', 'Partner fuel', 'money', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.mot_maintenance', 'Partner MOT / maintenance', 'money', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.road_tax', 'Partner road tax', 'money', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.car_finance', 'Partner car finance', 'money', $ieFacts, $partnerExists),
-            $this->ieFormField('transport.partner.car_insurance', 'Partner car insurance', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.public_transport', 'Partner public transport', 'money', $ieFacts, $partnerExists && $partnerPublic),
+            $this->ieFormField('transport.partner.fuel', 'Partner fuel', 'money', $ieFacts, $partnerExists && $partnerCar),
+            $this->ieFormField('transport.partner.mot_maintenance', 'Partner MOT / maintenance', 'money', $ieFacts, $partnerExists && $partnerCar),
+            $this->ieFormField('transport.partner.road_tax', 'Partner road tax', 'money', $ieFacts, $partnerExists && $partnerCar),
+            $this->ieFormField('transport.partner.car_finance', 'Partner car finance', 'money', $ieFacts, $partnerExists && $partnerCar),
+            $this->ieFormField('transport.partner.car_insurance', 'Partner car insurance', 'money', $ieFacts, $partnerExists && $partnerCar),
         ])->filter()->values();
 
         $specialist = $byGroup->get('property_hmrc_conduct', collect());
@@ -296,6 +320,8 @@ class CaseAssessmentViewService
                 'description' => 'These are the same income figures used by the Financial Statement. Changes here update the I&E and recalculate DI.',
                 'default_open' => true,
                 'fields' => $income->all(),
+                'addable_fields' => $addableIncome->all(),
+                'add_control_label' => 'Add income source',
             ],
             [
                 'key' => 'affordability_summary',
@@ -358,7 +384,7 @@ class CaseAssessmentViewService
 
     private function caseFormField(array $row): array
     {
-        return [
+        return $this->withControlMeta([
             'scope' => 'case',
             'fact_key' => $row['fact_key'],
             'label' => $row['label'],
@@ -370,10 +396,11 @@ class CaseAssessmentViewService
             'status_label' => $row['status_label'],
             'source' => $row['source'],
             'source_detail' => $row['source_detail'],
+            'recorded_at' => $row['recorded_at'] ?? null,
             'help' => $row['question'] ?: $row['assessment'],
             'editable' => true,
             'required' => (bool) $row['reasoning_required'],
-        ];
+        ]);
     }
 
     private function ieFormField(
@@ -391,7 +418,7 @@ class CaseAssessmentViewService
             $value = implode(', ', $value);
         }
 
-        return [
+        return $this->withControlMeta([
             'scope' => 'ie',
             'fact_key' => $key,
             'label' => $label,
@@ -406,7 +433,163 @@ class CaseAssessmentViewService
             'help' => $help,
             'editable' => true,
             'required' => false,
-        ];
+        ]);
+    }
+
+    private function withControlMeta(array $field): array
+    {
+        $key = (string) ($field['fact_key'] ?? '');
+        $value = $field['value'] ?? null;
+
+        $field['control'] = $field['data_type'] === 'boolean' ? 'boolean' : 'input';
+        $field['options'] = [];
+        $field['ui_value'] = $value;
+        $field['custom_value'] = null;
+
+        $select = function (array $options, string $control = 'select') use (&$field, $value) {
+            $field['control'] = $control;
+            $field['options'] = $options;
+
+            $matched = null;
+            if ($value !== null && $value !== '') {
+                $needle = Str::lower(trim((string) $value));
+                foreach ($options as $option) {
+                    $candidate = (string) ($option['value'] ?? '');
+                    if ($candidate === '__custom__') continue;
+                    if (Str::lower(trim($candidate)) === $needle) {
+                        $matched = $candidate;
+                        break;
+                    }
+                }
+            }
+
+            if ($matched !== null) {
+                $field['ui_value'] = $matched;
+            } elseif ($control === 'select_custom' && $value !== null && $value !== '') {
+                $field['ui_value'] = '__custom__';
+                $field['custom_value'] = (string) $value;
+            } else {
+                $field['ui_value'] = $value;
+            }
+        };
+
+        if ($key === 'case.jurisdiction') {
+            $select([
+                ['value'=>'England','label'=>'England'],
+                ['value'=>'Wales','label'=>'Wales'],
+                ['value'=>'Northern Ireland','label'=>'Northern Ireland'],
+                ['value'=>'Scotland','label'=>'Scotland'],
+                ['value'=>'Other','label'=>'Other'],
+            ]);
+            $field['help'] = $field['source'] === 'Postcode'
+                ? 'Automatically populated from the lead postcode. You can override it here.'
+                : ($field['help'] ?? 'Select the client jurisdiction.');
+        } elseif ($key === 'client.employment_status') {
+            $select([
+                ['value'=>'Employed','label'=>'Employed'],
+                ['value'=>'Self-employed','label'=>'Self-employed'],
+                ['value'=>'Unemployed','label'=>'Unemployed'],
+                ['value'=>'Retired','label'=>'Retired'],
+                ['value'=>'Student','label'=>'Student'],
+                ['value'=>'Carer','label'=>'Carer'],
+                ['value'=>'__custom__','label'=>'Other'],
+            ], 'select_custom');
+        } elseif (in_array($key, ['transport.client.mode','transport.partner.mode'], true)) {
+            $select([
+                ['value'=>'car','label'=>'Car'],
+                ['value'=>'public transport','label'=>'Public transport'],
+                ['value'=>'both','label'=>'Both'],
+                ['value'=>'none','label'=>'None'],
+            ]);
+            $field['ui_value'] = $this->canonicalTransportMode($value);
+        } elseif ($key === 'household.children_count') {
+            $field['control'] = 'select_custom_number';
+            $field['options'] = [
+                ['value'=>'0','label'=>'0'],
+                ['value'=>'1','label'=>'1'],
+                ['value'=>'2','label'=>'2'],
+                ['value'=>'3','label'=>'3'],
+                ['value'=>'4','label'=>'4'],
+                ['value'=>'__custom__','label'=>'5+'],
+            ];
+            $count = is_numeric($value) ? (int)$value : null;
+            $field['ui_value'] = $count !== null && $count >= 5 ? '__custom__' : ($count !== null ? (string)$count : '');
+            $field['custom_value'] = $count !== null && $count >= 5 ? $count : 5;
+        } elseif ($key === 'case.previous_iva_failed') {
+            $field['label'] = 'Previous IVA outcome';
+            $field['control'] = 'select';
+            $field['options'] = [
+                ['value'=>'false','label'=>'Completed'],
+                ['value'=>'true','label'=>'Failed'],
+                ['value'=>'unknown','label'=>'Unsure'],
+            ];
+            $field['ui_value'] = $value === true
+                ? 'true'
+                : ($value === false ? 'false' : (($field['recorded_at'] ?? null) ? 'unknown' : ''));
+            $field['display_value'] = $value === true
+                ? 'Failed'
+                : ($value === false ? 'Completed' : (($field['recorded_at'] ?? null) ? 'Unsure' : '—'));
+        } elseif ($key === 'debt.product_type') {
+            $select([
+                ['value'=>'Credit card','label'=>'Credit card'],
+                ['value'=>'Personal loan','label'=>'Personal loan'],
+                ['value'=>'Overdraft','label'=>'Overdraft'],
+                ['value'=>'Catalogue','label'=>'Catalogue'],
+                ['value'=>'Store card','label'=>'Store card'],
+                ['value'=>'Hire Purchase','label'=>'Hire Purchase'],
+                ['value'=>'PCP','label'=>'PCP'],
+                ['value'=>'Lease','label'=>'Lease'],
+                ['value'=>'Payday / short-term loan','label'=>'Payday / short-term loan'],
+                ['value'=>'Guarantor loan','label'=>'Guarantor loan'],
+                ['value'=>'Mortgage','label'=>'Mortgage'],
+                ['value'=>'Secured loan','label'=>'Secured loan'],
+                ['value'=>'Council Tax','label'=>'Council Tax'],
+                ['value'=>'HMRC','label'=>'HMRC'],
+                ['value'=>'Utility','label'=>'Utility'],
+                ['value'=>'Telecoms','label'=>'Telecoms'],
+                ['value'=>'Benefit overpayment','label'=>'Benefit overpayment'],
+                ['value'=>'__custom__','label'=>'Other'],
+            ], 'select_custom');
+        } elseif ($key === 'case.immigration_status') {
+            $select([
+                ['value'=>'UK citizen','label'=>'UK citizen'],
+                ['value'=>'Settled / ILR','label'=>'Settled / ILR'],
+                ['value'=>'Pre-settled','label'=>'Pre-settled'],
+                ['value'=>'Time-limited visa','label'=>'Time-limited visa'],
+                ['value'=>'Unsure','label'=>'Unsure'],
+                ['value'=>'__custom__','label'=>'Other'],
+            ], 'select_custom');
+        } elseif ($key === 'evidence.bank_statement_months') {
+            $field['control'] = 'select';
+            $field['options'] = [
+                ['value'=>'0','label'=>'0'],
+                ['value'=>'1','label'=>'1 month'],
+                ['value'=>'2','label'=>'2 months'],
+                ['value'=>'3','label'=>'3 months'],
+                ['value'=>'4','label'=>'4 months'],
+                ['value'=>'5','label'=>'5 months'],
+                ['value'=>'6','label'=>'6+ months'],
+            ];
+            $field['ui_value'] = is_numeric($value) && (int)$value >= 6 ? '6' : ($value !== null ? (string)$value : '');
+        }
+
+        return $field;
+    }
+
+    private function canonicalTransportMode(mixed $value): string
+    {
+        $mode = Str::lower(trim((string) $value));
+        if ($mode === '') return '';
+        if ($mode === 'none' || $mode === 'no transport') return 'none';
+
+        $hasCar = str_contains($mode, 'car') || str_contains($mode, 'drive');
+        $hasPublic = str_contains($mode, 'public') || str_contains($mode, 'bus') || str_contains($mode, 'train');
+
+        if ($mode === 'both' || ($hasCar && $hasPublic)) return 'both';
+        if ($hasCar) return 'car';
+        if ($hasPublic) return 'public transport';
+
+        return $mode;
     }
 
     private function readonlyFormField(string $key, string $label, string $type, mixed $value, string $help): array
@@ -691,6 +874,7 @@ class CaseAssessmentViewService
             'ie' => 'I&E',
             'crm' => 'CRM',
             'credit_report' => 'Credit report',
+            'postcode_lookup' => 'Postcode',
             'documents', 'document' => 'Document',
             'creditor_intelligence' => 'Creditor intelligence',
             'property_data_future' => 'Property data',

@@ -41,7 +41,8 @@ class CaseAssessmentController extends Controller
 
         if ($validated['scope'] === 'ie') {
             try {
-                $iva->updateFact($lead, $validated['fact_key'], $validated['value']);
+                $ieValue = $this->normaliseIeValue($validated['fact_key'], $validated['value']);
+                $iva->updateFact($lead, $validated['fact_key'], $ieValue);
                 $iva->calculate($lead->fresh());
             } catch (RuntimeException $e) {
                 throw ValidationException::withMessages(['value' => $e->getMessage()]);
@@ -69,7 +70,19 @@ class CaseAssessmentController extends Controller
             throw ValidationException::withMessages(['fact_key' => 'This debt value is derived from the debt record and cannot be edited here.']);
         }
 
-        $value = $this->normalise($validated['value'], (string) ($definition['data_type'] ?? 'text'));
+        $value = $validated['fact_key'] === 'case.previous_iva_failed'
+            && is_string($validated['value'])
+            && Str::lower(trim($validated['value'])) === 'unknown'
+                ? null
+                : $this->normalise($validated['value'], (string) ($definition['data_type'] ?? 'text'));
+
+        if ($validated['fact_key'] === 'case.jurisdiction' && !in_array($value, ['England','Wales','Northern Ireland','Scotland','Other'], true)) {
+            throw ValidationException::withMessages(['value' => 'Select a valid jurisdiction.']);
+        }
+
+        if ($validated['fact_key'] === 'evidence.bank_statement_months' && is_numeric($value) && (int)$value > 6) {
+            $value = 6;
+        }
 
         if ($validated['scope'] === 'case') {
             $facts->setLeadFact($lead, $validated['fact_key'], $value, 'operator', 'Edited in Case Assessment tab');
@@ -86,6 +99,34 @@ class CaseAssessmentController extends Controller
             'success' => true,
             'assessment' => $view->forLead($lead->fresh()),
         ]);
+    }
+
+    private function normaliseIeValue(string $key, mixed $value): mixed
+    {
+        if (in_array($key, ['transport.client.mode','transport.partner.mode'], true)) {
+            $mode = Str::lower(trim((string) $value));
+            if (!in_array($mode, ['car','public transport','both','none'], true)) {
+                throw ValidationException::withMessages(['value' => 'Select Car, Public transport, Both or None.']);
+            }
+            return $mode;
+        }
+
+        if ($key === 'client.employment_status') {
+            $employment = trim((string) $value);
+            if ($employment === '') {
+                throw ValidationException::withMessages(['value' => 'Select or enter an employment status.']);
+            }
+            return Str::limit($employment, 120, '');
+        }
+
+        if ($key === 'household.children_count') {
+            if (!is_numeric($value) || (int)$value < 0) {
+                throw ValidationException::withMessages(['value' => 'Enter a valid number of resident children.']);
+            }
+            return (int) $value;
+        }
+
+        return $value;
     }
 
     private function normalise(mixed $value, string $type): mixed
