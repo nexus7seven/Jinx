@@ -115,7 +115,9 @@ class DecisionCaseReadinessService
             $selfEmployedIncome = (float) data_get($statement, 'income.self_employed', 0);
             $employment = Str::lower(trim((string) $lead->employment_status));
 
-            if ($selfEmployedIncome > 0 || str_contains($employment, 'self employ')) {
+            $employmentNormalised = str_replace(['-','_'], ' ', $employment);
+
+            if ($selfEmployedIncome > 0 || str_contains($employmentNormalised, 'self employ')) {
                 $this->facts->setLeadFact(
                     $lead,
                     'case.self_employed',
