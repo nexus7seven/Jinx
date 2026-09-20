@@ -59,6 +59,10 @@
         .case-assessment-input.has-prefix { padding-left:25px; }
         .case-assessment-input:focus { border-color:#60a5fa; }
         .case-assessment-input:disabled { opacity:.75; cursor:not-allowed; background:#0f172a; }
+        select.case-assessment-input { cursor:pointer; }
+        .case-assessment-custom-input { margin-top:7px; }
+        .case-assessment-add-row { display:flex; align-items:center; gap:8px; margin:0 0 12px; max-width:420px; }
+        .case-assessment-add-label { color:#94a3b8; font-size:11px; font-weight:800; white-space:nowrap; }
         .case-assessment-readonly { min-height:38px; display:flex; align-items:center; padding:8px 10px; box-sizing:border-box; border:1px solid #1e3a5f; border-radius:8px; background:#071326; color:#bfdbfe; font-size:14px; font-weight:800; }
         .case-assessment-save-state { margin-top:4px; color:#64748b; font-size:9px; min-height:12px; }
 
@@ -231,11 +235,39 @@
             }
 
             const common = commonData(field, debtId);
-            if (field.data_type === 'boolean') {
+            const control = field.control || (field.data_type === 'boolean' ? 'boolean' : 'input');
+
+            if (control === 'boolean') {
                 return '<div class="case-assessment-boolean" role="group" aria-label="' + esc(field.label) + '">'
                     + '<button type="button" class="case-assessment-boolean-btn' + (field.value === true ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="true"' + common + '>Yes</button>'
                     + '<button type="button" class="case-assessment-boolean-btn' + (field.value === false ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="false"' + common + '>No</button>'
                     + '</div>';
+            }
+
+            if (['select','select_custom','select_custom_number'].includes(control)) {
+                const current = field.ui_value === null || field.ui_value === undefined ? '' : String(field.ui_value);
+                const options = Array.isArray(field.options) ? field.options : [];
+                const optionHtml = ['<option value="">Select…</option>'].concat(options.map(option => {
+                    const value = String(option.value ?? '');
+                    return '<option value="' + esc(value) + '"' + (value === current ? ' selected' : '') + '>' + esc(option.label ?? value) + '</option>';
+                })).join('');
+
+                const customType = control === 'select_custom_number' ? 'number' : 'text';
+                const customExtra = control === 'select_custom_number' ? ' min="5" step="1" inputmode="numeric"' : '';
+                const customValue = field.custom_value === null || field.custom_value === undefined ? '' : String(field.custom_value);
+                const showCustom = current === '__custom__';
+                const custom = control === 'select'
+                    ? ''
+                    : '<input class="case-assessment-input case-assessment-custom-input" type="' + customType + '"'
+                        + ' value="' + esc(customValue) + '"' + customExtra + common
+                        + ' data-assessment-custom-input="1"'
+                        + ' style="' + (showCustom ? '' : 'display:none;') + '"'
+                        + ' placeholder="' + (control === 'select_custom_number' ? 'Enter exact number' : 'Enter other value') + '">';
+
+                return '<select class="case-assessment-input"' + common
+                    + ' data-assessment-select="1" data-control="' + esc(control) + '">' + optionHtml + '</select>'
+                    + custom
+                    + '<div class="case-assessment-save-state" data-save-state="' + esc(field.fact_key) + '"></div>';
             }
 
             const raw = field.value === null || field.value === undefined ? '' : String(field.value);
@@ -285,10 +317,20 @@
 
         function renderFormSection(section) {
             const missing = (section.fields || []).filter(field => field.status === 'missing').length;
+            const addable = Array.isArray(section.addable_fields) ? section.addable_fields : [];
+            const addControl = addable.length
+                ? '<div class="case-assessment-add-row"><span class="case-assessment-add-label">' + esc(section.add_control_label || 'Add field') + '</span>'
+                    + '<select class="case-assessment-input" data-add-form-field="' + esc(section.key) + '">'
+                    + '<option value="">Choose…</option>'
+                    + addable.map(field => '<option value="' + esc(field.fact_key) + '">' + esc(field.label) + '</option>').join('')
+                    + '</select></div>'
+                : '';
+
             return '<div class="case-assessment-panel-heading"><div><h3 class="case-assessment-panel-title">' + esc(section.label) + '</h3>'
                 + '<div class="case-assessment-panel-description">' + esc(section.description || '') + '</div></div>'
                 + '<div class="case-assessment-form-section-count">' + esc(section.fields.length) + ' fields'
                 + (missing ? ' · ' + esc(missing) + ' missing' : '') + '</div></div>'
+                + addControl
                 + '<div class="case-assessment-form-grid" style="padding:0;">' + (section.fields || []).map(field => renderFormField(field)).join('') + '</div>';
         }
 
@@ -309,16 +351,9 @@
                     + '<span class="case-assessment-debt-meta">Edit account facts</span></summary>'
                     + '<div class="case-assessment-debt-body"><div class="case-assessment-form-grid">'
                     + fields.map(field => renderFormField({
+                        ...field,
                         scope:'debt',
-                        fact_key:field.fact_key,
-                        label:field.label,
-                        data_type:field.data_type,
-                        value:field.value,
-                        display_value:field.display_value,
-                        status:field.status,
-                        source:field.source,
-                        help:field.assessment,
-                        editable:field.editable
+                        help:field.assessment
                     }, debt.debt_id)).join('')
                     + '</div></div></details>';
             }).join('');
@@ -567,10 +602,76 @@
             });
         }
 
+        function addOptionalField(sectionKey, factKey) {
+            if (!currentAssessmentData) return;
+            const section = (currentAssessmentData.form_sections || []).find(item => item.key === sectionKey);
+            if (!section) return;
+            const addable = Array.isArray(section.addable_fields) ? section.addable_fields : [];
+            const field = addable.find(item => item.fact_key === factKey);
+            if (!field) return;
+
+            section.fields = Array.isArray(section.fields) ? section.fields : [];
+            section.fields.push(field);
+            section.addable_fields = addable.filter(item => item.fact_key !== factKey);
+            render(currentAssessmentData);
+
+            window.setTimeout(() => {
+                const target = content.querySelector('[data-form-field="' + CSS.escape(factKey) + '"]');
+                if (!target) return;
+                const input = target.querySelector('input,select');
+                if (input) input.focus();
+            }, 50);
+        }
+
         function bindControls() {
             content.querySelectorAll('[data-assessment-boolean="1"]').forEach(button => {
                 button.addEventListener('click', async () => {
                     await saveFact(button, button.dataset.value === 'true');
+                });
+            });
+
+            content.querySelectorAll('[data-assessment-select="1"]').forEach(select => {
+                select.addEventListener('change', async () => {
+                    const value = select.value;
+                    const control = select.dataset.control || 'select';
+                    const field = select.closest('.case-assessment-form-field');
+                    const custom = field ? field.querySelector('[data-assessment-custom-input="1"]') : null;
+
+                    if (value === '__custom__') {
+                        if (custom) {
+                            custom.style.display = '';
+                            window.setTimeout(() => {
+                                custom.focus();
+                                if (typeof custom.select === 'function') custom.select();
+                            }, 0);
+                        }
+                        return;
+                    }
+
+                    if (custom) custom.style.display = 'none';
+                    if (value === '') return;
+                    await saveFact(select, value);
+                });
+            });
+
+            content.querySelectorAll('[data-assessment-custom-input="1"]').forEach(input => {
+                input.addEventListener('change', async () => {
+                    let value = input.value.trim();
+                    if (value === '') return;
+                    await saveFact(input, value);
+                });
+                input.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        input.blur();
+                    }
+                });
+            });
+
+            content.querySelectorAll('[data-add-form-field]').forEach(select => {
+                select.addEventListener('change', () => {
+                    if (!select.value) return;
+                    addOptionalField(select.dataset.addFormField, select.value);
                 });
             });
 
