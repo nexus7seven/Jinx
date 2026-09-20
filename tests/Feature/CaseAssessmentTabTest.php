@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\DecisionCaseFactService;
 use App\Services\JinxAgentIvaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class CaseAssessmentTabTest extends TestCase
@@ -27,6 +29,8 @@ class CaseAssessmentTabTest extends TestCase
             ->assertSee('data-case-tab="case-assessment"', false)
             ->assertSee('data-assessment-boolean="1"', false)
             ->assertSee('data-assessment-input="1"', false)
+            ->assertSee('data-assessment-select="1"', false)
+            ->assertSee('data-add-form-field', false)
             ->assertSee('case-assessment-side-nav', false)
             ->assertSee('data-assessment-nav', false)
             ->assertSee('id="caseAssistantLauncher"', false)
@@ -180,9 +184,161 @@ class CaseAssessmentTabTest extends TestCase
         $this->assertSame(3000.0, (float) $incomeFields['income.client_salary']['value']);
         $this->assertSame('ie', $incomeFields['income.client_salary']['scope']);
         $this->assertTrue((bool) $incomeFields['income.client_salary']['editable']);
-        $this->assertArrayHasKey('income.universal_credit', $incomeFields->all());
-        $this->assertArrayHasKey('case.self_employed', $incomeFields->all());
+        $this->assertArrayNotHasKey('income.universal_credit', $incomeFields->all());
+        $this->assertArrayNotHasKey('case.self_employed', $incomeFields->all());
         $this->assertArrayNotHasKey('income.partner_salary', $incomeFields->all());
+
+        $addable = collect($income['addable_fields'])->keyBy('fact_key');
+        $this->assertArrayHasKey('income.universal_credit', $addable->all());
+        $this->assertSame('Add income source', $income['add_control_label']);
+    }
+
+    public function test_postcode_can_populate_jurisdiction_and_manual_override_is_preserved(): void
+    {
+        Cache::flush();
+        Http::fake([
+            'api.postcodes.io/*' => Http::response([
+                'status' => 200,
+                'result' => ['country' => 'England'],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $lead->update(['postcode' => 'LS1 1AA']);
+        $this->debt($lead, 'Postcode Bank', 9000);
+        $this->baseIe($lead);
+
+        $response = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $response->assertOk();
+
+        $stored = app(DecisionCaseFactService::class)->leadFacts($lead);
+        $this->assertSame('England', $stored['case.jurisdiction']['value']);
+        $this->assertSame('postcode_lookup', $stored['case.jurisdiction']['source_type']);
+
+        $household = collect($response->json('assessment.form_sections'))->firstWhere('key', 'case_household');
+        $jurisdiction = collect($household['fields'])->firstWhere('fact_key', 'case.jurisdiction');
+        $this->assertSame('select', $jurisdiction['control']);
+        $this->assertSame('Postcode', $jurisdiction['source']);
+        $this->assertSame('England', $jurisdiction['ui_value']);
+
+        $override = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'case',
+            'fact_key' => 'case.jurisdiction',
+            'value' => 'Wales',
+        ]);
+        $override->assertOk();
+
+        $stored = app(DecisionCaseFactService::class)->leadFacts($lead);
+        $this->assertSame('Wales', $stored['case.jurisdiction']['value']);
+        $this->assertSame('operator', $stored['case.jurisdiction']['source_type']);
+
+        $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment')->assertOk();
+        $stored = app(DecisionCaseFactService::class)->leadFacts($lead);
+        $this->assertSame('Wales', $stored['case.jurisdiction']['value']);
+    }
+
+    public function test_case_assessment_exposes_agreed_dropdown_controls(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $debt = $this->debt($lead, 'Dropdown Bank', 9000);
+        $this->baseIe($lead);
+
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'case.previous_iva', true);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
+        $facts->setLeadFact($lead, 'property.is_homeowner', false);
+        $facts->setDebtFact($debt, 'debt.product_type', 'Credit card');
+
+        $response = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $response->assertOk();
+
+        $sections = collect($response->json('assessment.form_sections'));
+        $household = collect($sections->firstWhere('key', 'case_household')['fields'])->keyBy('fact_key');
+
+        $this->assertSame('select', $household['case.jurisdiction']['control']);
+        $this->assertSame('select_custom', $household['client.employment_status']['control']);
+        $this->assertSame('select_custom_number', $household['household.children_count']['control']);
+        $this->assertSame('select', $household['case.previous_iva_failed']['control']);
+        $this->assertSame('Previous IVA outcome', $household['case.previous_iva_failed']['label']);
+        $this->assertSame('select_custom', $household['case.immigration_status']['control']);
+
+        $transport = collect($sections->firstWhere('key', 'transport')['fields'])->keyBy('fact_key');
+        $this->assertSame('select', $transport['transport.client.mode']['control']);
+
+        $evidence = collect($sections->firstWhere('key', 'evidence_readiness')['fields'])->keyBy('fact_key');
+        $this->assertSame('select', $evidence['evidence.bank_statement_months']['control']);
+
+        $product = collect($response->json('assessment.debts.0.facts'))->firstWhere('fact_key', 'debt.product_type');
+        $this->assertSame('select_custom', $product['control']);
+        $this->assertContains('PCP', collect($product['options'])->pluck('value')->all());
+    }
+
+    public function test_dropdowns_drive_self_employed_children_and_transport_applicability(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Dynamic Form Bank', 9000);
+        $this->baseIe($lead);
+
+        $employment = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'client.employment_status',
+            'value' => 'Self-employed',
+        ]);
+        $employment->assertOk();
+
+        $sectionKeys = collect($employment->json('assessment.form_sections'))->pluck('key')->all();
+        $this->assertContains('self_employed', $sectionKeys);
+        $this->assertTrue((bool) app(DecisionCaseFactService::class)->leadValues($lead)['case.self_employed']);
+
+        $children = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'household.children_count',
+            'value' => 2,
+        ]);
+        $children->assertOk();
+        $household = collect($children->json('assessment.form_sections'))->firstWhere('key', 'case_household');
+        $this->assertContains('household.children_ages', collect($household['fields'])->pluck('fact_key')->all());
+
+        $transport = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'transport.client.mode',
+            'value' => 'both',
+        ]);
+        $transport->assertOk();
+        $transportSection = collect($transport->json('assessment.form_sections'))->firstWhere('key', 'transport');
+        $keys = collect($transportSection['fields'])->pluck('fact_key')->all();
+        $this->assertContains('transport.client.public_transport', $keys);
+        $this->assertContains('transport.client.fuel', $keys);
+        $this->assertContains('transport.client.car_insurance', $keys);
+    }
+
+    public function test_optional_income_moves_from_add_source_list_into_live_income_form_when_entered(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Optional Income Bank', 9000);
+        $this->baseIe($lead);
+
+        $before = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $before->assertOk();
+        $income = collect($before->json('assessment.form_sections'))->firstWhere('key', 'income');
+        $this->assertContains('income.universal_credit', collect($income['addable_fields'])->pluck('fact_key')->all());
+
+        $after = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'income.universal_credit',
+            'value' => 450,
+        ]);
+        $after->assertOk();
+
+        $income = collect($after->json('assessment.form_sections'))->firstWhere('key', 'income');
+        $this->assertContains('income.universal_credit', collect($income['fields'])->pluck('fact_key')->all());
+        $this->assertNotContains('income.universal_credit', collect($income['addable_fields'])->pluck('fact_key')->all());
     }
 
     public function test_editing_income_in_case_assessment_updates_the_financial_statement_and_recalculates(): void
