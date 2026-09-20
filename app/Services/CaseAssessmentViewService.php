@@ -195,11 +195,12 @@ class CaseAssessmentViewService
           ->values();
 
         $partnerExists = ($ieFacts['household.partner_exists'] ?? false) === true;
-        $selfEmployed = collect($caseRows)->firstWhere('fact_key', 'case.self_employed')['value'] ?? false;
+        $selfEmployedRow = collect($caseRows)->firstWhere('fact_key', 'case.self_employed');
+        $selfEmployed = (bool) ($selfEmployedRow['value'] ?? false);
 
         $income = collect([
             $this->ieFormField('income.client_salary', 'Client salary', 'money', $ieFacts, true),
-            $this->ieFormField('income.self_employed', 'Self-employed income', 'money', $ieFacts, (bool) $selfEmployed || (float)($ieFacts['income.self_employed'] ?? 0) > 0),
+            $this->ieFormField('income.self_employed', 'Self-employed income', 'money', $ieFacts, $selfEmployed || (float)($ieFacts['income.self_employed'] ?? 0) > 0),
             $this->ieFormField('income.partner_salary', 'Partner income', 'money', $ieFacts, $partnerExists),
             $this->ieFormField('income.universal_credit', 'Universal Credit', 'money', $ieFacts, true),
             $this->ieFormField('income.child_benefit', 'Child Benefit', 'money', $ieFacts, true),
@@ -211,7 +212,10 @@ class CaseAssessmentViewService
             $this->ieFormField('income.student', 'Student loan / grant / bursary', 'money', $ieFacts, true),
             $this->ieFormField('income.foster_guardianship', 'Foster / Guardianship Allowance', 'money', $ieFacts, true),
             $this->ieFormField('income.other_income', 'Other income', 'money', $ieFacts, true),
-        ])->filter()->values();
+        ])->merge($byGroup->get('income_affordability', collect()))
+          ->filter()
+          ->unique('fact_key')
+          ->values();
 
         $coreOutgoings = collect([
             $this->ieFormField('housing.rent_mortgage', 'Rent / mortgage', 'money', $ieFacts, true),
