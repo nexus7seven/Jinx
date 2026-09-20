@@ -449,8 +449,23 @@ class CaseAssessmentViewService
         $select = function (array $options, string $control = 'select') use (&$field, $value) {
             $field['control'] = $control;
             $field['options'] = $options;
-            $values = array_map(fn($option) => (string)($option['value'] ?? ''), $options);
-            if ($control === 'select_custom' && $value !== null && $value !== '' && !in_array((string)$value, $values, true)) {
+
+            $matched = null;
+            if ($value !== null && $value !== '') {
+                $needle = Str::lower(trim((string) $value));
+                foreach ($options as $option) {
+                    $candidate = (string) ($option['value'] ?? '');
+                    if ($candidate === '__custom__') continue;
+                    if (Str::lower(trim($candidate)) === $needle) {
+                        $matched = $candidate;
+                        break;
+                    }
+                }
+            }
+
+            if ($matched !== null) {
+                $field['ui_value'] = $matched;
+            } elseif ($control === 'select_custom' && $value !== null && $value !== '') {
                 $field['ui_value'] = '__custom__';
                 $field['custom_value'] = (string) $value;
             } else {
@@ -511,7 +526,9 @@ class CaseAssessmentViewService
             $field['ui_value'] = $value === true
                 ? 'true'
                 : ($value === false ? 'false' : (($field['recorded_at'] ?? null) ? 'unknown' : ''));
-            $field['display_value'] = $value === true ? 'Failed' : ($value === false ? 'Completed' : 'Unsure');
+            $field['display_value'] = $value === true
+                ? 'Failed'
+                : ($value === false ? 'Completed' : (($field['recorded_at'] ?? null) ? 'Unsure' : '—'));
         } elseif ($key === 'debt.product_type') {
             $select([
                 ['value'=>'Credit card','label'=>'Credit card'],
