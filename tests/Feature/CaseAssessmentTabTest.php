@@ -27,6 +27,11 @@ class CaseAssessmentTabTest extends TestCase
             ->assertSee('data-case-tab="case-assessment"', false)
             ->assertSee('data-assessment-boolean="1"', false)
             ->assertSee('data-assessment-input="1"', false)
+            ->assertSee('case-assessment-side-nav', false)
+            ->assertSee('data-assessment-nav', false)
+            ->assertSee('id="caseAssistantLauncher"', false)
+            ->assertSee('case-assistant-drawer', false)
+            ->assertSee('id="caseAssistantClose"', false)
             ->assertSee('Full Financial Statement')
             ->assertSee('>Yes</button>', false)
             ->assertSee('>No</button>', false)
@@ -118,6 +123,34 @@ class CaseAssessmentTabTest extends TestCase
         $this->assertContains('property.mortgage_balance', $changedKeys);
         $this->assertContains('property.value', $changedKeys);
         $this->assertContains('property.joint_ownership', $changedKeys);
+    }
+
+    public function test_applicable_specialist_sections_are_split_for_left_navigation(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'HMRC', 6000);
+        $this->baseIe($lead);
+
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'property.is_homeowner', true);
+        $facts->setLeadFact($lead, 'case.previous_iva', false);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.self_employed', true);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
+
+        $response = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $response->assertOk();
+
+        $sections = collect($response->json('assessment.form_sections'))->keyBy('key');
+
+        $this->assertArrayHasKey('property', $sections->all());
+        $this->assertArrayHasKey('self_employed', $sections->all());
+        $this->assertArrayHasKey('hmrc', $sections->all());
+        $this->assertArrayHasKey('conduct', $sections->all());
+        $this->assertNotEmpty($sections['property']['fields']);
+        $this->assertNotEmpty($sections['hmrc']['fields']);
     }
 
     public function test_case_assessment_exposes_income_as_a_fillable_form_from_the_canonical_financial_statement(): void
