@@ -237,11 +237,39 @@ class CaseAssessmentViewService
         $coreOutgoings = collect([
             $this->ieFormField('housing.rent_mortgage', 'Rent / mortgage', 'money', $ieFacts, true),
             $this->ieFormField('housing.council_tax', 'Council Tax', 'money', $ieFacts, true),
+            $this->readonlyFormField('housing.tv_licence', 'TV Licence', 'money', $ieFacts['housing.tv_licence'] ?? 15, 'Fixed calculator-owned monthly amount.'),
             $this->ieFormField('utilities.electricity', 'Electricity', 'money', $ieFacts, true),
             $this->ieFormField('utilities.gas', 'Gas', 'money', $ieFacts, true),
             $this->ieFormField('utilities.water', 'Water', 'money', $ieFacts, true),
+        ])->filter()->values();
+
+        $foodHousekeeping = collect([
+            $this->ieFormField('sfs.housekeeping', 'Food / housekeeping', 'money', $ieFacts, true, 'Monthly household food and housekeeping amount used in the SFS calculation.'),
+        ])->filter()->values();
+
+        $communicationsLeisure = collect([
+            $this->ieFormField('sfs.comms.home_internet_tv', 'Internet / TV', 'money', $ieFacts, true),
+            $this->ieFormField('sfs.comms.mobile', 'Mobile phone', 'money', $ieFacts, true),
+            $this->ieFormField('sfs.comms.leisure', 'Hobbies / leisure', 'money', $ieFacts, true),
+        ])->filter()->values();
+
+        $personal = collect([
+            $this->ieFormField('sfs.personal.clothing', 'Clothing', 'money', $ieFacts, true),
+            $this->ieFormField('sfs.personal.hairdressing', 'Hairdressing', 'money', $ieFacts, true),
+            $this->ieFormField('sfs.personal.toiletries', 'Toiletries', 'money', $ieFacts, true),
+        ])->filter()->values();
+
+        $careHealth = collect([
             $this->ieFormField('other.childcare', 'Childcare', 'money', $ieFacts, (int)($ieFacts['household.children_count'] ?? 0) > 0 || (float)($ieFacts['other.childcare'] ?? 0) > 0),
+            $this->ieFormField('other.adult_care', 'Adult care', 'money', $ieFacts, true),
+            $this->ieFormField('other.pip_care', 'PIP care', 'money', $ieFacts, true),
             $this->ieFormField('other.maintenance_paid', 'Maintenance paid', 'money', $ieFacts, true),
+            $this->ieFormField('other.prescriptions', 'Prescriptions', 'money', $ieFacts, true),
+            $this->ieFormField('other.dentistry', 'Dentistry', 'money', $ieFacts, true),
+        ])->filter()->values();
+
+        $otherCosts = collect([
+            $this->ieFormField('other.other', 'Other expenditure', 'money', $ieFacts, true),
         ])->filter()->values();
 
         $clientMode = $this->canonicalTransportMode($ieFacts['transport.client.mode'] ?? null);
@@ -250,6 +278,7 @@ class CaseAssessmentViewService
         $clientPublic = in_array($clientMode, ['public transport','both'], true);
         $partnerCar = in_array($partnerMode, ['car','both'], true);
         $partnerPublic = in_array($partnerMode, ['public transport','both'], true);
+        $anyCar = $clientCar || ($partnerExists && $partnerCar);
 
         $transport = collect([
             $this->ieFormField('transport.client.mode', 'Client transport', 'text', $ieFacts, true),
@@ -266,6 +295,7 @@ class CaseAssessmentViewService
             $this->ieFormField('transport.partner.road_tax', 'Partner road tax', 'money', $ieFacts, $partnerExists && $partnerCar),
             $this->ieFormField('transport.partner.car_finance', 'Partner car finance', 'money', $ieFacts, $partnerExists && $partnerCar),
             $this->ieFormField('transport.partner.car_insurance', 'Partner car insurance', 'money', $ieFacts, $partnerExists && $partnerCar),
+            $this->ieFormField('transport.household.breakdown_cover', 'Breakdown cover', 'money', $ieFacts, $anyCar),
         ])->filter()->values();
 
         $specialist = $byGroup->get('property_hmrc_conduct', collect());
@@ -333,9 +363,37 @@ class CaseAssessmentViewService
             [
                 'key' => 'core_outgoings',
                 'label' => 'Core household costs',
-                'description' => 'Quick access to the main outgoings commonly needed while packaging. The full expenditure form remains on Financial Statement.',
+                'description' => 'Housing, Council Tax and utility costs feeding the same Financial Statement used by Jinx.',
                 'default_open' => false,
                 'fields' => $coreOutgoings->all(),
+            ],
+            [
+                'key' => 'food_housekeeping',
+                'label' => 'Food & housekeeping',
+                'description' => 'The SFS housekeeping amount. Jinx can calculate it, but the packager can also enter or adjust the amount here.',
+                'default_open' => false,
+                'fields' => $foodHousekeeping->all(),
+            ],
+            [
+                'key' => 'communications_leisure',
+                'label' => 'Communications & leisure',
+                'description' => 'Internet/TV, mobile and hobbies/leisure amounts used in the SFS communications band.',
+                'default_open' => false,
+                'fields' => $communicationsLeisure->all(),
+            ],
+            [
+                'key' => 'personal',
+                'label' => 'Personal',
+                'description' => 'Clothing, hairdressing and toiletries. The combined SFS personal total is recalculated automatically.',
+                'default_open' => false,
+                'fields' => $personal->all(),
+            ],
+            [
+                'key' => 'care_health',
+                'label' => 'Care & health',
+                'description' => 'Childcare, adult care, PIP care, maintenance and health-related expenditure.',
+                'default_open' => false,
+                'fields' => $careHealth->all(),
             ],
             [
                 'key' => 'transport',
@@ -343,6 +401,13 @@ class CaseAssessmentViewService
                 'description' => 'Transport mode and monthly costs feeding the Financial Statement.',
                 'default_open' => false,
                 'fields' => $transport->all(),
+            ],
+            [
+                'key' => 'other_costs',
+                'label' => 'Other costs',
+                'description' => 'Other monthly expenditure not captured in the standard categories.',
+                'default_open' => false,
+                'fields' => $otherCosts->all(),
             ],
             [
                 'key' => 'property',
