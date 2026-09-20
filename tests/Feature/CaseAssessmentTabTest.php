@@ -72,6 +72,52 @@ class CaseAssessmentTabTest extends TestCase
         $this->assertCount(5, $assessment['routes']);
     }
 
+    public function test_non_applicable_facts_are_hidden_and_reappear_when_their_trigger_becomes_applicable(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Applicability Bank', 9000);
+        $this->baseIe($lead);
+
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'property.is_homeowner', false);
+        $facts->setLeadFact($lead, 'case.previous_iva', false);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.self_employed', false);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
+
+        $first = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $first->assertOk();
+
+        $firstKeys = collect($first->json('assessment.groups'))
+            ->flatMap(fn($group) => $group['facts'])
+            ->pluck('fact_key')
+            ->all();
+
+        $this->assertNotContains('property.mortgage_balance', $firstKeys);
+        $this->assertNotContains('property.value', $firstKeys);
+        $this->assertNotContains('property.joint_ownership', $firstKeys);
+        $this->assertGreaterThan(0, (int) $first->json('assessment.summary.not_applicable'));
+
+        $changed = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'case',
+            'fact_key' => 'property.is_homeowner',
+            'value' => 'yes',
+        ]);
+
+        $changed->assertOk();
+
+        $changedKeys = collect($changed->json('assessment.groups'))
+            ->flatMap(fn($group) => $group['facts'])
+            ->pluck('fact_key')
+            ->all();
+
+        $this->assertContains('property.mortgage_balance', $changedKeys);
+        $this->assertContains('property.value', $changedKeys);
+        $this->assertContains('property.joint_ownership', $changedKeys);
+    }
+
     public function test_packager_can_edit_a_case_reasoning_fact_from_assessment_tab(): void
     {
         $user = User::factory()->create();
