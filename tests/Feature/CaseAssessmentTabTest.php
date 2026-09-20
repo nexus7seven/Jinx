@@ -26,6 +26,8 @@ class CaseAssessmentTabTest extends TestCase
             ->assertSee('data-case-tab="debts"', false)
             ->assertSee('data-case-tab="case-assessment"', false)
             ->assertSee('data-assessment-boolean="1"', false)
+            ->assertSee('data-assessment-input="1"', false)
+            ->assertSee('Full Financial Statement')
             ->assertSee('>Yes</button>', false)
             ->assertSee('>No</button>', false)
             ->assertSee('Case Assessment');
@@ -116,6 +118,88 @@ class CaseAssessmentTabTest extends TestCase
         $this->assertContains('property.mortgage_balance', $changedKeys);
         $this->assertContains('property.value', $changedKeys);
         $this->assertContains('property.joint_ownership', $changedKeys);
+    }
+
+    public function test_case_assessment_exposes_income_as_a_fillable_form_from_the_canonical_financial_statement(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Income Form Bank', 9000);
+        $this->baseIe($lead);
+
+        $facts = app(DecisionCaseFactService::class);
+        $facts->setLeadFact($lead, 'case.jurisdiction', 'England');
+        $facts->setLeadFact($lead, 'property.is_homeowner', false);
+        $facts->setLeadFact($lead, 'case.previous_iva', false);
+        $facts->setLeadFact($lead, 'case.previous_bankruptcy', false);
+        $facts->setLeadFact($lead, 'case.self_employed', false);
+        $facts->setLeadFact($lead, 'case.gambling_monthly', 0);
+
+        $response = $this->actingAs($user)->getJson('/lead/'.$lead->id.'/case-assessment');
+        $response->assertOk();
+
+        $sections = collect($response->json('assessment.form_sections'));
+        $income = $sections->firstWhere('key', 'income');
+
+        $this->assertNotNull($income);
+        $incomeFields = collect($income['fields'])->keyBy('fact_key');
+
+        $this->assertSame(3000.0, (float) $incomeFields['income.client_salary']['value']);
+        $this->assertSame('ie', $incomeFields['income.client_salary']['scope']);
+        $this->assertTrue((bool) $incomeFields['income.client_salary']['editable']);
+        $this->assertArrayHasKey('income.universal_credit', $incomeFields->all());
+        $this->assertArrayHasKey('case.self_employed', $incomeFields->all());
+        $this->assertArrayNotHasKey('income.partner_salary', $incomeFields->all());
+    }
+
+    public function test_editing_income_in_case_assessment_updates_the_financial_statement_and_recalculates(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Income Edit Bank', 9000);
+        $this->baseIe($lead);
+
+        $before = app(JinxAgentIvaService::class)->review($lead);
+        $beforeDi = (float) data_get($before, 'ie.calculation.disposable_income');
+
+        $response = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'income.client_salary',
+            'value' => 3200,
+        ]);
+
+        $response->assertOk()->assertJsonPath('success', true);
+
+        $ivaFacts = app(JinxAgentIvaService::class)->facts($lead->fresh());
+        $this->assertSame(3200.0, (float) $ivaFacts['income.client_salary']);
+
+        $after = app(JinxAgentIvaService::class)->review($lead->fresh());
+        $this->assertGreaterThan($beforeDi, (float) data_get($after, 'ie.calculation.disposable_income'));
+
+        $income = collect($response->json('assessment.form_sections'))->firstWhere('key', 'income');
+        $salary = collect($income['fields'])->firstWhere('fact_key', 'income.client_salary');
+        $this->assertSame(3200.0, (float) $salary['value']);
+    }
+
+    public function test_partner_income_field_appears_immediately_when_partner_becomes_applicable(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead();
+        $this->debt($lead, 'Partner Form Bank', 9000);
+        $this->baseIe($lead);
+
+        $changed = $this->actingAs($user)->patchJson('/lead/'.$lead->id.'/case-assessment/fact', [
+            'scope' => 'ie',
+            'fact_key' => 'household.partner_exists',
+            'value' => true,
+        ]);
+
+        $changed->assertOk();
+
+        $income = collect($changed->json('assessment.form_sections'))->firstWhere('key', 'income');
+        $keys = collect($income['fields'])->pluck('fact_key')->all();
+
+        $this->assertContains('income.partner_salary', $keys);
     }
 
     public function test_packager_can_edit_a_case_reasoning_fact_from_assessment_tab(): void
