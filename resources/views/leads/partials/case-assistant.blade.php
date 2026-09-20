@@ -82,6 +82,7 @@
             const data=await response.json(); if(!response.ok||!data.ok)throw new Error(data.message||'Assistant error'); appendMessage(data.message);
             if(data.knowledge_saved){history.insertAdjacentHTML('beforeend',`<div class="jinx-assistant-memory-note">✓ Remembered for future cases: ${escapeHtml(data.knowledge_saved.title)}</div>`);history.scrollTop=history.scrollHeight;}
             status.textContent=data.knowledge_proposed?'New rule proposed — confirm or correct it in chat':(data.knowledge_saved?'Shared knowledge updated':'Ready');
+            window.dispatchEvent(new CustomEvent('jinx:case-updated', { detail:data }));
             // The assistant writes directly into the lead/financial statement. Reload after a successful
             // CRM write so the visible form can never remain stale while the chat has newer values.
             if(data.debt_import_complete) {
