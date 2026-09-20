@@ -1,0 +1,37 @@
+name: Case Assessment Expenditure CI
+
+on:
+  push:
+    branches:
+      - build/case-assessment-expenditure
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Prepare app
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          touch database/database.sqlite
+      - name: Lint changed PHP
+        run: |
+          php -l app/Services/JinxAgentIvaService.php
+          php -l app/Services/AssistantLeadFactSyncService.php
+          php -l app/Services/AssistantIeCalculationService.php
+          php -l app/Services/CaseAssessmentViewService.php
+          php -l app/Services/JinxAssistantService.php
+          php -l tests/Feature/CaseAssessmentTabTest.php
+      - name: Run focused tests
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ${{ github.workspace }}/database/database.sqlite
+        run: php artisan test tests/Feature/CaseAssessmentTabTest.php tests/Feature/DecisionReadinessRegistryTest.php tests/Feature/JinxAssistantAcceptanceTest.php tests/Feature/DecisionEngineTest.php --stop-on-failure
