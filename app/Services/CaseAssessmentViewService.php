@@ -560,13 +560,14 @@ class CaseAssessmentViewService
 
     private function groupFor(string $key): string
     {
-        if (Str::startsWith($key, 'evidence.')) return 'evidence_readiness';
+        if ($key === 'property.is_homeowner') return 'case_household';
+        if (Str::startsWith($key, ['evidence.', 'partner.'])) return 'evidence_readiness';
         if (
             Str::startsWith($key, ['income.', 'household.', 'calculation.', 'client.'])
             || in_array($key, ['case.self_employed'], true)
         ) return 'income_affordability';
         if (
-            Str::startsWith($key, ['property.', 'partner.'])
+            Str::startsWith($key, 'property.')
             || Str::startsWith($key, 'case.hmrc_')
             || in_array($key, [
                 'case.gambling_monthly',
