@@ -25,6 +25,9 @@ class CaseAssessmentTabTest extends TestCase
         $response->assertOk()
             ->assertSee('data-case-tab="debts"', false)
             ->assertSee('data-case-tab="case-assessment"', false)
+            ->assertSee('data-assessment-boolean="1"', false)
+            ->assertSee('>Yes</button>', false)
+            ->assertSee('>No</button>', false)
             ->assertSee('Case Assessment');
     }
 
