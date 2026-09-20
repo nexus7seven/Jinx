@@ -245,6 +245,7 @@
                 <button type="button" class="case-tab is-active" role="tab" id="tabBtnClientDetails" data-case-tab="client-details" aria-selected="true">Client Details</button>
                 <button type="button" class="case-tab" role="tab" id="tabBtnFinancialStatement" data-case-tab="financial-statement" aria-selected="false">Financial Statement</button>
                 <button type="button" class="case-tab" role="tab" id="tabBtnDebts" data-case-tab="debts" aria-selected="false">Debts</button>
+                <button type="button" class="case-tab" role="tab" id="tabBtnCaseAssessment" data-case-tab="case-assessment" aria-selected="false">Case Assessment</button>
             </div>
             <div class="lead-main-scroll">
     <div id="client-details-section" class="case-tab-panel is-active" role="tabpanel" data-case-panel="client-details">
@@ -494,6 +495,10 @@
             @include('leads.partials.lead-debts-section-inner')
         </div>
     </div>
+    </div>
+
+    <div id="case-assessment-section" class="case-tab-panel" role="tabpanel" data-case-panel="case-assessment">
+        @include('leads.partials.case-assessment')
     </div>
             </div>
         </div>
@@ -2227,7 +2232,8 @@
         const tabLabels = {
             'client-details': 'Client Details',
             'financial-statement': 'Financial Statement',
-            'debts': 'Debts'
+            'debts': 'Debts',
+            'case-assessment': 'Case Assessment'
         };
 
         function activateTab(tabId, updateHash) {
@@ -2249,6 +2255,9 @@
             }
             if (updateHash) {
                 history.replaceState(null, '', '#' + tabId);
+            }
+            if (tabId === 'case-assessment') {
+                window.dispatchEvent(new CustomEvent('jinx:case-assessment:activate'));
             }
         }
 
@@ -2275,6 +2284,7 @@
             '1': function () { const btn = document.querySelector('[data-case-tab="client-details"]'); if (btn) btn.click(); },
             '2': function () { const btn = document.querySelector('[data-case-tab="financial-statement"]'); if (btn) btn.click(); },
             '3': function () { const btn = document.querySelector('[data-case-tab="debts"]'); if (btn) btn.click(); },
+            '4': function () { const btn = document.querySelector('[data-case-tab="case-assessment"]'); if (btn) btn.click(); },
             'n': function () { if (openScribbleNotesBtn) openScribbleNotesBtn.click(); },
             'p': function () { if (openPrepNotesBtn) openPrepNotesBtn.click(); },
         };
