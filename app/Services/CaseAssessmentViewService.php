@@ -477,7 +477,7 @@ class CaseAssessmentViewService
                 ['value'=>'Retired','label'=>'Retired'],
                 ['value'=>'Student','label'=>'Student'],
                 ['value'=>'Carer','label'=>'Carer'],
-                ['value'=>'Other','label'=>'Other'],
+                ['value'=>'__custom__','label'=>'Other'],
             ], 'select_custom');
         } elseif (in_array($key, ['transport.client.mode','transport.partner.mode'], true)) {
             $select([
