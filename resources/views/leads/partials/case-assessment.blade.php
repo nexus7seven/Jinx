@@ -24,6 +24,12 @@
         .case-assessment-source-detail { margin-top:3px; color:#64748b; font-size:10px; }
         .case-assessment-edit { border:1px solid #334155; background:#111827; color:#93c5fd; border-radius:7px; padding:5px 8px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
         .case-assessment-edit:hover { border-color:#60a5fa; }
+        .case-assessment-boolean { display:inline-flex; gap:4px; padding:2px; border:1px solid #334155; border-radius:8px; background:#0f172a; }
+        .case-assessment-boolean-btn { min-width:42px; border:0; border-radius:6px; padding:5px 8px; background:transparent; color:#94a3b8; font-size:11px; font-weight:900; cursor:pointer; }
+        .case-assessment-boolean-btn:hover { background:#1e293b; color:#f8fafc; }
+        .case-assessment-boolean-btn.is-selected[data-value="true"] { background:#166534; color:#dcfce7; }
+        .case-assessment-boolean-btn.is-selected[data-value="false"] { background:#7f1d1d; color:#fee2e2; }
+        .case-assessment-boolean-btn:disabled { opacity:.55; cursor:wait; }
         .assessment-badge { display:inline-flex; align-items:center; border-radius:999px; border:1px solid #334155; padding:3px 7px; font-size:10px; font-weight:900; white-space:nowrap; }
         .assessment-badge-known, .assessment-badge-basic-pass, .assessment-badge-clear-fit, .assessment-badge-satisfied, .assessment-badge-ready-for-reasoning { border-color:#166534; background:#052e16; color:#bbf7d0; }
         .assessment-badge-derived { border-color:#1d4ed8; background:#172554; color:#bfdbfe; }
@@ -110,13 +116,20 @@
                 let edit = '';
                 if (row.editable) {
                     const encoded = encodeURIComponent(JSON.stringify(row.value));
-                    edit = '<button type="button" class="case-assessment-edit" data-assessment-edit="1"'
-                        + ' data-scope="' + esc(scope) + '"'
+                    const common = ' data-scope="' + esc(scope) + '"'
                         + ' data-fact-key="' + esc(row.fact_key) + '"'
                         + ' data-data-type="' + esc(row.data_type) + '"'
                         + ' data-current="' + esc(encoded) + '"'
-                        + (debtId ? ' data-debt-id="' + esc(debtId) + '"' : '')
-                        + '>Edit</button>';
+                        + (debtId ? ' data-debt-id="' + esc(debtId) + '"' : '');
+
+                    if (row.data_type === 'boolean') {
+                        edit = '<div class="case-assessment-boolean" role="group" aria-label="' + esc(row.label) + '">'
+                            + '<button type="button" class="case-assessment-boolean-btn' + (row.value === true ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="true"' + common + '>Yes</button>'
+                            + '<button type="button" class="case-assessment-boolean-btn' + (row.value === false ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="false"' + common + '>No</button>'
+                            + '</div>';
+                    } else {
+                        edit = '<button type="button" class="case-assessment-edit" data-assessment-edit="1"' + common + '>Edit</button>';
+                    }
                 }
 
                 return '<tr>'
@@ -269,43 +282,57 @@
             return window.prompt(help + ' for ' + button.dataset.factKey + ':', defaultValue);
         }
 
+        async function saveFact(button, value) {
+            const group = button.closest('.case-assessment-boolean');
+            const peers = group ? Array.from(group.querySelectorAll('button')) : [button];
+            peers.forEach(peer => peer.disabled = true);
+
+            const original = button.textContent;
+            if (!group) button.textContent = 'Saving…';
+
+            try {
+                const response = await fetch('/lead/' + leadId + '/case-assessment/fact', {
+                    method:'PATCH',
+                    credentials:'same-origin',
+                    headers:{
+                        'Accept':'application/json',
+                        'Content-Type':'application/json',
+                        'X-CSRF-TOKEN':csrf
+                    },
+                    body:JSON.stringify({
+                        scope:button.dataset.scope,
+                        fact_key:button.dataset.factKey,
+                        debt_id:button.dataset.debtId ? Number(button.dataset.debtId) : null,
+                        value:value
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    const validation = data.errors ? Object.values(data.errors).flat().join(' ') : null;
+                    throw new Error(validation || data.message || 'Unable to update fact');
+                }
+                render(data.assessment);
+                window.dispatchEvent(new CustomEvent('jinx:case-assessment-updated', { detail:{ fact_key:button.dataset.factKey } }));
+            } catch (error) {
+                alert(error.message);
+                peers.forEach(peer => peer.disabled = false);
+                if (!group) button.textContent = original;
+            }
+        }
+
         function bindEdits() {
+            content.querySelectorAll('[data-assessment-boolean="1"]').forEach(button => {
+                button.addEventListener('click', async () => {
+                    const value = button.dataset.value === 'true';
+                    await saveFact(button, value);
+                });
+            });
+
             content.querySelectorAll('[data-assessment-edit="1"]').forEach(button => {
                 button.addEventListener('click', async () => {
                     const value = promptValue(button);
                     if (value === null) return;
-
-                    button.disabled = true;
-                    const original = button.textContent;
-                    button.textContent = 'Saving…';
-                    try {
-                        const response = await fetch('/lead/' + leadId + '/case-assessment/fact', {
-                            method:'PATCH',
-                            credentials:'same-origin',
-                            headers:{
-                                'Accept':'application/json',
-                                'Content-Type':'application/json',
-                                'X-CSRF-TOKEN':csrf
-                            },
-                            body:JSON.stringify({
-                                scope:button.dataset.scope,
-                                fact_key:button.dataset.factKey,
-                                debt_id:button.dataset.debtId ? Number(button.dataset.debtId) : null,
-                                value:value
-                            })
-                        });
-                        const data = await response.json();
-                        if (!response.ok || !data.success) {
-                            const validation = data.errors ? Object.values(data.errors).flat().join(' ') : null;
-                            throw new Error(validation || data.message || 'Unable to update fact');
-                        }
-                        render(data.assessment);
-                        window.dispatchEvent(new CustomEvent('jinx:case-assessment-updated', { detail:{ fact_key:button.dataset.factKey } }));
-                    } catch (error) {
-                        alert(error.message);
-                        button.disabled = false;
-                        button.textContent = original;
-                    }
+                    await saveFact(button, value);
                 });
             });
         }
