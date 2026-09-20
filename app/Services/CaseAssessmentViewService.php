@@ -13,6 +13,7 @@ class CaseAssessmentViewService
         private readonly DecisionCaseReadinessService $readiness,
         private readonly IvaDecisionEngineService $engine,
         private readonly DecisionVotingService $voting,
+        private readonly JinxAgentIvaService $iva,
     ) {}
 
     public function forLead(Lead $lead): array
@@ -24,6 +25,8 @@ class CaseAssessmentViewService
         $caseValues = collect($caseFacts)->mapWithKeys(fn($row, $key) => [$key => $row['value'] ?? null])->all();
         $statement = is_array($lead->financial_statement) ? $lead->financial_statement : [];
 
+        $ieFacts = $this->iva->facts($lead);
+        $ieReview = $this->iva->review($lead);
         $currentAssessment = $this->engine->assess($lead);
         $latestSaved = collect($this->engine->assessments($lead, 1))->first();
         $voting = $this->voting->analyse($lead, null, null);
@@ -133,6 +136,9 @@ class CaseAssessmentViewService
             ->map(fn($rows) => $rows->values()->all())
             ->all();
 
+        $formSections = $this->formSections($caseRows, $ieFacts, $ieReview);
+        $needsAttention = $this->needsAttention($caseRows, $debtRows);
+
         return [
             'lead_id' => $lead->id,
             'generated_at' => now()->toIso8601String(),
@@ -153,6 +159,8 @@ class CaseAssessmentViewService
                     'assessed_at' => $latestSaved['assessed_at'] ?? null,
                 ] : null,
             ],
+            'needs_attention' => $needsAttention,
+            'form_sections' => $formSections,
             'groups' => [
                 ['key' => 'case_household', 'label' => 'Case & household', 'facts' => $grouped['case_household'] ?? []],
                 ['key' => 'income_affordability', 'label' => 'Income & affordability', 'facts' => $grouped['income_affordability'] ?? []],
@@ -163,6 +171,241 @@ class CaseAssessmentViewService
             'routes' => collect($currentAssessment['route_overview'] ?? [])->map(fn($route) => $this->routeView($route))->values()->all(),
             'dmp_fallback' => $this->dmpView($currentAssessment['dmp_fallback'] ?? null),
         ];
+    }
+
+    private function formSections(array $caseRows, array $ieFacts, array $ieReview): array
+    {
+        $case = collect($caseRows)
+            ->reject(fn($row) => ($row['status'] ?? null) === 'not_applicable')
+            ->filter(fn($row) => ($row['editable'] ?? false) === true)
+            ->map(fn($row) => $this->caseFormField($row))
+            ->values();
+
+        $byGroup = $case->groupBy('group');
+
+        $household = collect([
+            $this->ieFormField('calculation.target_di', 'Target DI', 'money', $ieFacts, true, 'The target disposable income for the case.'),
+            $this->ieFormField('client.employment_status', 'Employment status', 'text', $ieFacts, true, 'Stored on the lead and used by case reasoning.'),
+            $this->ieFormField('household.partner_exists', 'Partner?', 'boolean', $ieFacts, true, 'Controls partner income and partner-specific branches.'),
+            $this->ieFormField('household.children_count', 'Resident children', 'integer', $ieFacts, true, 'Number of resident children used by the Financial Statement.'),
+            $this->ieFormField('household.children_ages', 'Children ages', 'text', $ieFacts, true, 'Enter ages separated by commas, for example 11, 8, 3.'),
+        ])->merge($byGroup->get('case_household', collect()))
+          ->filter()
+          ->unique('fact_key')
+          ->values();
+
+        $partnerExists = ($ieFacts['household.partner_exists'] ?? false) === true;
+        $selfEmployedRow = collect($caseRows)->firstWhere('fact_key', 'case.self_employed');
+        $selfEmployed = (bool) ($selfEmployedRow['value'] ?? false);
+
+        $income = collect([
+            $this->ieFormField('income.client_salary', 'Client salary', 'money', $ieFacts, true),
+            $this->ieFormField('income.self_employed', 'Self-employed income', 'money', $ieFacts, $selfEmployed || (float)($ieFacts['income.self_employed'] ?? 0) > 0),
+            $this->ieFormField('income.partner_salary', 'Partner income', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('income.universal_credit', 'Universal Credit', 'money', $ieFacts, true),
+            $this->ieFormField('income.child_benefit', 'Child Benefit', 'money', $ieFacts, true),
+            $this->ieFormField('income.pip_dla', 'PIP / DLA', 'money', $ieFacts, true),
+            $this->ieFormField('income.esa', 'ESA', 'money', $ieFacts, true),
+            $this->ieFormField('income.carers_allowance', 'Carer’s Allowance', 'money', $ieFacts, true),
+            $this->ieFormField('income.maintenance_received', 'Maintenance received', 'money', $ieFacts, true),
+            $this->ieFormField('income.pension', 'Pension income', 'money', $ieFacts, true),
+            $this->ieFormField('income.student', 'Student loan / grant / bursary', 'money', $ieFacts, true),
+            $this->ieFormField('income.foster_guardianship', 'Foster / Guardianship Allowance', 'money', $ieFacts, true),
+            $this->ieFormField('income.other_income', 'Other income', 'money', $ieFacts, true),
+        ])->merge($byGroup->get('income_affordability', collect()))
+          ->filter()
+          ->unique('fact_key')
+          ->values();
+
+        $coreOutgoings = collect([
+            $this->ieFormField('housing.rent_mortgage', 'Rent / mortgage', 'money', $ieFacts, true),
+            $this->ieFormField('housing.council_tax', 'Council Tax', 'money', $ieFacts, true),
+            $this->ieFormField('utilities.electricity', 'Electricity', 'money', $ieFacts, true),
+            $this->ieFormField('utilities.gas', 'Gas', 'money', $ieFacts, true),
+            $this->ieFormField('utilities.water', 'Water', 'money', $ieFacts, true),
+            $this->ieFormField('other.childcare', 'Childcare', 'money', $ieFacts, (int)($ieFacts['household.children_count'] ?? 0) > 0 || (float)($ieFacts['other.childcare'] ?? 0) > 0),
+            $this->ieFormField('other.maintenance_paid', 'Maintenance paid', 'money', $ieFacts, true),
+        ])->filter()->values();
+
+        $transport = collect([
+            $this->ieFormField('transport.client.mode', 'Client transport', 'text', $ieFacts, true),
+            $this->ieFormField('transport.client.public_transport', 'Client public transport', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.fuel', 'Client fuel', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.mot_maintenance', 'Client MOT / maintenance', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.road_tax', 'Client road tax', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.car_finance', 'Client car finance', 'money', $ieFacts, true),
+            $this->ieFormField('transport.client.car_insurance', 'Client car insurance', 'money', $ieFacts, true),
+            $this->ieFormField('transport.partner.mode', 'Partner transport', 'text', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.public_transport', 'Partner public transport', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.fuel', 'Partner fuel', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.mot_maintenance', 'Partner MOT / maintenance', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.road_tax', 'Partner road tax', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.car_finance', 'Partner car finance', 'money', $ieFacts, $partnerExists),
+            $this->ieFormField('transport.partner.car_insurance', 'Partner car insurance', 'money', $ieFacts, $partnerExists),
+        ])->filter()->values();
+
+        $propertyHmrc = $byGroup->get('property_hmrc_conduct', collect())->values();
+        $evidence = $byGroup->get('evidence_readiness', collect())->values();
+
+        $calculation = (array) data_get($ieReview, 'ie.calculation', []);
+        $summary = [
+            $this->readonlyFormField('calculation.income_total', 'Total income', 'money', $calculation['income_total'] ?? null, 'Calculated from the Financial Statement.'),
+            $this->readonlyFormField('calculation.expenditure_total', 'Total expenditure', 'money', $calculation['expenditure_total'] ?? null, 'Calculated from the Financial Statement.'),
+            $this->readonlyFormField('calculation.disposable_income', 'Disposable income', 'money', $calculation['disposable_income'] ?? null, 'Calculated automatically whenever the I&E changes.'),
+        ];
+
+        return collect([
+            [
+                'key' => 'case_household',
+                'label' => 'Case & household',
+                'description' => 'Core client and household information used throughout case reasoning.',
+                'default_open' => true,
+                'fields' => $household->all(),
+            ],
+            [
+                'key' => 'income',
+                'label' => 'Income',
+                'description' => 'These are the same income figures used by the Financial Statement. Changes here update the I&E and recalculate DI.',
+                'default_open' => true,
+                'fields' => $income->all(),
+            ],
+            [
+                'key' => 'affordability_summary',
+                'label' => 'Affordability',
+                'description' => 'Live calculated totals from the current Financial Statement.',
+                'default_open' => true,
+                'fields' => $summary,
+            ],
+            [
+                'key' => 'core_outgoings',
+                'label' => 'Core household costs',
+                'description' => 'Quick access to the main outgoings commonly needed while packaging. The full expenditure form remains on Financial Statement.',
+                'default_open' => false,
+                'fields' => $coreOutgoings->all(),
+            ],
+            [
+                'key' => 'transport',
+                'label' => 'Transport',
+                'description' => 'Transport mode and monthly costs feeding the Financial Statement.',
+                'default_open' => false,
+                'fields' => $transport->all(),
+            ],
+            [
+                'key' => 'property_hmrc_conduct',
+                'label' => 'Property, HMRC & conduct',
+                'description' => 'Only currently applicable specialist questions are shown.',
+                'default_open' => $propertyHmrc->contains(fn($field) => ($field['status'] ?? null) === 'missing'),
+                'fields' => $propertyHmrc->all(),
+            ],
+            [
+                'key' => 'evidence_readiness',
+                'label' => 'Evidence & referral readiness',
+                'description' => 'Supporting evidence data that remains relevant to the current case.',
+                'default_open' => false,
+                'fields' => $evidence->all(),
+            ],
+        ])->filter(fn($section) => !empty($section['fields']))->values()->all();
+    }
+
+    private function caseFormField(array $row): array
+    {
+        return [
+            'scope' => 'case',
+            'fact_key' => $row['fact_key'],
+            'label' => $row['label'],
+            'group' => $row['group'],
+            'data_type' => $row['data_type'],
+            'value' => $row['value'],
+            'display_value' => $row['display_value'],
+            'status' => $row['status'],
+            'status_label' => $row['status_label'],
+            'source' => $row['source'],
+            'source_detail' => $row['source_detail'],
+            'help' => $row['question'] ?: $row['assessment'],
+            'editable' => true,
+            'required' => (bool) $row['reasoning_required'],
+        ];
+    }
+
+    private function ieFormField(
+        string $key,
+        string $label,
+        string $type,
+        array $facts,
+        bool $applicable,
+        ?string $help = null
+    ): ?array {
+        if (!$applicable) return null;
+
+        $value = $facts[$key] ?? null;
+        if ($key === 'household.children_ages' && is_array($value)) {
+            $value = implode(', ', $value);
+        }
+
+        return [
+            'scope' => 'ie',
+            'fact_key' => $key,
+            'label' => $label,
+            'group' => 'income_affordability',
+            'data_type' => $type,
+            'value' => $value,
+            'display_value' => $this->displayValue($value, $type),
+            'status' => $this->known($value) ? 'known' : 'not_recorded',
+            'status_label' => $this->known($value) ? 'Known' : 'Not collected',
+            'source' => $key === 'client.employment_status' ? 'CRM / I&E' : 'I&E',
+            'source_detail' => null,
+            'help' => $help,
+            'editable' => true,
+            'required' => false,
+        ];
+    }
+
+    private function readonlyFormField(string $key, string $label, string $type, mixed $value, string $help): array
+    {
+        return [
+            'scope' => 'derived',
+            'fact_key' => $key,
+            'label' => $label,
+            'group' => 'income_affordability',
+            'data_type' => $type,
+            'value' => $value,
+            'display_value' => $this->displayValue($value, $type),
+            'status' => 'derived',
+            'status_label' => 'Calculated',
+            'source' => 'Derived by Jinx',
+            'source_detail' => null,
+            'help' => $help,
+            'editable' => false,
+            'required' => false,
+        ];
+    }
+
+    private function needsAttention(array $caseRows, array $debtRows): array
+    {
+        $items = collect($caseRows)
+            ->filter(fn($row) => ($row['status'] ?? null) === 'missing')
+            ->map(fn($row) => [
+                'scope' => 'case',
+                'fact_key' => $row['fact_key'],
+                'label' => $row['label'],
+                'message' => $row['question'] ?: 'This material case fact is still required.',
+                'debt_id' => null,
+            ]);
+
+        foreach ($debtRows as $debt) {
+            foreach ($debt['facts'] ?? [] as $row) {
+                if (($row['status'] ?? null) !== 'missing') continue;
+                $items->push([
+                    'scope' => 'debt',
+                    'fact_key' => $row['fact_key'],
+                    'label' => ($debt['creditor'] ?? 'Debt').' — '.$row['label'],
+                    'message' => $row['assessment'] ?? 'This material debt fact is still required.',
+                    'debt_id' => $debt['debt_id'] ?? null,
+                ]);
+            }
+        }
+
+        return $items->values()->all();
     }
 
     private function routeView(array $route): array

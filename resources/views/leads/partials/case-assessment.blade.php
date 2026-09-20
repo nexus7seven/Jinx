@@ -3,18 +3,86 @@
         .case-assessment-card { background:#111827; border:1px solid #374151; border-radius:14px; padding:20px; box-sizing:border-box; }
         .case-assessment-header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
         .case-assessment-title { margin:0; font-size:24px; color:#f8fafc; }
-        .case-assessment-subtitle { margin-top:5px; color:#94a3b8; font-size:13px; line-height:1.45; max-width:760px; }
-        .case-assessment-refresh { border:1px solid #334155; background:#172036; color:#dbeafe; border-radius:8px; padding:9px 12px; font-weight:700; cursor:pointer; }
-        .case-assessment-refresh:hover { border-color:#60a5fa; }
+        .case-assessment-subtitle { margin-top:5px; color:#94a3b8; font-size:13px; line-height:1.45; max-width:800px; }
+        .case-assessment-header-actions { display:flex; gap:8px; flex-wrap:wrap; }
+        .case-assessment-refresh, .case-assessment-secondary { border:1px solid #334155; background:#172036; color:#dbeafe; border-radius:8px; padding:9px 12px; font-weight:700; cursor:pointer; }
+        .case-assessment-secondary { background:#0f172a; color:#cbd5e1; }
+        .case-assessment-refresh:hover, .case-assessment-secondary:hover { border-color:#60a5fa; }
         .case-assessment-summary { display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
         .case-assessment-stat { background:#020617; border:1px solid #1e293b; border-radius:10px; padding:12px; min-width:0; }
         .case-assessment-stat-label { color:#94a3b8; font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:800; }
-        .case-assessment-stat-value { margin-top:5px; color:#f8fafc; font-size:20px; font-weight:900; }
+        .case-assessment-stat-value { margin-top:5px; color:#f8fafc; font-size:20px; font-weight:900; overflow-wrap:anywhere; }
         .case-assessment-readiness { margin-bottom:14px; padding:12px 14px; border:1px solid #334155; border-radius:10px; background:#0f172a; }
-        .case-assessment-readiness strong { color:#f8fafc; }
-        .case-assessment-readiness-note { margin-top:4px; color:#cbd5e1; font-size:13px; line-height:1.45; }
-        .case-assessment-section { margin-top:18px; }
+        .case-assessment-readiness-note { margin-top:5px; color:#cbd5e1; font-size:13px; line-height:1.45; }
+        .case-assessment-latest { margin-top:10px; color:#cbd5e1; font-size:12px; line-height:1.45; }
+
+        .case-assessment-attention { margin:14px 0 18px; padding:14px; border:1px solid #92400e; background:#451a03; border-radius:12px; }
+        .case-assessment-attention-title { color:#fef3c7; font-size:14px; font-weight:900; margin-bottom:8px; }
+        .case-assessment-attention-list { display:flex; gap:7px; flex-wrap:wrap; }
+        .case-assessment-attention-item { border:1px solid #a16207; background:#422006; color:#fde68a; border-radius:999px; padding:7px 10px; font-size:11px; font-weight:800; cursor:pointer; }
+        .case-assessment-attention-item:hover { border-color:#fbbf24; }
+
+        .case-assessment-form-section { margin-top:12px; border:1px solid #334155; background:#0f172a; border-radius:12px; overflow:hidden; }
+        .case-assessment-form-section > summary { list-style:none; cursor:pointer; padding:13px 15px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+        .case-assessment-form-section > summary::-webkit-details-marker { display:none; }
+        .case-assessment-form-section-title { color:#f8fafc; font-weight:900; font-size:15px; }
+        .case-assessment-form-section-description { margin-top:3px; color:#94a3b8; font-size:11px; line-height:1.4; }
+        .case-assessment-form-section-count { color:#64748b; font-size:11px; white-space:nowrap; }
+        .case-assessment-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; padding:0 14px 14px; }
+        .case-assessment-form-field { border:1px solid #273449; background:#020617; border-radius:10px; padding:11px; min-width:0; transition:border-color .15s ease, background .15s ease; }
+        .case-assessment-form-field.is-missing { border-color:#92400e; background:#1c1207; }
+        .case-assessment-form-field.is-derived { background:#071326; border-color:#1e3a5f; }
+        .case-assessment-form-label-row { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:7px; }
+        .case-assessment-form-label { color:#e2e8f0; font-size:12px; font-weight:800; line-height:1.35; }
+        .case-assessment-form-source { color:#64748b; font-size:9px; white-space:nowrap; }
+        .case-assessment-form-help { margin-top:6px; color:#64748b; font-size:10px; line-height:1.4; }
+        .case-assessment-form-help.is-missing { color:#fbbf24; }
+        .case-assessment-input-wrap { position:relative; }
+        .case-assessment-input-prefix { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:#64748b; font-size:13px; pointer-events:none; }
+        .case-assessment-input { width:100%; box-sizing:border-box; min-height:38px; border:1px solid #334155; border-radius:8px; background:#0b1220; color:#f8fafc; padding:8px 10px; font-size:14px; outline:none; }
+        .case-assessment-input.has-prefix { padding-left:25px; }
+        .case-assessment-input:focus { border-color:#60a5fa; }
+        .case-assessment-input:disabled { opacity:.75; cursor:not-allowed; background:#0f172a; }
+        .case-assessment-readonly { min-height:38px; display:flex; align-items:center; padding:8px 10px; box-sizing:border-box; border:1px solid #1e3a5f; border-radius:8px; background:#071326; color:#bfdbfe; font-size:14px; font-weight:800; }
+        .case-assessment-save-state { margin-top:4px; color:#64748b; font-size:9px; min-height:12px; }
+
+        .case-assessment-boolean { display:inline-flex; gap:4px; padding:2px; border:1px solid #334155; border-radius:8px; background:#0f172a; }
+        .case-assessment-boolean-btn { min-width:54px; min-height:34px; border:0; border-radius:6px; padding:6px 10px; background:transparent; color:#94a3b8; font-size:11px; font-weight:900; cursor:pointer; }
+        .case-assessment-boolean-btn:hover { background:#1e293b; color:#f8fafc; }
+        .case-assessment-boolean-btn.is-selected[data-value="true"] { background:#166534; color:#dcfce7; }
+        .case-assessment-boolean-btn.is-selected[data-value="false"] { background:#7f1d1d; color:#fee2e2; }
+        .case-assessment-boolean-btn:disabled { opacity:.55; cursor:wait; }
+
+        .assessment-badge { display:inline-flex; align-items:center; border-radius:999px; border:1px solid #334155; padding:3px 7px; font-size:10px; font-weight:900; white-space:nowrap; }
+        .assessment-badge-known, .assessment-badge-basic-pass, .assessment-badge-clear-fit, .assessment-badge-satisfied, .assessment-badge-ready-for-reasoning { border-color:#166534; background:#052e16; color:#bbf7d0; }
+        .assessment-badge-derived { border-color:#1d4ed8; background:#172554; color:#bfdbfe; }
+        .assessment-badge-missing, .assessment-badge-unknown { border-color:#92400e; background:#451a03; color:#fde68a; }
+        .assessment-badge-blocked { border-color:#991b1b; background:#450a0a; color:#fecaca; }
+        .assessment-badge-fit-with-actions, .assessment-badge-exception-escalation { border-color:#854d0e; background:#422006; color:#fef08a; }
+        .assessment-badge-not-applicable, .assessment-badge-not-recorded { border-color:#475569; background:#0f172a; color:#94a3b8; }
+
+        .case-assessment-section { margin-top:20px; }
         .case-assessment-section-title { margin:0 0 9px; font-size:16px; color:#e2e8f0; }
+        .case-assessment-routes { display:grid; grid-template-columns:repeat(5,minmax(180px,1fr)); gap:10px; }
+        .case-assessment-route { border:1px solid #334155; background:#020617; border-radius:10px; padding:12px; min-width:0; }
+        .case-assessment-route-head { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+        .case-assessment-route-name { color:#f8fafc; font-weight:900; font-size:14px; }
+        .case-assessment-route-meta { margin-top:6px; color:#64748b; font-size:10px; }
+        .case-assessment-route-findings { margin:9px 0 0; padding-left:17px; color:#cbd5e1; font-size:11px; line-height:1.45; }
+        .case-assessment-route-findings li { margin-bottom:6px; }
+        .case-assessment-route-source { display:block; margin-top:2px; color:#64748b; font-size:10px; }
+
+        .case-assessment-debt { border:1px solid #334155; background:#0f172a; border-radius:10px; margin-bottom:10px; overflow:hidden; }
+        .case-assessment-debt > summary { cursor:pointer; padding:12px 14px; list-style:none; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+        .case-assessment-debt > summary::-webkit-details-marker { display:none; }
+        .case-assessment-debt-title { color:#f8fafc; font-weight:900; }
+        .case-assessment-debt-meta { color:#94a3b8; font-size:11px; }
+        .case-assessment-debt-body { padding:0 12px 12px; }
+
+        .case-assessment-audit { margin-top:20px; border:1px solid #273449; border-radius:12px; background:#0b1220; overflow:hidden; }
+        .case-assessment-audit > summary { list-style:none; cursor:pointer; padding:13px 15px; color:#cbd5e1; font-size:13px; font-weight:800; }
+        .case-assessment-audit > summary::-webkit-details-marker { display:none; }
+        .case-assessment-audit-body { padding:0 12px 12px; }
         .case-assessment-table-wrap { overflow:auto; border:1px solid #1e293b; border-radius:10px; }
         .case-assessment-table { width:100%; border-collapse:collapse; min-width:820px; background:#020617; }
         .case-assessment-table th { text-align:left; padding:9px 10px; color:#94a3b8; font-size:10px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid #1e293b; background:#0f172a; position:sticky; top:0; z-index:1; }
@@ -24,42 +92,16 @@
         .case-assessment-source-detail { margin-top:3px; color:#64748b; font-size:10px; }
         .case-assessment-edit { border:1px solid #334155; background:#111827; color:#93c5fd; border-radius:7px; padding:5px 8px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
         .case-assessment-edit:hover { border-color:#60a5fa; }
-        .case-assessment-boolean { display:inline-flex; gap:4px; padding:2px; border:1px solid #334155; border-radius:8px; background:#0f172a; }
-        .case-assessment-boolean-btn { min-width:42px; border:0; border-radius:6px; padding:5px 8px; background:transparent; color:#94a3b8; font-size:11px; font-weight:900; cursor:pointer; }
-        .case-assessment-boolean-btn:hover { background:#1e293b; color:#f8fafc; }
-        .case-assessment-boolean-btn.is-selected[data-value="true"] { background:#166534; color:#dcfce7; }
-        .case-assessment-boolean-btn.is-selected[data-value="false"] { background:#7f1d1d; color:#fee2e2; }
-        .case-assessment-boolean-btn:disabled { opacity:.55; cursor:wait; }
-        .assessment-badge { display:inline-flex; align-items:center; border-radius:999px; border:1px solid #334155; padding:3px 7px; font-size:10px; font-weight:900; white-space:nowrap; }
-        .assessment-badge-known, .assessment-badge-basic-pass, .assessment-badge-clear-fit, .assessment-badge-satisfied, .assessment-badge-ready-for-reasoning { border-color:#166534; background:#052e16; color:#bbf7d0; }
-        .assessment-badge-derived { border-color:#1d4ed8; background:#172554; color:#bfdbfe; }
-        .assessment-badge-missing, .assessment-badge-unknown { border-color:#92400e; background:#451a03; color:#fde68a; }
-        .assessment-badge-blocked { border-color:#991b1b; background:#450a0a; color:#fecaca; }
-        .assessment-badge-fit-with-actions, .assessment-badge-exception-escalation { border-color:#854d0e; background:#422006; color:#fef08a; }
-        .assessment-badge-not-applicable, .assessment-badge-not-recorded { border-color:#475569; background:#0f172a; color:#94a3b8; }
-        .case-assessment-routes { display:grid; grid-template-columns:repeat(5,minmax(180px,1fr)); gap:10px; }
-        .case-assessment-route { border:1px solid #334155; background:#020617; border-radius:10px; padding:12px; min-width:0; }
-        .case-assessment-route-head { display:flex; justify-content:space-between; gap:8px; align-items:center; }
-        .case-assessment-route-name { color:#f8fafc; font-weight:900; font-size:14px; }
-        .case-assessment-route-meta { margin-top:6px; color:#64748b; font-size:10px; }
-        .case-assessment-route-findings { margin:9px 0 0; padding-left:17px; color:#cbd5e1; font-size:11px; line-height:1.45; }
-        .case-assessment-route-findings li { margin-bottom:6px; }
-        .case-assessment-route-source { display:block; margin-top:2px; color:#64748b; font-size:10px; }
-        .case-assessment-debt { border:1px solid #334155; background:#0f172a; border-radius:10px; margin-bottom:10px; overflow:hidden; }
-        .case-assessment-debt > summary { cursor:pointer; padding:12px 14px; list-style:none; display:flex; justify-content:space-between; gap:12px; align-items:center; }
-        .case-assessment-debt > summary::-webkit-details-marker { display:none; }
-        .case-assessment-debt-title { color:#f8fafc; font-weight:900; }
-        .case-assessment-debt-meta { color:#94a3b8; font-size:11px; }
-        .case-assessment-debt-body { padding:0 12px 12px; }
+
         .case-assessment-loading, .case-assessment-error { border:1px solid #334155; background:#020617; border-radius:10px; padding:16px; color:#94a3b8; }
         .case-assessment-error { border-color:#7f1d1d; color:#fecaca; background:#3f1d1d; }
-        .case-assessment-latest { margin-top:10px; color:#cbd5e1; font-size:12px; }
-        @media (max-width: 1200px) {
+
+        @media (max-width:1200px) {
             .case-assessment-summary { grid-template-columns:repeat(2,minmax(120px,1fr)); }
             .case-assessment-routes { grid-template-columns:repeat(2,minmax(180px,1fr)); }
         }
-        @media (max-width: 720px) {
-            .case-assessment-summary, .case-assessment-routes { grid-template-columns:1fr; }
+        @media (max-width:780px) {
+            .case-assessment-summary, .case-assessment-routes, .case-assessment-form-grid { grid-template-columns:1fr; }
         }
     </style>
 
@@ -67,9 +109,12 @@
         <div class="case-assessment-header">
             <div>
                 <h2 class="case-assessment-title">Case Assessment</h2>
-                <div class="case-assessment-subtitle">Every active reasoning data point, where it came from, whether it is currently applicable, and how Jinx is using it in this case.</div>
+                <div class="case-assessment-subtitle">A live case form and reasoning view. Fill facts here or tell Jinx in the assistant — both use the same underlying case, debt and Financial Statement data.</div>
             </div>
-            <button type="button" id="caseAssessmentRefresh" class="case-assessment-refresh">Refresh assessment</button>
+            <div class="case-assessment-header-actions">
+                <button type="button" id="caseAssessmentOpenFs" class="case-assessment-secondary">Full Financial Statement</button>
+                <button type="button" id="caseAssessmentRefresh" class="case-assessment-refresh">Refresh assessment</button>
+            </div>
         </div>
 
         <div id="caseAssessmentContent">
@@ -86,6 +131,7 @@
         const leadId = app.dataset.leadId;
         const content = document.getElementById('caseAssessmentContent');
         const refreshButton = document.getElementById('caseAssessmentRefresh');
+        const openFsButton = document.getElementById('caseAssessmentOpenFs');
         const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         let loading = false;
 
@@ -103,54 +149,14 @@
             return '<span class="assessment-badge assessment-badge-' + slug(status) + '">' + esc(text) + '</span>';
         }
 
-        function factTable(rows, scope, debtId = null) {
-            if (!Array.isArray(rows) || !rows.length) {
-                return '<div class="case-assessment-loading">No active data points in this section.</div>';
-            }
-
-            const body = rows.map(row => {
-                const detailBits = [];
-                if (row.source_detail) detailBits.push(esc(row.source_detail));
-                if (row.recorded_at) detailBits.push('Recorded ' + esc(row.recorded_at));
-
-                let edit = '';
-                if (row.editable) {
-                    const encoded = encodeURIComponent(JSON.stringify(row.value));
-                    const common = ' data-scope="' + esc(scope) + '"'
-                        + ' data-fact-key="' + esc(row.fact_key) + '"'
-                        + ' data-data-type="' + esc(row.data_type) + '"'
-                        + ' data-current="' + esc(encoded) + '"'
-                        + (debtId ? ' data-debt-id="' + esc(debtId) + '"' : '');
-
-                    if (row.data_type === 'boolean') {
-                        edit = '<div class="case-assessment-boolean" role="group" aria-label="' + esc(row.label) + '">'
-                            + '<button type="button" class="case-assessment-boolean-btn' + (row.value === true ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="true"' + common + '>Yes</button>'
-                            + '<button type="button" class="case-assessment-boolean-btn' + (row.value === false ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="false"' + common + '>No</button>'
-                            + '</div>';
-                    } else {
-                        edit = '<button type="button" class="case-assessment-edit" data-assessment-edit="1"' + common + '>Edit</button>';
-                    }
-                }
-
-                return '<tr>'
-                    + '<td><strong>' + esc(row.label) + '</strong><div class="case-assessment-key">' + esc(row.fact_key) + '</div></td>'
-                    + '<td>' + esc(row.display_value) + '</td>'
-                    + '<td>' + esc(row.source || '—') + (detailBits.length ? '<div class="case-assessment-source-detail">' + detailBits.join(' · ') + '</div>' : '') + '</td>'
-                    + '<td>' + esc(row.assessment || '—') + '</td>'
-                    + '<td>' + badge(row.status, row.status_label) + '</td>'
-                    + '<td>' + edit + '</td>'
-                    + '</tr>';
-            }).join('');
-
-            return '<div class="case-assessment-table-wrap"><table class="case-assessment-table">'
-                + '<thead><tr><th>Data point</th><th>Current value</th><th>Source</th><th>How assessed</th><th>Status</th><th></th></tr></thead>'
-                + '<tbody>' + body + '</tbody></table></div>';
+        function stat(label, value) {
+            return '<div class="case-assessment-stat"><div class="case-assessment-stat-label">' + esc(label) + '</div><div class="case-assessment-stat-value">' + esc(value) + '</div></div>';
         }
 
         function renderSummary(data) {
             const s = data.summary || {};
             const readinessLabel = s.ready ? 'Ready for reasoning' : (s.readiness_state || 'Unknown').replaceAll('_',' ');
-            let note = s.ready
+            const note = s.ready
                 ? 'All currently applicable material reasoning facts are present.'
                 : (s.next_question ? 'Next material fact: ' + esc(s.next_question) : 'The case is not yet ready for full reasoning.');
 
@@ -170,15 +176,136 @@
                 + stat('Readiness', readinessLabel)
                 + stat('Known', s.known ?? 0)
                 + stat('Missing', s.missing ?? 0)
-                + stat('N/A', s.not_applicable ?? 0)
+                + stat('N/A hidden', s.not_applicable ?? 0)
                 + stat('Not collected', s.not_recorded ?? 0)
                 + '</div>'
-                + '<div class="case-assessment-readiness"><strong>' + badge(s.ready ? 'ready_for_reasoning' : 'missing', readinessLabel) + '</strong>'
+                + '<div class="case-assessment-readiness">' + badge(s.ready ? 'ready_for_reasoning' : 'missing', readinessLabel)
                 + '<div class="case-assessment-readiness-note">' + note + '</div>' + latest + '</div>';
         }
 
-        function stat(label, value) {
-            return '<div class="case-assessment-stat"><div class="case-assessment-stat-label">' + esc(label) + '</div><div class="case-assessment-stat-value">' + esc(value) + '</div></div>';
+        function renderAttention(items) {
+            if (!Array.isArray(items) || !items.length) return '';
+            return '<div class="case-assessment-attention">'
+                + '<div class="case-assessment-attention-title">' + esc(items.length) + ' item' + (items.length === 1 ? '' : 's') + ' need attention</div>'
+                + '<div class="case-assessment-attention-list">'
+                + items.map(item => '<button type="button" class="case-assessment-attention-item" data-focus-key="' + esc(item.fact_key) + '"'
+                    + (item.debt_id ? ' data-focus-debt="' + esc(item.debt_id) + '"' : '')
+                    + '>' + esc(item.label) + '</button>').join('')
+                + '</div></div>';
+        }
+
+        function commonData(field, debtId = null) {
+            return ' data-scope="' + esc(field.scope) + '"'
+                + ' data-fact-key="' + esc(field.fact_key) + '"'
+                + ' data-data-type="' + esc(field.data_type) + '"'
+                + (debtId ? ' data-debt-id="' + esc(debtId) + '"' : '');
+        }
+
+        function formControl(field, debtId = null) {
+            if (!field.editable) {
+                return '<div class="case-assessment-readonly">' + esc(field.display_value || '—') + '</div>';
+            }
+
+            const common = commonData(field, debtId);
+            if (field.data_type === 'boolean') {
+                return '<div class="case-assessment-boolean" role="group" aria-label="' + esc(field.label) + '">'
+                    + '<button type="button" class="case-assessment-boolean-btn' + (field.value === true ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="true"' + common + '>Yes</button>'
+                    + '<button type="button" class="case-assessment-boolean-btn' + (field.value === false ? ' is-selected' : '') + '" data-assessment-boolean="1" data-value="false"' + common + '>No</button>'
+                    + '</div>';
+            }
+
+            const raw = field.value === null || field.value === undefined ? '' : String(field.value);
+            let type = 'text';
+            let extra = '';
+            let prefix = '';
+            let inputClass = 'case-assessment-input';
+
+            if (field.data_type === 'money' || field.data_type === 'money_or_none') {
+                type = 'number';
+                extra = ' min="0" step="0.01" inputmode="decimal"';
+                prefix = '<span class="case-assessment-input-prefix">£</span>';
+                inputClass += ' has-prefix';
+            } else if (field.data_type === 'integer') {
+                type = 'number';
+                extra = ' min="0" step="1" inputmode="numeric"';
+            } else if (field.data_type === 'percentage') {
+                type = 'number';
+                extra = ' min="0" max="100" step="0.01" inputmode="decimal"';
+            } else if (field.data_type === 'date') {
+                type = 'date';
+            }
+
+            return '<div class="case-assessment-input-wrap">' + prefix
+                + '<input class="' + inputClass + '" type="' + type + '" value="' + esc(raw) + '"'
+                + extra + common + ' data-assessment-input="1" autocomplete="off">'
+                + '</div><div class="case-assessment-save-state" data-save-state="' + esc(field.fact_key) + '"></div>';
+        }
+
+        function renderFormField(field, debtId = null) {
+            const classes = ['case-assessment-form-field'];
+            if (field.status === 'missing') classes.push('is-missing');
+            if (!field.editable) classes.push('is-derived');
+
+            const help = field.help
+                ? '<div class="case-assessment-form-help' + (field.status === 'missing' ? ' is-missing' : '') + '">' + esc(field.help) + '</div>'
+                : '';
+
+            return '<div class="' + classes.join(' ') + '" data-form-field="' + esc(field.fact_key) + '"'
+                + (debtId ? ' data-form-debt="' + esc(debtId) + '"' : '') + '>'
+                + '<div class="case-assessment-form-label-row"><div class="case-assessment-form-label">' + esc(field.label) + '</div>'
+                + '<div class="case-assessment-form-source">' + esc(field.source || '') + '</div></div>'
+                + formControl(field, debtId)
+                + help
+                + '</div>';
+        }
+
+        function renderFormSections(sections) {
+            if (!Array.isArray(sections) || !sections.length) return '';
+            return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Case information</h3>'
+                + sections.map(section => {
+                    const missing = (section.fields || []).filter(field => field.status === 'missing').length;
+                    return '<details class="case-assessment-form-section"' + (section.default_open ? ' open' : '') + '>'
+                        + '<summary><div><div class="case-assessment-form-section-title">' + esc(section.label) + '</div>'
+                        + '<div class="case-assessment-form-section-description">' + esc(section.description || '') + '</div></div>'
+                        + '<div class="case-assessment-form-section-count">' + esc(section.fields.length) + ' fields'
+                        + (missing ? ' · ' + esc(missing) + ' missing' : '') + '</div></summary>'
+                        + '<div class="case-assessment-form-grid">' + (section.fields || []).map(field => renderFormField(field)).join('') + '</div>'
+                        + '</details>';
+                }).join('') + '</section>';
+        }
+
+        function renderDebtForms(debts) {
+            if (!Array.isArray(debts) || !debts.length) {
+                return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Debt information</h3><div class="case-assessment-loading">No debts are recorded.</div></section>';
+            }
+
+            const cards = debts.map(debt => {
+                const fields = (debt.facts || []).filter(field => field.status !== 'not_applicable');
+                const conflict = debt.voting_conflict
+                    ? '<div class="case-assessment-form-help is-missing">' + esc(debt.voting_conflict_reason || 'Voting mapping conflict') + '</div>'
+                    : '';
+
+                return '<details class="case-assessment-debt">'
+                    + '<summary><div><div class="case-assessment-debt-title">' + esc(debt.creditor) + ' · ' + esc(debt.balance_display) + '</div>'
+                    + '<div class="case-assessment-debt-meta">Voting: ' + esc(debt.voting_house) + ' · ' + esc(debt.voting_percent) + '% of known debt</div>' + conflict + '</div>'
+                    + '<span class="case-assessment-debt-meta">Edit account facts</span></summary>'
+                    + '<div class="case-assessment-debt-body"><div class="case-assessment-form-grid">'
+                    + fields.map(field => renderFormField({
+                        scope:'debt',
+                        fact_key:field.fact_key,
+                        label:field.label,
+                        data_type:field.data_type,
+                        value:field.value,
+                        display_value:field.display_value,
+                        status:field.status,
+                        source:field.source,
+                        help:field.assessment,
+                        editable:field.editable
+                    }, debt.debt_id)).join('')
+                    + '</div></div></details>';
+            }).join('');
+
+            return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Debt information</h3>' + cards + '</section>';
         }
 
         function renderRoutes(routes) {
@@ -202,39 +329,39 @@
             return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Current route checks</h3><div class="case-assessment-routes">' + cards + '</div></section>';
         }
 
-        function renderGroups(groups) {
-            return (groups || []).map(group =>
-                '<section class="case-assessment-section"><h3 class="case-assessment-section-title">' + esc(group.label) + '</h3>'
-                + factTable(group.facts || [], 'case') + '</section>'
-            ).join('');
-        }
-
-        function renderDebts(debts) {
-            if (!Array.isArray(debts) || !debts.length) {
-                return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Debt reasoning</h3><div class="case-assessment-loading">No debts are recorded.</div></section>';
+        function factTable(rows) {
+            if (!Array.isArray(rows) || !rows.length) {
+                return '<div class="case-assessment-loading">No active data points in this section.</div>';
             }
 
-            const rows = debts.map(debt => {
-                const conflict = debt.voting_conflict
-                    ? '<div class="case-assessment-source-detail" style="color:#fca5a5;">' + esc(debt.voting_conflict_reason || 'Voting mapping conflict') + '</div>'
-                    : '';
-                return '<details class="case-assessment-debt">'
-                    + '<summary><div><div class="case-assessment-debt-title">' + esc(debt.creditor) + ' · ' + esc(debt.balance_display) + '</div>'
-                    + '<div class="case-assessment-debt-meta">Voting: ' + esc(debt.voting_house) + ' · ' + esc(debt.voting_percent) + '% of known debt</div>' + conflict + '</div>'
-                    + '<span style="color:#64748b;font-size:12px;">View data points</span></summary>'
-                    + '<div class="case-assessment-debt-body">' + factTable(debt.facts || [], 'debt', debt.debt_id) + '</div>'
-                    + '</details>';
-            }).join('');
+            const body = rows.map(row => '<tr>'
+                + '<td><strong>' + esc(row.label) + '</strong><div class="case-assessment-key">' + esc(row.fact_key) + '</div></td>'
+                + '<td>' + esc(row.display_value) + '</td>'
+                + '<td>' + esc(row.source || '—') + (row.source_detail ? '<div class="case-assessment-source-detail">' + esc(row.source_detail) + '</div>' : '') + '</td>'
+                + '<td>' + esc(row.assessment || '—') + '</td>'
+                + '<td>' + badge(row.status, row.status_label) + '</td>'
+                + '</tr>').join('');
 
-            return '<section class="case-assessment-section"><h3 class="case-assessment-section-title">Debt reasoning</h3>' + rows + '</section>';
+            return '<div class="case-assessment-table-wrap"><table class="case-assessment-table">'
+                + '<thead><tr><th>Data point</th><th>Current value</th><th>Source</th><th>How assessed</th><th>Status</th></tr></thead>'
+                + '<tbody>' + body + '</tbody></table></div>';
+        }
+
+        function renderAudit(groups) {
+            return '<details class="case-assessment-audit"><summary>Assessment detail & provenance</summary><div class="case-assessment-audit-body">'
+                + (groups || []).map(group => '<section class="case-assessment-section"><h3 class="case-assessment-section-title">' + esc(group.label) + '</h3>'
+                    + factTable(group.facts || []) + '</section>').join('')
+                + '</div></details>';
         }
 
         function render(data) {
             content.innerHTML = renderSummary(data)
+                + renderAttention(data.needs_attention || [])
+                + renderFormSections(data.form_sections || [])
+                + renderDebtForms(data.debts || [])
                 + renderRoutes(data.routes || [])
-                + renderGroups(data.groups || [])
-                + renderDebts(data.debts || []);
-            bindEdits();
+                + renderAudit(data.groups || []);
+            bindControls();
         }
 
         async function load(force = false) {
@@ -243,7 +370,7 @@
             loading = true;
             refreshButton.disabled = true;
             refreshButton.style.opacity = '.6';
-            if (app.dataset.loaded !== '1') content.innerHTML = '<div class="case-assessment-loading">Loading the current reasoning state…</div>';
+            if (app.dataset.loaded !== '1') content.innerHTML = '<div class="case-assessment-loading">Loading the current case form…</div>';
             try {
                 const response = await fetch('/lead/' + leadId + '/case-assessment', {
                     headers: { 'Accept':'application/json' },
@@ -262,34 +389,18 @@
             }
         }
 
-        function promptValue(button) {
-            const type = button.dataset.dataType || 'text';
-            let current = null;
-            try { current = JSON.parse(decodeURIComponent(button.dataset.current || encodeURIComponent('null'))); } catch (_) {}
+        function setSaving(control, saving, message = '') {
+            const booleanGroup = control.closest('.case-assessment-boolean');
+            const peers = booleanGroup ? Array.from(booleanGroup.querySelectorAll('button')) : [control];
+            peers.forEach(peer => peer.disabled = saving);
 
-            let help = 'Enter the new value';
-            let defaultValue = current === null ? '' : String(current);
-            if (type === 'boolean') {
-                help = 'Enter yes or no';
-                defaultValue = current === true ? 'yes' : (current === false ? 'no' : '');
-            } else if (type === 'money' || type === 'money_or_none') {
-                help = type === 'money_or_none' ? 'Enter the amount, or "none"' : 'Enter the amount';
-            } else if (type === 'percentage') {
-                help = 'Enter the percentage';
-            } else if (type === 'date') {
-                help = 'Enter the date';
-            }
-            return window.prompt(help + ' for ' + button.dataset.factKey + ':', defaultValue);
+            const field = control.closest('.case-assessment-form-field');
+            const state = field ? field.querySelector('.case-assessment-save-state') : null;
+            if (state) state.textContent = message || (saving ? 'Saving…' : '');
         }
 
-        async function saveFact(button, value) {
-            const group = button.closest('.case-assessment-boolean');
-            const peers = group ? Array.from(group.querySelectorAll('button')) : [button];
-            peers.forEach(peer => peer.disabled = true);
-
-            const original = button.textContent;
-            if (!group) button.textContent = 'Saving…';
-
+        async function saveFact(control, value) {
+            setSaving(control, true, 'Saving…');
             try {
                 const response = await fetch('/lead/' + leadId + '/case-assessment/fact', {
                     method:'PATCH',
@@ -300,44 +411,76 @@
                         'X-CSRF-TOKEN':csrf
                     },
                     body:JSON.stringify({
-                        scope:button.dataset.scope,
-                        fact_key:button.dataset.factKey,
-                        debt_id:button.dataset.debtId ? Number(button.dataset.debtId) : null,
+                        scope:control.dataset.scope,
+                        fact_key:control.dataset.factKey,
+                        debt_id:control.dataset.debtId ? Number(control.dataset.debtId) : null,
                         value:value
                     })
                 });
+
                 const data = await response.json();
                 if (!response.ok || !data.success) {
                     const validation = data.errors ? Object.values(data.errors).flat().join(' ') : null;
                     throw new Error(validation || data.message || 'Unable to update fact');
                 }
+
                 render(data.assessment);
-                window.dispatchEvent(new CustomEvent('jinx:case-assessment-updated', { detail:{ fact_key:button.dataset.factKey } }));
+                window.dispatchEvent(new CustomEvent('jinx:case-assessment-updated', {
+                    detail:{ fact_key:control.dataset.factKey, scope:control.dataset.scope }
+                }));
             } catch (error) {
+                setSaving(control, false, '');
                 alert(error.message);
-                peers.forEach(peer => peer.disabled = false);
-                if (!group) button.textContent = original;
             }
         }
 
-        function bindEdits() {
+        function bindControls() {
             content.querySelectorAll('[data-assessment-boolean="1"]').forEach(button => {
                 button.addEventListener('click', async () => {
-                    const value = button.dataset.value === 'true';
-                    await saveFact(button, value);
+                    await saveFact(button, button.dataset.value === 'true');
                 });
             });
 
-            content.querySelectorAll('[data-assessment-edit="1"]').forEach(button => {
-                button.addEventListener('click', async () => {
-                    const value = promptValue(button);
-                    if (value === null) return;
-                    await saveFact(button, value);
+            content.querySelectorAll('[data-assessment-input="1"]').forEach(input => {
+                input.addEventListener('change', async () => {
+                    let value = input.value;
+                    if (value === '' && ['money','money_or_none','integer','percentage'].includes(input.dataset.dataType)) value = 0;
+                    if (value === '' && input.dataset.dataType === 'text') return;
+                    await saveFact(input, value);
+                });
+                input.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        input.blur();
+                    }
+                });
+            });
+
+            content.querySelectorAll('[data-focus-key]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const selector = '[data-form-field="' + CSS.escape(button.dataset.focusKey) + '"]'
+                        + (button.dataset.focusDebt ? '[data-form-debt="' + CSS.escape(button.dataset.focusDebt) + '"]' : '');
+                    const target = content.querySelector(selector);
+                    if (!target) return;
+
+                    let parent = target.parentElement;
+                    while (parent && parent !== content) {
+                        if (parent.tagName === 'DETAILS') parent.open = true;
+                        parent = parent.parentElement;
+                    }
+                    target.scrollIntoView({ behavior:'smooth', block:'center' });
+                    const focusable = target.querySelector('input,button,select,textarea');
+                    if (focusable) window.setTimeout(() => focusable.focus(), 250);
                 });
             });
         }
 
         refreshButton.addEventListener('click', () => load(true));
+        openFsButton.addEventListener('click', () => {
+            const button = document.querySelector('[data-case-tab="financial-statement"]');
+            if (button) button.click();
+        });
+
         window.addEventListener('jinx:case-assessment:activate', () => load(true));
         window.addEventListener('jinx:case-updated', () => {
             if (document.querySelector('[data-case-panel="case-assessment"]')?.classList.contains('is-active')) load(true);

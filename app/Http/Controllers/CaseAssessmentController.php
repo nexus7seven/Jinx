@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Services\CaseAssessmentViewService;
 use App\Services\DecisionCaseFactService;
 use App\Services\DecisionFactRegistryService;
+use App\Services\JinxAgentIvaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,14 +29,29 @@ class CaseAssessmentController extends Controller
         Lead $lead,
         DecisionFactRegistryService $registry,
         DecisionCaseFactService $facts,
+        JinxAgentIvaService $iva,
         CaseAssessmentViewService $view
     ): JsonResponse {
         $validated = $request->validate([
-            'scope' => ['required', 'in:case,debt'],
+            'scope' => ['required', 'in:case,debt,ie'],
             'fact_key' => ['required', 'string', 'max:120'],
             'debt_id' => ['nullable', 'integer'],
             'value' => ['present'],
         ]);
+
+        if ($validated['scope'] === 'ie') {
+            try {
+                $iva->updateFact($lead, $validated['fact_key'], $validated['value']);
+                $iva->calculate($lead->fresh());
+            } catch (RuntimeException $e) {
+                throw ValidationException::withMessages(['value' => $e->getMessage()]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'assessment' => $view->forLead($lead->fresh()),
+            ]);
+        }
 
         $definition = $registry->definition($validated['fact_key']);
         if (!$definition || ($definition['is_active'] ?? false) !== true) {
