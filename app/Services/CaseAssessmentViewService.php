@@ -121,12 +121,17 @@ class CaseAssessmentViewService
             ];
         })->values()->all();
 
+        $counts = collect($caseRows)->countBy('status');
+
+        // Keep N/A facts in the internal count so the assessment remains auditable,
+        // but do not render them in the working UI. As soon as a trigger changes
+        // and the fact becomes applicable, a refreshed assessment automatically
+        // includes it again.
         $grouped = collect($caseRows)
+            ->reject(fn($row) => ($row['status'] ?? null) === 'not_applicable')
             ->groupBy('group')
             ->map(fn($rows) => $rows->values()->all())
             ->all();
-
-        $counts = collect($caseRows)->countBy('status');
 
         return [
             'lead_id' => $lead->id,
