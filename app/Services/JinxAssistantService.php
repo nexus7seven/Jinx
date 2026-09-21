@@ -145,7 +145,7 @@ PROMPT;
         $reply=trim((string)$decoded['reply']);
         $suitability=$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null);
 
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
+        if(!$votingRuleInstruction && ($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
             $next=$this->zebraAnswers->nextQuestion($factsAfter);
             $incomeComplete=$this->zebraAnswers->incomeComplete($factsAfter);
             $factUpdates['workflow.income_complete']=$incomeComplete;$factsAfter['workflow.income_complete']=$incomeComplete;
@@ -159,12 +159,12 @@ PROMPT;
         }
 
         $deterministicAfter=$this->ieCalculator->snapshot($factsAfter,$profileAfter);
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)){$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
+        if(!$votingRuleInstruction && ($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)){$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
         $factsForRouting=$factsAfter;
         if(($factsAfter['workflow.ie_complete']??false)===true){$factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;$factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;$factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;}
         $proactiveSignature=null;
         // Completed I&Es now move into the sourced whole-case decision engine in the lead-page workflow.
-        if(!$comparisonRequested && (($factsAfter['workflow.ie_complete']??false)!==true)){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
+        if(!$votingRuleInstruction && !$comparisonRequested && (($factsAfter['workflow.ie_complete']??false)!==true)){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
         return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'requested_action'=>$this->normaliseRequestedAction($decoded['requested_action']??null),'case_summary'=>trim((string)($decoded['case_summary']??'')),'action'=>is_array($decoded['action']??null)?$decoded['action']:null];
     }
 
