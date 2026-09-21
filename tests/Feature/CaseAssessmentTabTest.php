@@ -36,6 +36,8 @@ class CaseAssessmentTabTest extends TestCase
             ->assertSee('id="caseAssistantLauncher"', false)
             ->assertSee('case-assistant-drawer', false)
             ->assertSee('id="caseAssistantClose"', false)
+            ->assertDontSee('caseAssistantScrim', false)
+            ->assertDontSee('backdrop-filter', false)
             ->assertSee('Full Financial Statement')
             ->assertSee('>Yes</button>', false)
             ->assertSee('>No</button>', false)
