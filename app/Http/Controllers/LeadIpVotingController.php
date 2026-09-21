@@ -35,7 +35,7 @@ class LeadIpVotingController extends Controller
     {
         $validated = $request->validate([
             'creditor_id' => ['required', 'integer', 'exists:creditors,id'],
-            'status_text' => ['required', 'string', 'max:120'],
+            'status_text' => ['required', 'string', Rule::in(IpCreditorVotingService::MANUAL_STATUS_OPTIONS)],
             'voting_house' => ['nullable', 'string', 'max:120'],
             'condition_text' => ['nullable', 'string', 'max:4000'],
         ]);
@@ -70,10 +70,10 @@ class LeadIpVotingController extends Controller
             ? trim((string) $validated['voting_house'])
             : null;
 
-        if ($outcome === 'represented' && !$votingHouse) {
+        if ($statusText === 'Accept - via house vote' && !$votingHouse) {
             return response()->json([
                 'success' => false,
-                'message' => 'Enter the voting house when the creditor is represented.',
+                'message' => 'Enter the voting house for an Accept - via house vote rule.',
             ], 422);
         }
 

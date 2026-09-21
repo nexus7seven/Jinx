@@ -49,22 +49,16 @@
                 <input type="hidden" id="caseAssistantIpVotingCreditorId">
 
                 <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingStatus">Voting</label>
-                <input
-                    id="caseAssistantIpVotingStatus"
-                    class="case-assistant-ip-voting-input"
-                    list="caseAssistantIpVotingStatusOptions"
-                    placeholder="e.g. Accept, Referral, Trial @ MOC, Reject"
-                    autocomplete="off"
-                >
-                <datalist id="caseAssistantIpVotingStatusOptions">
-                    <option value="Accept"></option>
-                    <option value="Accept with conditions"></option>
-                    <option value="Referral"></option>
-                    <option value="Trial @ MOC"></option>
-                    <option value="Reject"></option>
-                    <option value="Non-voting"></option>
-                    <option value="Represented"></option>
-                </datalist>
+                <select id="caseAssistantIpVotingStatus" class="case-assistant-ip-voting-input">
+                    <option value="">Select voting result…</option>
+                    <option value="Accept">Accept</option>
+                    <option value="Accept - via house vote">Accept - via house vote</option>
+                    <option value="Accept - with conditions">Accept - with conditions</option>
+                    <option value="Accept - Trial @ MOC">Accept - Trial @ MOC</option>
+                    <option value="Accept - Referral">Accept - Referral</option>
+                    <option value="Reject">Reject</option>
+                    <option value="Non-vote">Non-vote</option>
+                </select>
 
                 <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingHouse">Voting house</label>
                 <input
@@ -387,16 +381,30 @@
         ipVotingAlert.style.display = 'block';
         ipVotingTitle.textContent = creditor + ' · ' + ipLabel;
         ipVotingCreditorId.value = item.creditor_id || '';
-        ipVotingStatus.value = item.status_raw || '';
+        if (item.outcome === 'accept') {
+            ipVotingStatus.value = ({
+                via_house: 'Accept - via house vote',
+                conditions: 'Accept - with conditions',
+                trial_moc: 'Accept - Trial @ MOC',
+                referral: 'Accept - Referral',
+                direct: 'Accept'
+            })[item.accept_kind] || 'Accept';
+        } else if (item.outcome === 'reject') {
+            ipVotingStatus.value = 'Reject';
+        } else if (item.outcome === 'non_voting') {
+            ipVotingStatus.value = 'Non-vote';
+        } else {
+            ipVotingStatus.value = '';
+        }
         ipVotingHouse.value = item.voting_house || '';
         ipVotingNotes.value = item.notes || '';
 
         if (item.reason === 'not_in_ip_workbook' || item.reason === 'workbook_row_without_voting_data') {
             ipVotingReason.textContent = 'No usable ' + ipLabel + ' workbook voting entry was found. Tell Jinx what voting result and voting house should be used for this creditor.';
         } else if (item.reason === 'representative_route_conflict') {
-            ipVotingReason.textContent = 'The workbook contains more than one possible voting-house route. Confirm the voting result and house for this creditor.';
+            ipVotingReason.textContent = 'The workbook contains more than one possible voting-house route. The vote still follows the hard Accept / Reject / Non-vote model; confirm the correct house for this creditor.';
         } else {
-            ipVotingReason.textContent = 'The workbook entry cannot be interpreted safely without an operator decision. Confirm what Jinx should use.';
+            ipVotingReason.textContent = 'The workbook entry cannot be placed safely into Accept, Reject or Non-vote without an operator decision. Confirm what Jinx should use.';
         }
 
         const sourceLines = [];
