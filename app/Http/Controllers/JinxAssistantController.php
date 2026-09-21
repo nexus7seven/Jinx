@@ -119,7 +119,7 @@ class JinxAssistantController extends Controller
             }
 
             $pendingDecisionQuestion = data_get($metadata, 'pending_decision_question');
-            if ($ieCompleteBefore && is_array($pendingDecisionQuestion) && !$this->isIeStartRequest($messageText)) {
+            if ($ieCompleteBefore && is_array($pendingDecisionQuestion) && !$this->isIeStartRequest($messageText) && !$this->looksLikeVotingRuleChange($messageText)) {
                 $parsed = $packagingPlanner->parseAnswer($pendingDecisionQuestion, $messageText);
                 if (($parsed['valid'] ?? false) !== true) {
                     return $this->directAssistantReply(
@@ -233,7 +233,7 @@ class JinxAssistantController extends Controller
                 return $this->agentAssistantReply($conversation, $agent, $messageText);
             }
 
-            if (($metadata['pending_ie_reset_confirmation'] ?? false) === true) {
+            if (($metadata['pending_ie_reset_confirmation'] ?? false) === true && !$this->looksLikeVotingRuleChange($messageText)) {
                 $answer = strtolower(trim($messageText));
                 if (in_array($answer, ['yes','y','yeah','yep','reset','start fresh','fresh'], true)) {
                     $syncedFields = $factSync->resetIe($lead->fresh());
