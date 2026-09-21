@@ -10,6 +10,7 @@ use App\Services\AssistantLeadFactSyncService;
 use App\Services\DecisionCaseFactService;
 use App\Services\DecisionFactRegistryService;
 use App\Services\IvaCasePackagingPlannerService;
+use App\Services\IpCreditorVotingOverrideService;
 use App\Services\JinxAgentService;
 use App\Services\JinxAssistantService;
 use App\Services\VicidialCallbackService;
@@ -31,6 +32,7 @@ class JinxAssistantController extends Controller
             'active_callback' => $callback,
             'knowledge_count' => AssistantKnowledgeItem::active()->count(),
             'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
+            'pending_ip_voting_change' => data_get($conversation->metadata, 'pending_ip_voting_change'),
             'established_facts' => data_get($conversation->metadata, 'established_facts', []),
             'last_suitability_assessment' => data_get($conversation->metadata, 'last_suitability_assessment'),
             'messages' => $conversation->messages()->latest('id')->limit(60)->get()->reverse()->values()->map(fn (AssistantMessage $message) => [
@@ -51,6 +53,7 @@ class JinxAssistantController extends Controller
         IvaCasePackagingPlannerService $packagingPlanner,
         DecisionCaseFactService $decisionFacts,
         DecisionFactRegistryService $factRegistry,
+        IpCreditorVotingOverrideService $votingOverrides,
     ): JsonResponse
     {
         $validated = $request->validate(['message' => ['required', 'string', 'max:12000']]);
@@ -67,8 +70,57 @@ class JinxAssistantController extends Controller
             $existingFacts = is_array($existingFacts) ? $existingFacts : [];
             $ieCompleteBefore = ($existingFacts['workflow.ie_complete'] ?? false) === true;
 
+            $pendingVotingChange = data_get($metadata, 'pending_ip_voting_change');
+            if (is_array($pendingVotingChange)) {
+                if ($this->isVotingConfirmation($messageText)) {
+                    $change = $votingOverrides->executePending(
+                        $pendingVotingChange,
+                        $request->user()?->id,
+                        $lead->id,
+                        $conversation->id
+                    );
+
+                    unset($metadata['pending_ip_voting_change']);
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+
+                    return $this->directAssistantReply(
+                        $conversation,
+                        (string) ($change['message'] ?? 'Voting rule updated.'),
+                        $existingFacts,
+                        [],
+                        [
+                            'ip_voting_changed' => true,
+                            'ip_voting_change' => $change,
+                        ]
+                    );
+                }
+
+                if ($this->isVotingCancellation($messageText)) {
+                    unset($metadata['pending_ip_voting_change']);
+                    $conversation->metadata = $metadata;
+                    $conversation->save();
+
+                    return $this->directAssistantReply(
+                        $conversation,
+                        'Okay — I have not changed the voting rule.',
+                        $existingFacts,
+                        [],
+                        ['ip_voting_change_cancelled' => true]
+                    );
+                }
+
+                return $this->directAssistantReply(
+                    $conversation,
+                    'That voting-rule change is still waiting for confirmation. Say yes to apply it to all matching IP cases, or no to cancel it.',
+                    $existingFacts,
+                    [],
+                    ['ip_voting_change_pending' => true]
+                );
+            }
+
             $pendingDecisionQuestion = data_get($metadata, 'pending_decision_question');
-            if ($ieCompleteBefore && is_array($pendingDecisionQuestion) && !$this->isIeStartRequest($messageText)) {
+            if ($ieCompleteBefore && is_array($pendingDecisionQuestion) && !$this->isIeStartRequest($messageText) && !$this->looksLikeVotingRuleChange($messageText)) {
                 $parsed = $packagingPlanner->parseAnswer($pendingDecisionQuestion, $messageText);
                 if (($parsed['valid'] ?? false) !== true) {
                     return $this->directAssistantReply(
@@ -143,7 +195,7 @@ class JinxAssistantController extends Controller
                 );
             }
 
-            if ($ieCompleteBefore && !$this->isIeStartRequest($messageText)) {
+            if ($ieCompleteBefore && !$this->isIeStartRequest($messageText) && !$this->looksLikeVotingRuleChange($messageText)) {
                 if ($this->isPackagingRequest($messageText) || $this->isContinueCaseRequest($messageText)) {
                     $plan = $packagingPlanner->plan($lead->fresh());
                     if (($plan['state'] ?? null) === 'needs_fact' && is_array($plan['question'] ?? null)) {
@@ -182,7 +234,7 @@ class JinxAssistantController extends Controller
                 return $this->agentAssistantReply($conversation, $agent, $messageText);
             }
 
-            if (($metadata['pending_ie_reset_confirmation'] ?? false) === true) {
+            if (($metadata['pending_ie_reset_confirmation'] ?? false) === true && !$this->looksLikeVotingRuleChange($messageText)) {
                 $answer = strtolower(trim($messageText));
                 if (in_array($answer, ['yes','y','yeah','yep','reset','start fresh','fresh'], true)) {
                     $syncedFields = $factSync->resetIe($lead->fresh());
@@ -226,7 +278,9 @@ class JinxAssistantController extends Controller
                 ]);
             }
 
-            $answerFacts = $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
+            $answerFacts = $this->looksLikeVotingRuleChange($messageText)
+                ? []
+                : $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
             $preFacts = array_replace($startFacts, $householdFacts, $answerFacts);
 
             $syncedFields = [];
@@ -245,6 +299,25 @@ class JinxAssistantController extends Controller
                 ? '[Current I&E checkpoint answer already persisted deterministically. Do not reinterpret the checkpoint value as the next I&E answer. Advance to the next unresolved checkpoint. The original packager message was: '.json_encode($userMessage->content, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).'. You may still capture any separate non-I&E case-reasoning facts clearly supplied in that message.]'
                 : $userMessage->content;
             $result = $assistant->reply($conversation->fresh(), $assistantInput);
+            $ipVotingChangePending = false;
+
+            if (($result['requested_action']['type'] ?? null) === 'update_ip_creditor_voting') {
+                $prepared = $votingOverrides->prepare($result['requested_action'], $messageText);
+                $result['proposed_knowledge'] = null;
+                $result['confirm_pending_knowledge'] = false;
+
+                if (($prepared['status'] ?? null) === 'ready' && is_array($prepared['pending'] ?? null)) {
+                    $actionMetadata = $conversation->fresh()->metadata ?? [];
+                    $actionMetadata['pending_ip_voting_change'] = $prepared['pending'];
+                    $conversation->metadata = $actionMetadata;
+                    $conversation->save();
+
+                    $result['reply'] = (string) $prepared['message'];
+                    $ipVotingChangePending = true;
+                } else {
+                    $result['reply'] = (string) ($prepared['message'] ?? 'I could not prepare that voting-rule change.');
+                }
+            }
 
             if (($result['requested_action']['type'] ?? null) === 'schedule_callback') {
                 try {
@@ -354,6 +427,7 @@ class JinxAssistantController extends Controller
                 'agent_activity' => $agentActivity,
                 'decision_plan_state' => $decisionPlanState,
                 'decision_question' => $decisionQuestion,
+                'ip_voting_change_pending' => $ipVotingChangePending,
             ]);
         } catch (Throwable $e) {
             report($e);
@@ -466,6 +540,24 @@ class JinxAssistantController extends Controller
         if(preg_match('/\b(?:because|regarding|about|re|note)\b[:\s-]+(.+)$/i',$message,$cm))$comments=trim($cm[1]);
         elseif(preg_match('/\b(to\s+be\s+.+)$/i',$message,$cm))$comments=trim($cm[1]);
         return ['when'=>$when,'comments'=>$comments];
+    }
+
+    private function isVotingConfirmation(string $message): bool
+    {
+        return in_array(strtolower(trim($message)), ['yes','y','yeah','yep','confirm','confirmed','apply','do it','go ahead','proceed'], true);
+    }
+
+    private function isVotingCancellation(string $message): bool
+    {
+        return in_array(strtolower(trim($message)), ['no','n','nope','cancel','stop','leave it','do not','don\'t'], true);
+    }
+
+    private function looksLikeVotingRuleChange(string $message): bool
+    {
+        $hasIp = preg_match('/\b(?:tig|assure|zebra|lawson\s+fox|anchorage(?:\s+chambers)?|\bac\b)\b/i', $message) === 1;
+        $hasVotingIntent = preg_match('/\b(?:accept|reject|non[-\s]?vote|vot(?:e|ing)|referral|trial\s*@?\s*moc|moc|represented|tix|watch|evolve|revert|restore|workbook|criteria|rule)\b/i', $message) === 1;
+
+        return $hasIp && $hasVotingIntent;
     }
 
     private function isIeStartRequest(string $message): bool

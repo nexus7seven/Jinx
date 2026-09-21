@@ -52,13 +52,14 @@ class JinxAssistantService
 
         $facts=$this->establishedFacts($conversation);
         $profile=$this->partnerKnowledge->profile($conversation->lead?->source,$facts);
+        $votingRuleInstruction=$this->looksLikeVotingRuleInstruction($message);
 
-        if($conversation->lead && ($profile['partner']??null)==='Zebra') {
+        if(!$votingRuleInstruction && $conversation->lead && ($profile['partner']??null)==='Zebra') {
             $direct=$this->zebraAnswers->extract($conversation->lead,$facts,$message);
             if($direct!==[]) $facts=array_replace($facts,$direct);
         }
 
-        $nextIeQuestion=(($profile['partner']??null)==='Zebra' && (($facts['workflow.ie_active']??false)===true))
+        $nextIeQuestion=(!$votingRuleInstruction && ($profile['partner']??null)==='Zebra' && (($facts['workflow.ie_active']??false)===true))
             ? $this->zebraAnswers->nextQuestion($facts)
             : null;
 
@@ -96,15 +97,40 @@ When NEXT_REQUIRED_IE_QUESTION is present, it is the single deterministic checkp
 
 TRAINING / NEW RULES
 Durable rules must be proposed at company, partner or IP scope and confirmed before saving. Do not save case facts as organisational knowledge.
+EXCEPTION: creditor voting changes for a named IP must NOT be proposed as general assistant knowledge. Use the structured voting action below so Jinx changes the actual voting engine.
 
 CRM ACTIONS
-Understand operational requests naturally from the whole conversation, including follow-up answers to your own questions. For a callback on the current case, when the intended date and time are known, return requested_action with type schedule_callback, callback_at as an unambiguous ISO-like local datetime (YYYY-MM-DD HH:MM:SS), and concise notes preserving the reason/purpose. If date or time is genuinely missing, ask for only the missing detail and return requested_action null. Resolve ordinary phrases such as Friday, tomorrow, Friday afternoon, at 2, etc. from CURRENT_LOCAL_DATETIME. Never claim that a callback or other CRM action has been completed yourself. The application executes actions after your response and will replace your wording with a success confirmation only after the write succeeds.
+Understand operational requests naturally from the whole conversation, including follow-up answers to your own questions.
+
+For a callback on the current case, when the intended date and time are known, return requested_action with type schedule_callback, callback_at as an unambiguous ISO-like local datetime (YYYY-MM-DD HH:MM:SS), and concise notes preserving the reason/purpose. If date or time is genuinely missing, ask for only the missing detail and return requested_action null. Resolve ordinary phrases such as Friday, tomorrow, Friday afternoon, at 2, etc. from CURRENT_LOCAL_DATETIME.
+
+When VOTING_RULE_INSTRUCTION is true, prioritise the voting-rule action over any active I&E checkpoint; do not turn the message into an I&E answer or ask the next I&E question in that response.
+
+For a durable creditor voting-rule change, use requested_action type update_ip_creditor_voting. This is for instructions such as "Lawson Fox now reject all Bamboo Loans", "TIG treat Capital One as Accept with conditions", "Anchorage send X through TIX", or "revert Lawson Fox Bamboo back to the workbook".
+Return:
+- type: "update_ip_creditor_voting"
+- operation: "set" or "revert"
+- ip: the named IP (TIG, Assure, Zebra, Lawson Fox, or Anchorage Chambers)
+- creditor: the creditor name the packager gave
+- voting: for set operations, one of "Accept", "Reject", "Non-vote", "Accept - via house vote", "Accept - with conditions", "Accept - Trial @ MOC", "Accept - Referral"
+- voting_house: the named house if supplied/required, otherwise null
+- notes: any supplied conditions or explanation, otherwise null
+
+Important voting rules:
+- This action changes the reusable IP + creditor voting rule for all cases, not only the current case.
+- Do not invent a creditor, IP, house, condition or vote.
+- If the packager has not supplied enough information to identify the requested change, ask only for the missing detail and set requested_action to null.
+- Do not claim the rule has changed. The application will resolve the creditor against Jinx, show the existing rule, ask the packager to confirm, and only then write the override.
+- A request to "revert", "restore the workbook", "use the workbook again", or equivalent must use operation "revert"; voting may be null.
+- The original workbook source is never edited by this action.
+
+Never claim that a callback or voting-rule change has been completed yourself. The application executes actions after your response and replaces your wording with the actual confirmation/result.
 
 Return ONLY valid JSON:
 {"reply":"natural-language reply","fact_updates":{},"suitability_assessment":null,"proposed_knowledge":null,"confirm_pending_knowledge":false,"requested_action":null,"case_summary":"brief rolling summary"}
 PROMPT;
 
-        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'NEXT_REQUIRED_IE_QUESTION'=>$nextIeQuestion,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'REASONING_FACT_DEFINITIONS'=>collect($this->factRegistry->definitions('case',true))->map(fn($d)=>['fact_key'=>$d['fact_key'],'label'=>$d['label'],'data_type'=>$d['data_type']])->values()->all(),'WORKSPACE_CONTEXT'=>$workspaceContext];
+        $context=['CURRENT_LOCAL_DATETIME'=>now()->toIso8601String(),'CURRENT_LEAD'=>$this->leadContext($conversation),'PARTNER_PROFILE'=>$profile,'PARTNER_CODEX'=>$profile['partner_codex']??null,'ACTIVE_SCOPED_KNOWLEDGE'=>$knowledge->values()->toArray(),'DESTINATION_COMPARISON'=>$destinationComparison,'ESTABLISHED_FACTS'=>$facts,'DETERMINISTIC_IE'=>$deterministicBefore,'NEXT_REQUIRED_IE_QUESTION'=>$nextIeQuestion,'PENDING_KNOWLEDGE_PROPOSAL'=>$pendingKnowledge,'POTENTIALLY_SIMILAR_PRIOR_CASES'=>$similarCases,'CONVERSATION_HISTORY'=>$history,'LATEST_PACKAGER_MESSAGE'=>$message,'VOTING_RULE_INSTRUCTION'=>$votingRuleInstruction,'REASONING_FACT_DEFINITIONS'=>collect($this->factRegistry->definitions('case',true))->map(fn($d)=>['fact_key'=>$d['fact_key'],'label'=>$d['label'],'data_type'=>$d['data_type']])->values()->all(),'WORKSPACE_CONTEXT'=>$workspaceContext];
         $response=Http::timeout(60)->withToken($apiKey)->acceptJson()->post('https://api.openai.com/v1/responses',['model'=>$model,'instructions'=>$instructions,'input'=>json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),'max_output_tokens'=>$comparisonRequested?2600:1800]);
         if(!$response->successful())throw new RuntimeException('Assistant provider error: '.$response->status().' '.$response->body());
         $decoded=json_decode($this->stripCodeFence($this->extractOutputText($response->json())),true);
@@ -119,7 +145,7 @@ PROMPT;
         $reply=trim((string)$decoded['reply']);
         $suitability=$this->normaliseSuitabilityAssessment($decoded['suitability_assessment']??null);
 
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
+        if(!$votingRuleInstruction && ($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_active']??false)===true)) {
             $next=$this->zebraAnswers->nextQuestion($factsAfter);
             $incomeComplete=$this->zebraAnswers->incomeComplete($factsAfter);
             $factUpdates['workflow.income_complete']=$incomeComplete;$factsAfter['workflow.income_complete']=$incomeComplete;
@@ -133,12 +159,12 @@ PROMPT;
         }
 
         $deterministicAfter=$this->ieCalculator->snapshot($factsAfter,$profileAfter);
-        if(($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)){$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
+        if(!$votingRuleInstruction && ($profileAfter['partner']??null)==='Zebra' && (($factsAfter['workflow.ie_complete']??false)===true)){$reply=$this->conciseIeCompletion($deterministicAfter);$suitability=null;}
         $factsForRouting=$factsAfter;
         if(($factsAfter['workflow.ie_complete']??false)===true){$factsForRouting['calculation.disposable_income']=$deterministicAfter['calculation']['disposable_income']??null;$factsForRouting['calculation.target_di']=$deterministicAfter['calculation']['target_di']??null;$factsForRouting['income.total']=$deterministicAfter['calculation']['income_total']??null;}
         $proactiveSignature=null;
         // Completed I&Es now move into the sourced whole-case decision engine in the lead-page workflow.
-        if(!$comparisonRequested && (($factsAfter['workflow.ie_complete']??false)!==true)){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
+        if(!$votingRuleInstruction && !$comparisonRequested && (($factsAfter['workflow.ie_complete']??false)!==true)){$routeAlert=$this->proactiveRouting->evaluate($profileAfter,$factsForRouting,$conversation->lead);if($routeAlert){$signature=sha1(json_encode($routeAlert,JSON_UNESCAPED_SLASHES));if($signature!==(string)data_get($conversation->metadata,'last_proactive_route_signature','')){$proactive=$this->runProactiveComparison($apiKey,$model,$factsForRouting,$routeAlert);if($proactive){$reply.="\n\n".$proactive['reply'];$suitability=$proactive['suitability_assessment'];$proactiveSignature=$signature;}}}}
         return ['reply'=>$reply,'fact_updates'=>$factUpdates,'deterministic_ie'=>$deterministicAfter,'suitability_assessment'=>$suitability,'proactive_route_signature'=>$proactiveSignature,'proposed_knowledge'=>is_array($decoded['proposed_knowledge']??null)?$this->normaliseKnowledgeProposal($decoded['proposed_knowledge']):null,'confirm_pending_knowledge'=>(bool)($decoded['confirm_pending_knowledge']??false),'requested_action'=>$this->normaliseRequestedAction($decoded['requested_action']??null),'case_summary'=>trim((string)($decoded['case_summary']??'')),'action'=>is_array($decoded['action']??null)?$decoded['action']:null];
     }
 
@@ -150,10 +176,50 @@ PROMPT;
     private function establishedFacts(AssistantConversation $conversation): array {$facts=data_get($conversation->metadata,'established_facts',[]);$facts=is_array($facts)?$facts:[];$lead=$conversation->lead;if($lead){if($lead->monthly_housing_cost!==null&&!array_key_exists('housing.rent_mortgage',$facts))$facts['housing.rent_mortgage']=(float)$lead->monthly_housing_cost;if($lead->monthly_council_tax!==null&&!array_key_exists('housing.council_tax',$facts))$facts['housing.council_tax']=(float)$lead->monthly_council_tax;if($lead->estimated_total_debt!==null&&!array_key_exists('case.estimated_total_debt',$facts))$facts['case.estimated_total_debt']=(float)$lead->estimated_total_debt;if($lead->employment_status&&!array_key_exists('client.employment_status',$facts))$facts['client.employment_status']=$lead->employment_status;}return$facts;}
     private function leadContext(AssistantConversation $conversation): ?array {$lead=$conversation->lead;if(!$lead)return null;return ['id'=>$lead->id,'name'=>$lead->formattedName(),'wip_status'=>$lead->wip_status,'source'=>$lead->source,'employment_status'=>$lead->employment_status,'monthly_income'=>$lead->monthly_income,'monthly_housing_cost'=>$lead->monthly_housing_cost,'monthly_council_tax'=>$lead->monthly_council_tax,'monthly_utilities_cost'=>$lead->monthly_utilities_cost,'monthly_food_travel_cost'=>$lead->monthly_food_travel_cost,'estimated_total_debt'=>$lead->estimated_total_debt,'financial_statement'=>$lead->financial_statement];}
     private function findSimilarCases(AssistantConversation $conversation,string $message): array {$keywords=collect(preg_split('/[^a-zA-Z0-9]+/',Str::lower($message))?:[])->filter(fn($word)=>strlen($word)>=5)->reject(fn($word)=>in_array($word,['client','about','would','could','there','their','which','where','should'],true))->unique()->take(6)->values();if($keywords->isEmpty())return[];$query=AssistantMessage::query()->where('role','user')->where('conversation_id','!=',$conversation->id)->whereHas('conversation',fn($q)=>$q->whereNotNull('lead_id'));$query->where(function($q)use($keywords){foreach($keywords as$keyword)$q->orWhere('content','like','%'.$keyword.'%');});return$query->with('conversation:id,lead_id,summary')->latest('id')->limit(5)->get()->unique('conversation_id')->take(3)->map(fn(AssistantMessage $item)=>['lead_id'=>$item->conversation?->lead_id,'conversation_id'=>$item->conversation_id,'summary'=>$item->conversation?->summary,'matching_message_excerpt'=>Str::limit($item->content,350)])->values()->all();}
+    private function looksLikeVotingRuleInstruction(string $message): bool {
+        $hasIp=preg_match('/\b(?:tig|assure|zebra|lawson\s+fox|anchorage(?:\s+chambers)?|ac)\b/i',$message)===1;
+        $hasIntent=preg_match('/\b(?:accept|reject|non[-\s]?vote|vot(?:e|ing)|referral|trial\s*@?\s*moc|moc|represented|tix|watch|evolve|revert|restore|workbook|criteria|rule)\b/i',$message)===1;
+        return $hasIp&&$hasIntent;
+    }
+
     private function normaliseRequestedAction(mixed $action): ?array {
-        if(!is_array($action)||($action['type']??null)!=='schedule_callback')return null;
-        $at=trim((string)($action['callback_at']??''));if($at==='')return null;
-        return ['type'=>'schedule_callback','callback_at'=>Str::limit($at,40,''),'notes'=>Str::limit(trim((string)($action['notes']??'')),255,'')];
+        if(!is_array($action)) return null;
+
+        $type=trim((string)($action['type']??''));
+
+        if($type==='schedule_callback') {
+            $at=trim((string)($action['callback_at']??''));
+            if($at==='') return null;
+            return [
+                'type'=>'schedule_callback',
+                'callback_at'=>Str::limit($at,40,''),
+                'notes'=>Str::limit(trim((string)($action['notes']??'')),255,''),
+            ];
+        }
+
+        if(in_array($type,['update_ip_creditor_voting','ip_creditor_voting','update_ip_voting_rule'],true)) {
+            $operation=Str::lower(trim((string)($action['operation']??'set')));
+            $operation=in_array($operation,['revert','restore','remove'],true)?'revert':'set';
+            $ip=Str::limit(trim((string)($action['ip']??$action['ip_key']??'')),120,'');
+            $creditor=Str::limit(trim((string)($action['creditor']??'')),255,'');
+            if($ip===''||$creditor==='') return null;
+
+            return [
+                'type'=>'update_ip_creditor_voting',
+                'operation'=>$operation,
+                'ip'=>$ip,
+                'creditor'=>$creditor,
+                'voting'=>$operation==='set' ? Str::limit(trim((string)($action['voting']??$action['status']??'')),120,'') : null,
+                'voting_house'=>filled($action['voting_house']??$action['house']??null)
+                    ? Str::limit(trim((string)($action['voting_house']??$action['house'])),120,'')
+                    : null,
+                'notes'=>filled($action['notes']??null)
+                    ? Str::limit(trim((string)$action['notes']),4000,'')
+                    : null,
+            ];
+        }
+
+        return null;
     }
     private function normaliseFactUpdates(mixed $updates): array {if(!is_array($updates))return[];$normalised=[];foreach(array_slice($updates,0,100,true)as$key=>$value){if(!is_string($key)||strlen($key)>120)continue;if(is_scalar($value)||$value===null)$normalised[$key]=$value;elseif(is_array($value)&&count($value)<=30)$normalised[$key]=array_values($value);}return$normalised;}
     private function normaliseSuitabilityAssessment(mixed $assessment): ?array {if(!is_array($assessment))return null;$allowed=['FIT','NOT_FIT','POSSIBLE_NEEDS_INFO','INSUFFICIENT_RULES'];$destinations=[];foreach(array_slice($assessment['destinations']??[],0,10)as$item){if(!is_array($item))continue;$status=strtoupper((string)($item['status']??''));if(!in_array($status,$allowed,true))$status='POSSIBLE_NEEDS_INFO';$destinations[]=['destination'=>Str::limit((string)($item['destination']??''),120,''),'status'=>$status,'reasons'=>collect($item['reasons']??[])->filter(fn($value)=>is_string($value))->take(10)->values()->all(),'missing'=>collect($item['missing']??[])->filter(fn($value)=>is_string($value))->take(10)->values()->all()];}return ['best_fit'=>filled($assessment['best_fit']??null)?Str::limit((string)$assessment['best_fit'],120,''):null,'best_fit_reason'=>Str::limit((string)($assessment['best_fit_reason']??''),1000,''),'destinations'=>$destinations];}

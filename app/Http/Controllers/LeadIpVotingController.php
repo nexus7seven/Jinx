@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Creditor;
 use App\Models\Lead;
 use App\Services\IpCreditorVotingService;
+use App\Services\IpCreditorVotingOverrideService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class LeadIpVotingController extends Controller
@@ -31,7 +31,7 @@ class LeadIpVotingController extends Controller
         return response()->json($service->analyseLead($lead->fresh()));
     }
 
-    public function storeOverride(Request $request, Lead $lead, IpCreditorVotingService $service): JsonResponse
+    public function storeOverride(Request $request, Lead $lead, IpCreditorVotingService $service, IpCreditorVotingOverrideService $overrides): JsonResponse
     {
         $validated = $request->validate([
             'creditor_id' => ['required', 'integer', 'exists:creditors,id'],
@@ -65,7 +65,6 @@ class LeadIpVotingController extends Controller
         }
 
         $statusText = trim((string) $validated['status_text']);
-        $outcome = $service->interpretStatus($statusText);
         $votingHouse = filled($validated['voting_house'] ?? null)
             ? trim((string) $validated['voting_house'])
             : null;
@@ -77,22 +76,17 @@ class LeadIpVotingController extends Controller
             ], 422);
         }
 
-        DB::table('ip_creditor_voting_overrides')->updateOrInsert(
-            [
-                'creditor_id' => $creditorId,
-                'ip_key' => $lead->iva_ip_key,
-            ],
-            [
-                'status_text' => $statusText,
-                'outcome' => $outcome,
-                'voting_house' => $votingHouse,
-                'condition_text' => filled($validated['condition_text'] ?? null)
-                    ? trim((string) $validated['condition_text'])
-                    : null,
-                'created_by' => auth()->id(),
-                'updated_at' => now(),
-                'created_at' => now(),
-            ]
+        $overrides->setOverride(
+            $creditor,
+            $lead->iva_ip_key,
+            $statusText,
+            $votingHouse,
+            filled($validated['condition_text'] ?? null) ? trim((string) $validated['condition_text']) : null,
+            $request->user()?->id,
+            $lead->id,
+            null,
+            'Structured unresolved-creditor voting alert',
+            'assistant_alert'
         );
 
         return response()->json($service->analyseLead($lead->fresh()));
