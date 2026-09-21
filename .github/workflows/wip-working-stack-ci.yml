@@ -30,6 +30,8 @@ jobs:
           php -l app/Http/Controllers/WipController.php
           php -l database/migrations/2026_09_21_001000_create_wip_case_queue_items_table.php
           php -l tests/Feature/Wip/WipWorkingStackTest.php
+      - name: Compile Blade views
+        run: php artisan view:cache
       - name: Run focused tests
         env:
           DB_CONNECTION: sqlite
