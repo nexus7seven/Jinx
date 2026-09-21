@@ -1327,7 +1327,7 @@
         bindDebtSectionRefs();
         bindEditButtons();
         bindDeleteButtons();
-        refreshDebtInterpretation();
+        await refreshIpVoting();
     }
 
     async function refreshDebtsSectionForced(signatureToStore) {
@@ -1340,7 +1340,7 @@
         bindDebtSectionRefs();
         bindEditButtons();
         bindDeleteButtons();
-        refreshDebtInterpretation();
+        await refreshIpVoting();
         if (signatureToStore) {
             ccV3LastDebtSignature = signatureToStore;
         }
@@ -2082,11 +2082,16 @@
         }
     });
 
-    function buildDebtRowHtml(debt, votingType) {
+
+    function buildDebtRowHtml(debt) {
+        const creditorName = htmlEscape(debt.creditor_name || 'Unknown creditor');
+        const reference = debt.reference ? htmlEscape(debt.reference) : '—';
+        const source = htmlEscape(sourceLabel(debt.source_expected));
+
         return `
             <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
                 <div style="flex:1; min-width:240px;">
-                    <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">${debt.creditor_name}</div>
+                    <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">${creditorName}</div>
 
                     <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
                         <span style="background:#1e293b; border:1px solid #334155; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;">
@@ -2094,16 +2099,14 @@
                         </span>
 
                         <span style="background:#1d4ed8; color:#ffffff; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-source-tag">
-                            ${sourceLabel(debt.source_expected)}
+                            ${source}
                         </span>
 
-                        <span style="${getVotingTypePillStyle(votingType)} padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
-                            ${formatVotingTypeLabel(votingType)}
+                        <span style="background:#1f2937; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
+                            ${ivaIpSelect && ivaIpSelect.value ? 'LOADING…' : 'SELECT IP'}
                         </span>
 
-                        <span style="background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house">
-                            ${debt.voting_house}
-                        </span>
+                        <span style="display:none; background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house"></span>
 
                         <span
                             class="debt-evidence-status"
@@ -2115,8 +2118,13 @@
                     </div>
 
                     <div style="font-size:13px; color:#9ca3af;">
-                        Ref: <span class="debt-reference">${debt.reference ? debt.reference : '—'}</span>
+                        Ref: <span class="debt-reference">${reference}</span>
                     </div>
+
+                    <details class="debt-ip-notes" style="display:none; margin-top:10px; border:1px solid #263244; border-radius:9px; background:#0b1220; padding:8px 10px;">
+                        <summary style="cursor:pointer; font-size:12px; font-weight:700; color:#93c5fd;">IP notes / source</summary>
+                        <div class="debt-ip-notes-body" style="margin-top:8px; white-space:pre-wrap; font-size:12px; line-height:1.45; color:#cbd5e1;"></div>
+                    </details>
                 </div>
 
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2143,20 +2151,17 @@
     }
 
     function applyDebtRowData(row, debt) {
-        const practiceKey = practiceSelect.value;
-        let votingType = debt.voting_practice1;
-
-        if (practiceKey === 'practice2') votingType = debt.voting_practice2;
-        if (practiceKey === 'practice3') votingType = debt.voting_practice3;
-
         row.dataset.debtId = debt.id;
+        row.dataset.creditorId = debt.creditor_id || '';
+        row.dataset.creditorName = debt.creditor_name || '';
         row.dataset.balance = Number(debt.balance).toFixed(2);
-        row.dataset.votingHouse = debt.voting_house;
-        row.dataset.votePractice1 = debt.voting_practice1;
-        row.dataset.votePractice2 = debt.voting_practice2;
-        row.dataset.votePractice3 = debt.voting_practice3;
-
-        row.innerHTML = buildDebtRowHtml(debt, votingType);
+        row.dataset.votingHouse = '';
+        row.dataset.voteOutcome = ivaIpSelect && ivaIpSelect.value ? 'loading' : 'missing';
+        row.dataset.voteStatusRaw = '';
+        row.dataset.voteSource = '';
+        row.dataset.voteNeedsInput = '0';
+        row.dataset.voteNeedsReview = '0';
+        row.innerHTML = buildDebtRowHtml(debt);
     }
 
     function buildDebtRow(debt) {
@@ -2179,7 +2184,7 @@
         debtList.prepend(row);
         bindDeleteButtons();
         bindEditButtons();
-        refreshDebtInterpretation();
+        refreshIpVoting();
     }
 
     function updateDebtRow(debt) {
@@ -2189,7 +2194,7 @@
         applyDebtRowData(row, debt);
         bindDeleteButtons();
         bindEditButtons();
-        refreshDebtInterpretation();
+        refreshIpVoting();
     }
 
     async function openEditDebtModal(debtId) {
@@ -2361,7 +2366,7 @@
                         debtList.appendChild(empty);
                     }
 
-                    refreshDebtInterpretation();
+                    refreshIpVoting();
                 } catch (e) {
                     alert('Delete failed');
                 }
@@ -2371,7 +2376,11 @@
 
     bindEditButtons();
     bindDeleteButtons();
-    refreshDebtInterpretation();
+    refreshIpVoting();
+
+    window.addEventListener('jinx:ip-voting-refresh', function () {
+        refreshIpVoting();
+    });
 
     (function () {
         const leadWipStatusSelect = document.getElementById('lead-wip-status-select');
