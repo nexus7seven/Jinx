@@ -497,7 +497,8 @@
                 ipVotingError.style.display = 'block';
                 ipVotingError.textContent = error.message;
             } finally {
-                ipVotingSave.disabled = ipVotingQueue.length ? false : ipVotingSave.disabled;
+                const nextItem = ipVotingQueue[0] || null;
+                ipVotingSave.disabled = !nextItem || nextItem.can_save_override === false;
                 ipVotingSave.textContent = 'Save rule';
             }
         });
