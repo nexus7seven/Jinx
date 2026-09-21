@@ -18,6 +18,14 @@ class IpCreditorVotingService
         $ipKey = $lead->iva_ip_key;
         $items = [];
         $totalDebt = 0.0;
+        $routesByDebt = [];
+
+        if ($ipKey && Schema::hasTable('creditor_voting_routes')) {
+            $routeAnalysis = app(DecisionVotingService::class)->analyse($lead, $ipKey, null);
+            foreach ($routeAnalysis['debts'] ?? [] as $routeDebt) {
+                $routesByDebt[(int) ($routeDebt['debt_id'] ?? 0)] = $routeDebt;
+            }
+        }
 
         foreach ($lead->debts as $debt) {
             $balance = (float) $debt->balance;
@@ -27,6 +35,25 @@ class IpCreditorVotingService
                 $assessment = $this->emptyAssessment('ip_not_selected');
             } else {
                 $assessment = $this->resolveCreditor($debt->creditor, $ipKey);
+
+                if (($assessment['source_type'] ?? null) === 'workbook') {
+                    $routeDebt = $routesByDebt[(int) $debt->id] ?? null;
+                    $routeSource = (string) ($routeDebt['route_source'] ?? '');
+
+                    if (str_starts_with($routeSource, 'sourced_route')) {
+                        $resolvedHouse = trim((string) ($routeDebt['voting_house'] ?? ''));
+                        if ($resolvedHouse !== '' && $resolvedHouse !== 'Unresolved representative') {
+                            $assessment['voting_house'] = $resolvedHouse;
+                            $assessment['representative_rules'] = $this->representativeRules($ipKey, $resolvedHouse);
+                        }
+                    } elseif ($routeSource === 'unresolved_conflict') {
+                        $assessment['voting_house'] = null;
+                        $assessment['needs_review'] = true;
+                        $assessment['reason'] = 'representative_route_conflict';
+                        $assessment['route_candidates'] = $routeDebt['route_candidates'] ?? [];
+                        $assessment['route_conflict_reason'] = $routeDebt['route_conflict_reason'] ?? null;
+                    }
+                }
             }
 
             $items[] = array_merge([
@@ -201,7 +228,6 @@ class IpCreditorVotingService
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
             || $value === 'moc'
-            || $value === 'will consider'
             || $value === 'will consider'
         ) {
             return 'accept_conditional';
