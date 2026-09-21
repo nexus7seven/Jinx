@@ -227,8 +227,6 @@ class IpCreditorVotingService
             || $value === 'referral'
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
-            || $value === 'moc'
-            || $value === 'will consider'
         ) {
             return 'accept_conditional';
         }
