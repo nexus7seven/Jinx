@@ -264,6 +264,8 @@ class IpCreditorVotingService
             || str_contains($value, 'accept with condition')
             || str_contains($value, 'accept with modification')
             || $value === 'referral'
+            || $value === 'will consider'
+            || $value === 'dividend requirement'
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
             || $value === 'moc'
@@ -312,7 +314,12 @@ class IpCreditorVotingService
             return 'trial_moc';
         }
 
-        if (str_contains($value, 'condition') || str_contains($value, 'modification')) {
+        if (
+            str_contains($value, 'condition')
+            || str_contains($value, 'modification')
+            || $value === 'will consider'
+            || $value === 'dividend requirement'
+        ) {
             return 'conditions';
         }
 
