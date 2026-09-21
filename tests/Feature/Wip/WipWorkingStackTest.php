@@ -49,15 +49,16 @@ class WipWorkingStackTest extends TestCase
 
         $response = $this->actingAs($user)->postJson(route('lead.wip-actioned', ['lead' => $first->id]), [
             'waiting_on' => 'client',
-            'next_chase_at' => now()->addDays(3)->toDateTimeString(),
-            'action_note' => 'Requested latest bank statements',
+            'next_chase_at' => null,
+            'action_note' => null,
         ]);
 
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('queue_item.waiting_on', 'client')
             ->assertJsonPath('queue_item.waiting_on_label', 'Client')
-            ->assertJsonPath('queue_item.action_note', 'Requested latest bank statements');
+            ->assertJsonPath('queue_item.next_chase_at', null)
+            ->assertJsonPath('queue_item.action_note', null);
 
         $ordered = $service->sync($user, collect([$first->fresh(), $second->fresh(), $third->fresh()]));
         $this->assertSame([$second->id, $third->id, $first->id], $ordered->pluck('id')->all());
@@ -66,7 +67,7 @@ class WipWorkingStackTest extends TestCase
             'user_id' => $user->id,
             'lead_id' => $first->id,
             'waiting_on' => 'client',
-            'action_note' => 'Requested latest bank statements',
+            'action_note' => null,
         ]);
     }
 
