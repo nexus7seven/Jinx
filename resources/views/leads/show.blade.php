@@ -1616,19 +1616,18 @@
             .replaceAll("'", '&#039;');
     }
 
-    function formatVotingOutcomeLabel(outcome, statusRaw, hasIp) {
+    function formatVotingOutcomeLabel(outcome, statusRaw, hasIp, displayLabel = null) {
         const normalised = normaliseVotingOutcome(outcome);
-        const raw = String(statusRaw || '').trim();
 
         if (!hasIp) return 'SELECT IP';
-        if (normalised === 'accept') return raw ? raw.toUpperCase() : 'ACCEPT';
-        if (normalised === 'accept_conditional') return (raw ? raw.toUpperCase() : 'ACCEPT') + ' · ACCEPT*';
-        if (normalised === 'reject') return raw ? raw.toUpperCase() : 'REJECT';
-        if (normalised === 'non_voting') return raw ? raw.toUpperCase() : 'NON-VOTING';
-        if (normalised === 'represented') return raw ? raw.toUpperCase() : 'REPRESENTED';
+        if (displayLabel) return String(displayLabel).toUpperCase();
+        if (normalised === 'accept') return 'ACCEPT';
+        if (normalised === 'reject') return 'REJECT';
+        if (normalised === 'non_voting') return 'NON-VOTE';
         if (normalised === 'missing') return 'NO IP CRITERIA';
         if (normalised === 'loading') return 'LOADING…';
 
+        const raw = String(statusRaw || '').trim();
         return raw ? raw.toUpperCase() + ' · REVIEW' : 'REVIEW';
     }
 
@@ -1639,10 +1638,6 @@
             return 'background:#14532d; color:#dcfce7;';
         }
 
-        if (normalised === 'accept_conditional') {
-            return 'background:#854d0e; color:#fef3c7;';
-        }
-
         if (normalised === 'reject') {
             return 'background:#7f1d1d; color:#fecaca;';
         }
@@ -1651,15 +1646,22 @@
             return 'background:#3f3f46; color:#f4f4f5;';
         }
 
-        if (normalised === 'represented') {
-            return 'background:#1e3a8a; color:#dbeafe;';
-        }
-
         if (normalised === 'missing' || normalised === 'unknown') {
             return 'background:#78350f; color:#fde68a;';
         }
 
         return 'background:#1f2937; color:#e5e7eb;';
+    }
+
+    function formatVotingHouseName(value) {
+        const raw = String(value || '').trim();
+        const normalised = raw.toLowerCase();
+
+        if (normalised === 'tix') return 'TIX';
+        if (normalised === 'watch') return 'WATCH';
+        if (normalised === 'evolve') return 'Evolve';
+
+        return raw;
     }
 
     function votingTooltip(item) {
@@ -1704,7 +1706,7 @@
 
             const pill = row.querySelector('.debt-voting-type');
             if (pill) {
-                pill.textContent = formatVotingOutcomeLabel(item.outcome, item.status_raw, hasIp);
+                pill.textContent = formatVotingOutcomeLabel(item.outcome, item.status_raw, hasIp, item.display_label);
                 pill.style.cssText = getVotingTypePillStyle(item.outcome) + ' padding:6px 10px; border-radius:999px; font-size:12px;';
                 const tooltip = votingTooltip(item);
                 pill.title = tooltip;
@@ -1714,7 +1716,7 @@
             const houseEl = row.querySelector('.debt-voting-house');
             if (houseEl) {
                 if (item.voting_house) {
-                    houseEl.textContent = item.voting_house;
+                    houseEl.textContent = formatVotingHouseName(item.voting_house);
                     houseEl.style.display = 'inline-block';
                     houseEl.title = 'Voting house from ' + (item.source_type === 'manual' ? 'manual Jinx criteria' : 'the selected IP workbook');
                 } else {
@@ -1812,42 +1814,57 @@
         }
 
         const rows = document.querySelectorAll('.debt-row');
-        let totalDebt = 0;
-        let eligibleTotal = 0;
-        let acceptTotal = 0;
-        let rejectTotal = 0;
-        let unresolvedTotal = 0;
-        let representedTotal = 0;
         const houseTotals = {};
         const houseRejectTotals = {};
+
+        let fallbackTotalDebt = 0;
+        let fallbackAccept = 0;
+        let fallbackReject = 0;
+        let fallbackNonVote = 0;
+        let fallbackUnresolved = 0;
 
         rows.forEach(row => {
             const outcome = normaliseVotingOutcome(row.dataset.voteOutcome);
             const balance = parseFloat(row.dataset.balance || '0');
-            const house = String(row.dataset.votingHouse || '').trim();
-            totalDebt += balance;
+            const rawHouse = String(row.dataset.votingHouse || '').trim();
+            const house = rawHouse ? formatVotingHouseName(rawHouse) : 'Independent';
+            const houseKey = house.toLowerCase();
 
-            const isVoting = ['accept', 'accept_conditional', 'reject', 'represented'].includes(outcome);
-            if (isVoting) {
-                eligibleTotal += balance;
-                const houseKey = house || 'Independent';
-                houseTotals[houseKey] = (houseTotals[houseKey] || 0) + balance;
+            fallbackTotalDebt += balance;
 
-                if (outcome === 'accept' || outcome === 'accept_conditional') {
-                    acceptTotal += balance;
-                } else if (outcome === 'reject') {
-                    rejectTotal += balance;
-                    houseRejectTotals[houseKey] = (houseRejectTotals[houseKey] || 0) + balance;
-                } else if (outcome === 'represented') {
-                    representedTotal += balance;
+            if (outcome === 'accept' || outcome === 'reject') {
+                if (!houseTotals[houseKey]) {
+                    houseTotals[houseKey] = { label: house, total: 0 };
                 }
-            } else if (outcome === 'missing' || outcome === 'unknown') {
-                unresolvedTotal += balance;
+                houseTotals[houseKey].total += balance;
+
+                if (outcome === 'accept') {
+                    fallbackAccept += balance;
+                } else {
+                    fallbackReject += balance;
+                    houseRejectTotals[houseKey] = (houseRejectTotals[houseKey] || 0) + balance;
+                }
+            } else if (outcome === 'non_voting') {
+                fallbackNonVote += balance;
+            } else {
+                fallbackUnresolved += balance;
             }
         });
 
-        const acceptPercent = eligibleTotal > 0 ? (acceptTotal / eligibleTotal) * 100 : 0;
-        const rejectPercent = eligibleTotal > 0 ? (rejectTotal / eligibleTotal) * 100 : 0;
+        const summary = currentIpVoting?.summary || null;
+        const totalDebt = summary ? Number(summary.total_debt || 0) : fallbackTotalDebt;
+        const eligibleTotal = summary ? Number(summary.voting_balance || 0) : (fallbackAccept + fallbackReject);
+        const acceptTotal = summary ? Number(summary.accept_balance || 0) : fallbackAccept;
+        const rejectTotal = summary ? Number(summary.reject_balance || 0) : fallbackReject;
+        const nonVoteTotal = summary ? Number(summary.non_vote_balance || 0) : fallbackNonVote;
+        const unresolvedTotal = summary ? Number(summary.unresolved_balance || 0) : fallbackUnresolved;
+
+        const acceptPercent = summary
+            ? Number(summary.accept_percent || 0)
+            : (eligibleTotal > 0 ? Math.round((acceptTotal / eligibleTotal) * 1000) / 10 : 0);
+        const rejectPercent = summary
+            ? Number(summary.reject_percent || 0)
+            : (eligibleTotal > 0 ? Math.round((100 - acceptPercent) * 10) / 10 : 0);
 
         totalDebtValue.textContent = formatMoney(totalDebt);
         if (leadInfoTotalDebt) leadInfoTotalDebt.textContent = totalDebtValue.textContent;
@@ -1862,21 +1879,18 @@
         }
 
         if (unresolvedTotal > 0 && ivaIpSelect && ivaIpSelect.value) {
-            warnings.push('Voting criteria needs review for ' + formatMoney(unresolvedTotal) + ' of debt.');
-        }
-
-        if (representedTotal > 0) {
-            warnings.push(formatMoney(representedTotal) + ' is represented voting debt. Jinx does not assume the representative will accept or reject.');
+            warnings.push('Voting criteria needs review for ' + formatMoney(unresolvedTotal) + ' of debt before it can be placed into Accept, Reject or Non-vote.');
         }
 
         if (votingHouseExposure && votingHouseExposureRows) {
-            const houses = Object.entries(houseTotals).sort((a, b) => b[1] - a[1]);
+            const houses = Object.values(houseTotals).sort((a, b) => b.total - a.total);
             votingHouseExposure.style.display = houses.length ? 'block' : 'none';
             votingHouseExposureRows.innerHTML = '';
 
-            houses.forEach(([house, total]) => {
+            houses.forEach(({ label: house, total }) => {
+                const houseKey = house.toLowerCase();
                 const housePercent = eligibleTotal > 0 ? (total / eligibleTotal) * 100 : 0;
-                const currentHouseReject = houseRejectTotals[house] || 0;
+                const currentHouseReject = houseRejectTotals[houseKey] || 0;
                 const outsideRejects = Math.max(0, rejectTotal - currentHouseReject);
                 const scenarioReject = Math.min(eligibleTotal, total + outsideRejects);
                 const scenarioPercent = eligibleTotal > 0 ? (scenarioReject / eligibleTotal) * 100 : 0;
@@ -1898,10 +1912,15 @@
         }
 
         if (eligibleTotal > 0 && acceptPercent < 75) {
-            warnings.push('Known accept direction is ' + acceptPercent.toFixed(1) + '% of voting balance.');
+            warnings.push('Accept voting is below 75% at ' + acceptPercent.toFixed(1) + '%.');
         }
+
         if (eligibleTotal > 0 && rejectPercent >= 25) {
-            warnings.push('Known reject direction is ' + rejectPercent.toFixed(1) + '% of voting balance.');
+            warnings.push('Reject voting is ' + rejectPercent.toFixed(1) + '%.');
+        }
+
+        if (nonVoteTotal > 0) {
+            // Non-votes are deliberately excluded from Voting Balance and the Accept/Reject percentages.
         }
 
         if (warnings.length) {
