@@ -198,7 +198,7 @@ class IpCreditorVotingService
             'source_rows' => $sourceRows,
             'representative_rules' => $representativeRules,
             'needs_input' => false,
-            'needs_review' => $outcome === 'unknown',
+            'needs_review' => $outcome === 'unknown' || ($outcome === 'represented' && !$votingHouse),
             'can_save_override' => true,
             'reason' => $reason,
         ];
@@ -234,7 +234,8 @@ class IpCreditorVotingService
         }
 
         if (
-            str_contains($value, 'represented by')
+            $value === 'represented'
+            || str_contains($value, 'represented by')
             || str_contains($value, 'representented by')
             || str_starts_with($value, 'represented ')
             || str_starts_with($value, 'represented')
