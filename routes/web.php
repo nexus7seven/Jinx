@@ -174,6 +174,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
     Route::get('/wip/reengagement-poll', [WipController::class, 'pollReengagement'])->name('wip.reengagement-poll');
     Route::get('/wip/callback-poll', [WipController::class, 'pollCallbacks'])->name('wip.callback-poll');
+    Route::patch('/wip/stack/reorder', [WipController::class, 'reorderStack'])->name('wip.stack.reorder');
+    Route::post('/lead/{lead}/wip-actioned', [WipController::class, 'actioned'])->name('lead.wip-actioned');
     Route::get('/assistant/wip', [WipAssistantController::class, 'bootstrap']);
     Route::post('/assistant/wip/message', [WipAssistantController::class, 'send']);
     Route::post('/assistant/wip/reset', [WipAssistantController::class, 'reset']);
