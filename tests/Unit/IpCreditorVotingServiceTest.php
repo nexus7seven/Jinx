@@ -42,7 +42,7 @@ class IpCreditorVotingServiceTest extends TestCase
             ['Dividend requirement', 'accept'],
             ['Trial @ MOC/Reject', 'unknown'],
             ['Non-voting or reject', 'unknown'],
-            ['Dividend requirement', 'unknown'],
+            ['POD only', 'unknown'],
         ];
     }
 
