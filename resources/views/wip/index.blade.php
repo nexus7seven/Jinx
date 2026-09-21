@@ -510,16 +510,18 @@
             box-shadow: 0 12px 40px rgba(0,0,0,0.45);
         }
 
-        .wip-callback-when{font-size:13px;font-weight:800;color:#bfdbfe;margin-top:7px}.wip-callback-reason{margin-top:8px;padding:9px 10px;border-radius:8px;background:rgba(15,23,42,.7);color:#cbd5e1;font-size:12px;line-height:1.4;min-height:34px}.wip-callback-reason span{display:block;color:#64748b;text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em;margin-bottom:3px}.wip-callback-actions{margin-top:8px}.wip-callback-actions a{display:inline-block;color:#93c5fd;font-size:11px;font-weight:800;text-decoration:none}.wip-callback-actions a:hover{color:#dbeafe}
-        .wip-workdesk{display:block;margin-bottom:18px}.wip-callback-column{min-width:0}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-callback-column .wip-attention-section{margin:0}.wip-callback-column #wip-callback-section{box-sizing:border-box;padding:0;overflow:hidden}.wip-callback-column .wip-attention-header{padding:12px 14px 10px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.45)}.wip-callback-column #wip-callback-list{max-height:260px;overflow-y:auto;overscroll-behavior:contain;padding:9px;scrollbar-width:thin;scrollbar-color:#475569 transparent}.wip-callback-column #wip-callback-list .wip-card{margin-bottom:8px;border-radius:10px;background:rgba(15,23,42,.72)}
-        .wip-desktop-layout{display:block}.wip-main-column{min-width:0}.wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin:22px 0 10px}.wip-queue-heading h2{margin:0;font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin:4px 0 0;color:#64748b}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
+        .wip-desktop-layout{display:block}.wip-main-column{min-width:0}
+        .wip-board-layout{display:grid;grid-template-columns:minmax(0,4fr) minmax(250px,1fr);gap:14px;align-items:start}.wip-board-main{min-width:0}.wip-callback-column{min-width:0;position:sticky;top:14px;max-height:calc(100vh - 28px)}
+        .wip-callback-column #wip-callback-section{margin:0;box-sizing:border-box;padding:0;overflow:hidden;border-color:rgba(59,130,246,.45);background:linear-gradient(180deg,rgba(30,58,138,.18) 0%,rgba(15,23,42,.78) 100%)}.wip-callback-column .wip-attention-header{padding:10px 11px 9px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.5)}.wip-callback-column #wip-callback-list{max-height:calc(100vh - 105px);overflow-y:auto;overscroll-behavior:contain;padding:7px;scrollbar-width:thin;scrollbar-color:#475569 transparent;display:flex;flex-direction:column;gap:6px}
+        .wip-callback-item{display:block;border:1px solid rgba(51,65,85,.65);border-radius:8px;background:rgba(15,23,42,.76);padding:9px 10px;text-decoration:none;color:inherit;transition:border-color .15s ease,background .15s ease}.wip-callback-item:hover{border-color:#475569;background:#111b2d}.wip-callback-item.is-due{border-color:rgba(248,113,113,.45);background:rgba(69,10,10,.2)}.wip-callback-item__top{display:flex;align-items:flex-start;justify-content:space-between;gap:7px}.wip-callback-item__name{font-size:12px;font-weight:800;color:#f8fafc;line-height:1.25}.wip-callback-item__due{font-size:9px;font-weight:800;color:#94a3b8;white-space:nowrap}.wip-callback-item.is-due .wip-callback-item__due{color:#fecaca}.wip-callback-item__when{font-size:10px;font-weight:700;color:#93c5fd;margin-top:5px}.wip-callback-item__note{font-size:10px;line-height:1.35;color:#94a3b8;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin:22px 0 10px}.wip-queue-heading h2{margin:0;font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin:4px 0 0;color:#64748b}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
         .wip-filter-bar{padding:10px;border:1px solid rgba(51,65,85,.55);border-radius:10px;background:rgba(15,23,42,.45)}
         #wip-leads-grid{grid-template-columns:1fr;gap:8px!important}.wip-card{transition:border-color .15s ease,transform .15s ease,background .15s ease}.wip-card:hover{border-color:#475569;background:#111b2d}
         .wip-lead-row{position:relative;padding:10px 12px 10px 44px;gap:7px;border-radius:8px}.wip-lead-row.is-dragging{opacity:.42;border-style:dashed}.wip-lead-row.is-drop-target{border-color:#60a5fa}.wip-stack-handle{position:absolute;left:8px;top:10px;width:26px;height:34px;border:1px solid #334155;border-radius:6px;background:#0b1220;color:#64748b;font-size:20px;line-height:1;cursor:grab;display:flex;align-items:center;justify-content:center;user-select:none}.wip-stack-handle:active{cursor:grabbing}.wip-lead-row .wip-card__title a{font-size:15px}.wip-lead-row .wip-card__meta{padding-top:3px}.wip-lead-row .wip-card__controls{gap:7px}.wip-lead-row .wip-card__controls .status-select{flex:0 1 240px;min-width:180px;min-height:32px;padding:5px 8px;font-size:12px}
         .wip-stack-state{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:#94a3b8}.wip-stack-state__pill{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;border:1px solid #334155;background:#0b1220;color:#cbd5e1}.wip-stack-state__pill.is-due{border-color:#b45309;background:#451a03;color:#fde68a}.wip-stack-state__note{color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:560px}
         .wip-actioned-btn{margin-left:auto;min-height:32px;border:1px solid #2563eb;border-radius:7px;background:#172554;color:#bfdbfe;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer}.wip-actioned-btn:hover{background:#1e3a8a;border-color:#60a5fa}
-        .wip-action-modal{display:none;position:fixed;inset:0;z-index:12100;background:rgba(2,6,23,.68);padding:18px;box-sizing:border-box}.wip-action-modal.is-open{display:block}.wip-action-modal__card{max-width:520px;margin:8vh auto 0;background:#111827;border:1px solid #374151;border-radius:14px;box-shadow:0 22px 60px rgba(0,0,0,.55);overflow:hidden}.wip-action-modal__head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #334155}.wip-action-modal__title{font-size:17px;font-weight:800;color:#f8fafc}.wip-action-modal__sub{margin-top:3px;color:#64748b;font-size:11px}.wip-action-modal__close{width:32px;height:32px;border:1px solid #334155;border-radius:7px;background:#0f172a;color:#cbd5e1;cursor:pointer}.wip-action-modal__body{padding:15px}.wip-action-modal__field{margin-bottom:13px}.wip-action-modal__field label{display:block;margin-bottom:5px;color:#94a3b8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.wip-action-modal__field select,.wip-action-modal__field input,.wip-action-modal__field textarea{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:9px 10px;font:inherit;font-size:13px}.wip-action-modal__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.wip-action-modal__cancel,.wip-action-modal__save{border-radius:8px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.wip-action-modal__cancel{border:1px solid #334155;background:#111827;color:#cbd5e1}.wip-action-modal__save{border:1px solid #2563eb;background:#2563eb;color:#fff}
-        @media(max-width:900px){.wip-page{padding-left:16px!important;padding-right:16px!important}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:1fr}.wip-lead-row{padding-left:42px}.wip-actioned-btn{margin-left:0}}
+        .wip-action-modal{display:none;position:fixed;inset:0;z-index:12100;background:rgba(2,6,23,.68);padding:18px;box-sizing:border-box}.wip-action-modal.is-open{display:block}.wip-action-modal__card{max-width:440px;margin:12vh auto 0;background:#111827;border:1px solid #374151;border-radius:14px;box-shadow:0 22px 60px rgba(0,0,0,.55);overflow:hidden}.wip-action-modal__head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #334155}.wip-action-modal__title{font-size:17px;font-weight:800;color:#f8fafc}.wip-action-modal__sub{margin-top:3px;color:#64748b;font-size:11px}.wip-action-modal__close{width:32px;height:32px;border:1px solid #334155;border-radius:7px;background:#0f172a;color:#cbd5e1;cursor:pointer}.wip-action-modal__body{padding:15px}.wip-action-modal__field{margin-bottom:13px}.wip-action-modal__field label{display:block;margin-bottom:5px;color:#94a3b8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.wip-action-modal__field select{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px}.wip-action-modal__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.wip-action-modal__cancel,.wip-action-modal__save{border-radius:8px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.wip-action-modal__cancel{border:1px solid #334155;background:#111827;color:#cbd5e1}.wip-action-modal__save{border:1px solid #2563eb;background:#2563eb;color:#fff}
+        @media(max-width:1100px){.wip-board-layout{grid-template-columns:minmax(0,3fr) minmax(230px,1fr)}}@media(max-width:820px){.wip-page{padding-left:16px!important;padding-right:16px!important}.wip-board-layout{grid-template-columns:1fr}.wip-callback-column{position:static;max-height:none;order:-1}.wip-callback-column #wip-callback-list{max-height:320px}.wip-lead-row{padding-left:42px}.wip-actioned-btn{margin-left:0}}
     </style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
@@ -575,29 +577,8 @@
     @endif
 
     @php $scheduledCallbacks = $scheduled_callbacks ?? []; @endphp
-    <div class="wip-workdesk">
-      <div class="wip-callback-column">
-    <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}" style="border-color:rgba(59,130,246,.45); background:linear-gradient(180deg,rgba(30,58,138,.22) 0%,rgba(15,23,42,.65) 100%);">
-        <div class="wip-attention-header">
-            <h2 class="wip-attention-title">📞 Scheduled callbacks</h2>
-            <span class="wip-attention-count" id="wip-callback-count" style="border-color:rgba(96,165,250,.5);background:rgba(30,64,175,.4);">{{ count($scheduledCallbacks) }}</span>
-        </div>
-        <div id="wip-callback-list" class="wip-attention-grid">
-            @forelse($scheduledCallbacks as $callback)
-                <article class="wip-card {{ $callback['overdue'] ? 'wip-card-attention' : '' }}" data-callback-id="{{ $callback['callback_id'] }}">
-                    <div class="wip-card__row1"><div class="wip-card__title"><a href="{{ url('/lead/'.$callback['lead_id']) }}">{{ $callback['lead_name'] }}</a></div><div class="wip-card-actions"><span class="wip-chip {{ $callback['due'] ? 'wip-channel-chip' : '' }}">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['relative_due'] }}</span></div></div>
-                    <div class="wip-callback-when">{{ $callback['callback_full_display'] }}</div>
-                    <div class="wip-callback-reason"><span>Callback notes</span>{{ $callback['comments'] !== '' ? $callback['comments'] : 'No callback notes were recorded.' }}</div>
-                    @if(!empty($callback['creditor_contact']))<div class="wip-callback-reason"><span>Creditor contact</span><strong>{{ $callback['creditor_contact']['name'] }}</strong> — {{ $callback['creditor_contact']['phone'] }}@if(!empty($callback['creditor_contact']['opening_hours']))<br>{{ $callback['creditor_contact']['opening_hours'] }}@endif @if(!empty($callback['creditor_contact']['notes']))<br>{{ $callback['creditor_contact']['notes'] }}@endif</div>@endif
-                    <div class="wip-callback-actions"><a href="{{ url('/lead/'.$callback['lead_id']) }}">Open case &amp; callback brief</a></div>
-                </article>
-            @empty
-                <div class="wip-attention-empty" id="wip-callback-empty">No scheduled callbacks.</div>
-            @endforelse
-        </div>
-    </section>
-      </div>
-    </div>
+    <div class="wip-board-layout">
+      <div class="wip-board-main">
 
     <section aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
         <div class="wip-attention-header">
@@ -876,6 +857,33 @@
             </div>
         @endforelse
     </div>
+      </div>
+
+      <aside class="wip-callback-column" aria-label="Scheduled callbacks">
+        <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}">
+            <div class="wip-attention-header">
+                <h2 class="wip-attention-title">📞 Callbacks</h2>
+                <span class="wip-attention-count" id="wip-callback-count" style="border-color:rgba(96,165,250,.5);background:rgba(30,64,175,.4);">{{ count($scheduledCallbacks) }}</span>
+            </div>
+            <div id="wip-callback-list">
+                @forelse($scheduledCallbacks as $callback)
+                    <a href="{{ url('/lead/'.$callback['lead_id']) }}" class="wip-callback-item {{ $callback['due'] ? 'is-due' : '' }}" data-callback-id="{{ $callback['callback_id'] }}">
+                        <div class="wip-callback-item__top">
+                            <span class="wip-callback-item__name">{{ $callback['lead_name'] }}</span>
+                            <span class="wip-callback-item__due">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['relative_due'] }}</span>
+                        </div>
+                        <div class="wip-callback-item__when">{{ $callback['callback_full_display'] }}</div>
+                        @if(trim((string) ($callback['comments'] ?? '')) !== '')
+                            <div class="wip-callback-item__note">{{ $callback['comments'] }}</div>
+                        @endif
+                    </a>
+                @empty
+                    <div class="wip-attention-empty" id="wip-callback-empty">No scheduled callbacks.</div>
+                @endforelse
+            </div>
+        </section>
+      </aside>
+    </div>
     </main>
     </div>
 </div>
@@ -904,25 +912,6 @@
                     <option value="review_later">Nothing / review later</option>
                     <option value="other">Other</option>
                 </select>
-            </div>
-            <div class="wip-action-modal__field">
-                <label for="wip-actioned-chase-preset">Chase again</label>
-                <select id="wip-actioned-chase-preset">
-                    <option value="">No fixed date</option>
-                    <option value="tomorrow">Tomorrow</option>
-                    <option value="2d">In 2 days</option>
-                    <option value="3d">In 3 days</option>
-                    <option value="1w">In 1 week</option>
-                    <option value="custom">Choose date/time…</option>
-                </select>
-            </div>
-            <div class="wip-action-modal__field" id="wip-actioned-custom-wrap" style="display:none;">
-                <label for="wip-actioned-custom">Custom chase time</label>
-                <input type="datetime-local" id="wip-actioned-custom">
-            </div>
-            <div class="wip-action-modal__field">
-                <label for="wip-actioned-note">Action note <span style="text-transform:none;font-weight:400;">(optional)</span></label>
-                <textarea id="wip-actioned-note" rows="3" placeholder="e.g. Requested latest bank statements"></textarea>
             </div>
             <div class="wip-action-modal__actions">
                 <button type="button" id="wip-actioned-cancel" class="wip-action-modal__cancel">Cancel</button>
@@ -1178,10 +1167,6 @@
         const form = document.getElementById('wip-actioned-form');
         const caseName = document.getElementById('wip-actioned-case-name');
         const waitingOn = document.getElementById('wip-actioned-waiting-on');
-        const chasePreset = document.getElementById('wip-actioned-chase-preset');
-        const customWrap = document.getElementById('wip-actioned-custom-wrap');
-        const custom = document.getElementById('wip-actioned-custom');
-        const note = document.getElementById('wip-actioned-note');
         const save = document.getElementById('wip-actioned-save');
         const close = document.getElementById('wip-actioned-close');
         const cancel = document.getElementById('wip-actioned-cancel');
@@ -1197,28 +1182,9 @@
             actionLeadId = Number(button.dataset.actionedLeadId);
             caseName.textContent = (button.dataset.actionedCaseName || 'Case') + ' — what are you waiting on now?';
             waitingOn.value = '';
-            chasePreset.value = '';
-            custom.value = '';
-            customWrap.style.display = 'none';
-            note.value = '';
             modal.classList.add('is-open');
             modal.setAttribute('aria-hidden', 'false');
             window.setTimeout(() => waitingOn.focus(), 0);
-        }
-
-        function chaseDateFromPreset(value) {
-            if (!value) return null;
-            if (value === 'custom') return custom.value || null;
-
-            const date = new Date();
-            if (value === 'tomorrow') date.setDate(date.getDate() + 1);
-            if (value === '2d') date.setDate(date.getDate() + 2);
-            if (value === '3d') date.setDate(date.getDate() + 3);
-            if (value === '1w') date.setDate(date.getDate() + 7);
-
-            const pad = number => String(number).padStart(2, '0');
-            return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
-                + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
         }
 
         function renderQueueState(card, item) {
@@ -1245,11 +1211,6 @@
             button.addEventListener('click', () => openActionedModal(button));
         });
 
-        chasePreset.addEventListener('change', () => {
-            customWrap.style.display = chasePreset.value === 'custom' ? '' : 'none';
-            if (chasePreset.value === 'custom') custom.focus();
-        });
-
         close.addEventListener('click', closeActionedModal);
         cancel.addEventListener('click', closeActionedModal);
         modal.addEventListener('click', event => {
@@ -1259,12 +1220,6 @@
         form.addEventListener('submit', async event => {
             event.preventDefault();
             if (!actionLeadId || !waitingOn.value) return;
-
-            const nextChaseAt = chaseDateFromPreset(chasePreset.value);
-            if (chasePreset.value === 'custom' && !nextChaseAt) {
-                custom.focus();
-                return;
-            }
 
             save.disabled = true;
             save.textContent = 'Saving…';
@@ -1279,8 +1234,8 @@
                     },
                     body: JSON.stringify({
                         waiting_on: waitingOn.value,
-                        next_chase_at: nextChaseAt,
-                        action_note: note.value.trim() || null,
+                        next_chase_at: null,
+                        action_note: null,
                     }),
                 });
 
@@ -1294,7 +1249,6 @@
                 if (card) {
                     renderQueueState(card, data.queue_item);
                     stack.appendChild(card);
-                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
 
                 closeActionedModal();
@@ -1753,7 +1707,7 @@
             if (!list) return;
             if (!items.length) { list.innerHTML='<div class="wip-attention-empty">No scheduled callbacks.</div>'; if(section)section.classList.remove('wip-attention-section--active'); return; }
             if(section)section.classList.toggle('wip-attention-section--active',items.some(x=>x.due));
-            list.innerHTML=items.map(x=>`<article class="wip-card ${x.overdue?'wip-card-attention':''}" data-callback-id="${x.callback_id}"><div class="wip-card__row1"><div class="wip-card__title"><a href="/lead/${x.lead_id}">${esc(x.lead_name)}</a></div><div class="wip-card-actions"><span class="wip-chip ${x.due?'wip-channel-chip':''}">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.relative_due)}</span></div></div><div class="wip-callback-when">${esc(x.callback_full_display)}</div><div class="wip-callback-reason"><span>Callback notes</span>${esc(x.comments||'No callback notes were recorded.')}</div>${x.creditor_contact?`<div class="wip-callback-reason"><span>Creditor contact</span><strong>${esc(x.creditor_contact.name)}</strong> — ${esc(x.creditor_contact.phone||'')}${x.creditor_contact.opening_hours?'<br>'+esc(x.creditor_contact.opening_hours):''}${x.creditor_contact.notes?'<br>'+esc(x.creditor_contact.notes):''}</div>`:''}<div class="wip-callback-actions"><a href="/lead/${x.lead_id}">Open case &amp; callback brief</a></div></article>`).join('');
+            list.innerHTML=items.map(x=>`<a href="/lead/${x.lead_id}" class="wip-callback-item ${x.due?'is-due':''}" data-callback-id="${x.callback_id}"><div class="wip-callback-item__top"><span class="wip-callback-item__name">${esc(x.lead_name)}</span><span class="wip-callback-item__due">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.relative_due)}</span></div><div class="wip-callback-item__when">${esc(x.callback_full_display)}</div>${x.comments?`<div class="wip-callback-item__note">${esc(x.comments)}</div>`:''}</a>`).join('');
         }
         async function poll() {
             try {
