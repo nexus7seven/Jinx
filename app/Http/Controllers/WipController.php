@@ -18,6 +18,7 @@ use App\Services\RemarketingTaskService;
 use App\Services\VicidialDialActivityService;
 use App\Services\VicidialLeadLookupService;
 use App\Services\VicidialCallbackService;
+use App\Services\WipCaseQueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,7 @@ class WipController extends Controller
         private RemarketingTaskService $remarketingTaskService,
         private VicidialLeadLookupService $vicidialLeadLookupService,
         private VicidialCallbackService $vicidialCallbackService,
+        private WipCaseQueueService $wipQueueService,
     ) {
     }
 
@@ -153,6 +155,10 @@ class WipController extends Controller
             $aActivity=$a->last_dialled_at ?? $a->created_at; $bActivity=$b->last_dialled_at ?? $b->created_at;
             return $aActivity <=> $bActivity;
         })->values();
+
+        // The priority calculation above establishes a sensible baseline for first use/new cases.
+        // Once a packager has a working stack, their persisted queue order becomes authoritative.
+        $leads = $this->wipQueueService->sync($request->user(), $leads);
 
         $opsAlertLeads = $leads->map(function (Lead $lead) {
             return [
@@ -421,6 +427,54 @@ class WipController extends Controller
             ->update(['seen_at' => now()]);
 
         return response()->json(['success' => true]);
+    }
+
+    public function reorderStack(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_ids' => ['required', 'array', 'min:1', 'max:1000'],
+            'lead_ids.*' => ['required', 'integer', 'distinct', 'exists:leads,id'],
+        ]);
+
+        $this->wipQueueService->reorder($request->user(), $validated['lead_ids']);
+
+        return response()->json([
+            'success' => true,
+            'lead_ids' => array_values(array_map('intval', $validated['lead_ids'])),
+        ]);
+    }
+
+    public function actioned(Request $request, Lead $lead): JsonResponse
+    {
+        $validated = $request->validate([
+            'waiting_on' => ['required', 'string', Rule::in(array_keys(WipCaseQueueService::WAITING_ON))],
+            'next_chase_at' => ['nullable', 'date'],
+            'action_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $nextChaseAt = filled($validated['next_chase_at'] ?? null)
+            ? Carbon::parse((string) $validated['next_chase_at'])
+            : null;
+
+        if ($nextChaseAt !== null && $nextChaseAt->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The next chase time must be in the future.',
+            ], 422);
+        }
+
+        $item = $this->wipQueueService->actioned(
+            $request->user(),
+            $lead,
+            (string) $validated['waiting_on'],
+            $nextChaseAt?->toDateTimeString(),
+            $validated['action_note'] ?? null
+        );
+
+        return response()->json([
+            'success' => true,
+            'queue_item' => $this->wipQueueService->payload($item),
+        ]);
     }
 
     public function updateStatus(Request $request, Lead $lead): JsonResponse

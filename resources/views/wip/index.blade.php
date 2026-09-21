@@ -511,24 +511,15 @@
         }
 
         .wip-callback-when{font-size:13px;font-weight:800;color:#bfdbfe;margin-top:7px}.wip-callback-reason{margin-top:8px;padding:9px 10px;border-radius:8px;background:rgba(15,23,42,.7);color:#cbd5e1;font-size:12px;line-height:1.4;min-height:34px}.wip-callback-reason span{display:block;color:#64748b;text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em;margin-bottom:3px}.wip-callback-actions{margin-top:8px}.wip-callback-actions a{display:inline-block;color:#93c5fd;font-size:11px;font-weight:800;text-decoration:none}.wip-callback-actions a:hover{color:#dbeafe}
-        .wip-workdesk { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(390px,.55fr); gap:18px; align-items:start; margin-bottom:18px; }
-        .wip-assistant-column{min-width:0}.wip-callback-column{min-width:0}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:1fr}.wip-callback-column .wip-attention-section{margin:0}.wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:18px 0 10px}.wip-queue-heading h2{margin:0;font-size:16px}.wip-queue-heading p{margin:3px 0 0;color:#64748b;font-size:11px}
-        .wip-desktop-layout { display:block; }
-        .wip-main-column { min-width:0; }
-        #wip-leads-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        #wip-callback-list.wip-attention-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        @media (max-width:1200px){ .wip-workdesk{grid-template-columns:minmax(0,1fr) 400px;} #wip-leads-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
-        @media (max-width:900px){ .wip-page{padding-left:16px!important;padding-right:16px!important;} .wip-workdesk{grid-template-columns:1fr;} .wip-assistant{position:relative;top:auto;min-height:480px;} #wip-leads-grid{grid-template-columns:1fr;} }
-        .wip-workdesk{height:min(690px,calc(100vh - 185px));min-height:540px;gap:16px;margin-bottom:20px}
-        .wip-assistant-column,.wip-callback-column{height:100%;min-height:0}
-        .wip-callback-column #wip-callback-section{height:100%;box-sizing:border-box;display:flex;flex-direction:column;padding:0;overflow:hidden}
-        .wip-callback-column .wip-attention-header{padding:14px 15px 11px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.45)}
-        .wip-callback-column #wip-callback-list{display:block;overflow-y:auto;overscroll-behavior:contain;padding:9px;scrollbar-width:thin;scrollbar-color:#475569 transparent}
-        .wip-callback-column #wip-callback-list .wip-card{margin-bottom:8px;border-radius:10px;background:rgba(15,23,42,.72)}
-        .wip-queue-heading{border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin-top:22px}.wip-queue-heading h2{font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin-top:4px}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
+        .wip-workdesk{display:block;margin-bottom:18px}.wip-callback-column{min-width:0}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-callback-column .wip-attention-section{margin:0}.wip-callback-column #wip-callback-section{box-sizing:border-box;padding:0;overflow:hidden}.wip-callback-column .wip-attention-header{padding:12px 14px 10px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.45)}.wip-callback-column #wip-callback-list{max-height:260px;overflow-y:auto;overscroll-behavior:contain;padding:9px;scrollbar-width:thin;scrollbar-color:#475569 transparent}.wip-callback-column #wip-callback-list .wip-card{margin-bottom:8px;border-radius:10px;background:rgba(15,23,42,.72)}
+        .wip-desktop-layout{display:block}.wip-main-column{min-width:0}.wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin:22px 0 10px}.wip-queue-heading h2{margin:0;font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin:4px 0 0;color:#64748b}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
         .wip-filter-bar{padding:10px;border:1px solid rgba(51,65,85,.55);border-radius:10px;background:rgba(15,23,42,.45)}
-        #wip-leads-grid{gap:12px!important}.wip-card{transition:border-color .15s ease,transform .15s ease,background .15s ease}.wip-card:hover{border-color:#475569;background:#111b2d;transform:translateY(-1px)}
-        @media(max-width:900px){.wip-workdesk{height:auto}.wip-callback-column #wip-callback-section{max-height:520px}.wip-assistant-column{height:auto}}
+        #wip-leads-grid{grid-template-columns:1fr;gap:8px!important}.wip-card{transition:border-color .15s ease,transform .15s ease,background .15s ease}.wip-card:hover{border-color:#475569;background:#111b2d}
+        .wip-lead-row{position:relative;padding:10px 12px 10px 44px;gap:7px;border-radius:8px}.wip-lead-row.is-dragging{opacity:.42;border-style:dashed}.wip-lead-row.is-drop-target{border-color:#60a5fa}.wip-stack-handle{position:absolute;left:8px;top:10px;width:26px;height:34px;border:1px solid #334155;border-radius:6px;background:#0b1220;color:#64748b;font-size:20px;line-height:1;cursor:grab;display:flex;align-items:center;justify-content:center;user-select:none}.wip-stack-handle:active{cursor:grabbing}.wip-lead-row .wip-card__title a{font-size:15px}.wip-lead-row .wip-card__meta{padding-top:3px}.wip-lead-row .wip-card__controls{gap:7px}.wip-lead-row .wip-card__controls .status-select{flex:0 1 240px;min-width:180px;min-height:32px;padding:5px 8px;font-size:12px}
+        .wip-stack-state{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:#94a3b8}.wip-stack-state__pill{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;border:1px solid #334155;background:#0b1220;color:#cbd5e1}.wip-stack-state__pill.is-due{border-color:#b45309;background:#451a03;color:#fde68a}.wip-stack-state__note{color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:560px}
+        .wip-actioned-btn{margin-left:auto;min-height:32px;border:1px solid #2563eb;border-radius:7px;background:#172554;color:#bfdbfe;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer}.wip-actioned-btn:hover{background:#1e3a8a;border-color:#60a5fa}
+        .wip-action-modal{display:none;position:fixed;inset:0;z-index:12100;background:rgba(2,6,23,.68);padding:18px;box-sizing:border-box}.wip-action-modal.is-open{display:block}.wip-action-modal__card{max-width:520px;margin:8vh auto 0;background:#111827;border:1px solid #374151;border-radius:14px;box-shadow:0 22px 60px rgba(0,0,0,.55);overflow:hidden}.wip-action-modal__head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #334155}.wip-action-modal__title{font-size:17px;font-weight:800;color:#f8fafc}.wip-action-modal__sub{margin-top:3px;color:#64748b;font-size:11px}.wip-action-modal__close{width:32px;height:32px;border:1px solid #334155;border-radius:7px;background:#0f172a;color:#cbd5e1;cursor:pointer}.wip-action-modal__body{padding:15px}.wip-action-modal__field{margin-bottom:13px}.wip-action-modal__field label{display:block;margin-bottom:5px;color:#94a3b8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.wip-action-modal__field select,.wip-action-modal__field input,.wip-action-modal__field textarea{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:9px 10px;font:inherit;font-size:13px}.wip-action-modal__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.wip-action-modal__cancel,.wip-action-modal__save{border-radius:8px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.wip-action-modal__cancel{border:1px solid #334155;background:#111827;color:#cbd5e1}.wip-action-modal__save{border:1px solid #2563eb;background:#2563eb;color:#fff}
+        @media(max-width:900px){.wip-page{padding-left:16px!important;padding-right:16px!important}.wip-callback-column #wip-callback-list.wip-attention-grid{grid-template-columns:1fr}.wip-lead-row{padding-left:42px}.wip-actioned-btn{margin-left:0}}
     </style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
@@ -585,7 +576,6 @@
 
     @php $scheduledCallbacks = $scheduled_callbacks ?? []; @endphp
     <div class="wip-workdesk">
-      <div class="wip-assistant-column">@include('wip.assistant')</div>
       <div class="wip-callback-column">
     <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}" style="border-color:rgba(59,130,246,.45); background:linear-gradient(180deg,rgba(30,58,138,.22) 0%,rgba(15,23,42,.65) 100%);">
         <div class="wip-attention-header">
@@ -708,7 +698,7 @@
         @endif
     </section>
 
-    <div class="wip-queue-heading"><div><h2>WIP</h2><p>Case queue · priority work first, then oldest untouched cases.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
+    <div class="wip-queue-heading"><div><h2>Working stack</h2><p>Work from the top. Drag cases to reorder them; after actioning a case, record what you are waiting on and it moves to the bottom.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input
             type="search"
@@ -796,6 +786,12 @@
                     $cardAttentionClass = '';
                 }
                 $reengagementSeenCalm = $isReengaged && ! $reengagementUnseen;
+                $queueItem = $lead->wipQueueItem;
+                $waitingOnLabel = $lead->wip_waiting_on_label ?? null;
+                $nextChaseAt = $queueItem?->next_chase_at;
+                $lastActionedAt = $queueItem?->last_actioned_at;
+                $actionNote = trim((string) ($queueItem?->action_note ?? ''));
+                $chaseDue = (bool) ($lead->wip_chase_due ?? false);
             @endphp
 
             <div
@@ -805,7 +801,9 @@
                 data-wip-status="{{ $lead->wip_status }}"
                 data-lead-source="{{ e($sourceRaw) }}"
                 data-reengagement-unseen="{{ $reengagementUnseen ? '1' : '0' }}"
+                data-queue-position="{{ (int) ($lead->wip_queue_position ?? 0) }}"
             >
+                <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">≡</button>
                 <div class="wip-card__row1">
                     <div class="wip-card__title">
                         <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
@@ -842,6 +840,23 @@
                     <span class="wip-meta-pill">{{ $sourceLabel }}</span>
                 </div>
 
+                <div class="wip-stack-state" data-stack-state>
+                    @if ($waitingOnLabel)
+                        <span class="wip-stack-state__pill">Waiting on: <strong>{{ $waitingOnLabel }}</strong></span>
+                    @else
+                        <span class="wip-stack-state__pill">Not actioned yet</span>
+                    @endif
+                    @if ($nextChaseAt)
+                        <span class="wip-stack-state__pill {{ $chaseDue ? 'is-due' : '' }}" data-chase-pill>{{ $chaseDue ? 'Chase due' : 'Chase' }}: {{ $nextChaseAt->format('D j M, H:i') }}</span>
+                    @endif
+                    @if ($lastActionedAt)
+                        <span class="wip-stack-state__pill">Last actioned {{ $lastActionedAt->diffForHumans() }}</span>
+                    @endif
+                    @if ($actionNote !== '')
+                        <span class="wip-stack-state__note" title="{{ $actionNote }}">{{ $actionNote }}</span>
+                    @endif
+                </div>
+
                 <div class="wip-card__controls">
                     <select
                         data-lead-id="{{ $lead->id }}"
@@ -852,6 +867,7 @@
                             </option>
                         @endforeach
                     </select>
+                    <button type="button" class="wip-actioned-btn" data-actioned-lead-id="{{ $lead->id }}" data-actioned-case-name="{{ $caseName }}">Actioned ↓</button>
                 </div>
             </div>
         @empty
@@ -861,6 +877,58 @@
         @endforelse
     </div>
     </main>
+    </div>
+</div>
+
+@include('wip.assistant')
+
+<div id="wip-actioned-modal" class="wip-action-modal" aria-hidden="true">
+    <div class="wip-action-modal__card" role="dialog" aria-modal="true" aria-labelledby="wip-actioned-title">
+        <div class="wip-action-modal__head">
+            <div>
+                <div id="wip-actioned-title" class="wip-action-modal__title">Case actioned</div>
+                <div id="wip-actioned-case-name" class="wip-action-modal__sub">What are you waiting on now?</div>
+            </div>
+            <button type="button" id="wip-actioned-close" class="wip-action-modal__close" aria-label="Close">×</button>
+        </div>
+        <form id="wip-actioned-form" class="wip-action-modal__body">
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-waiting-on">Waiting on</label>
+                <select id="wip-actioned-waiting-on" required>
+                    <option value="">Choose…</option>
+                    <option value="client">Client</option>
+                    <option value="creditor">Creditor</option>
+                    <option value="ip_provider">IP / IVA provider</option>
+                    <option value="documents">Documents</option>
+                    <option value="internal">Internal action</option>
+                    <option value="review_later">Nothing / review later</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-chase-preset">Chase again</label>
+                <select id="wip-actioned-chase-preset">
+                    <option value="">No fixed date</option>
+                    <option value="tomorrow">Tomorrow</option>
+                    <option value="2d">In 2 days</option>
+                    <option value="3d">In 3 days</option>
+                    <option value="1w">In 1 week</option>
+                    <option value="custom">Choose date/time…</option>
+                </select>
+            </div>
+            <div class="wip-action-modal__field" id="wip-actioned-custom-wrap" style="display:none;">
+                <label for="wip-actioned-custom">Custom chase time</label>
+                <input type="datetime-local" id="wip-actioned-custom">
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-note">Action note <span style="text-transform:none;font-weight:400;">(optional)</span></label>
+                <textarea id="wip-actioned-note" rows="3" placeholder="e.g. Requested latest bank statements"></textarea>
+            </div>
+            <div class="wip-action-modal__actions">
+                <button type="button" id="wip-actioned-cancel" class="wip-action-modal__cancel">Cancel</button>
+                <button type="submit" id="wip-actioned-save" class="wip-action-modal__save">Move to bottom</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -902,6 +970,7 @@
     const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
     const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
     const wipCallbackPollUrl = @json(route('wip.callback-poll'));
+    const wipStackReorderUrl = @json(route('wip.stack.reorder'));
     const wipCallbackInitialDueIds = new Set(@json(collect($scheduled_callbacks ?? [])->where('due', true)->pluck('callback_id')->values()->all()));
 
     (function () {
@@ -1007,6 +1076,237 @@
     if (wipFilterSource) {
         wipFilterSource.addEventListener('change', applyWipFilters);
     }
+
+    (function () {
+        const stack = document.getElementById('wip-leads-grid');
+        if (!stack) return;
+
+        let draggedCard = null;
+        let reorderInFlight = false;
+
+        function filtersAreActive() {
+            return !!((wipFilterNameInput?.value || '').trim() || wipFilterStatus?.value || wipFilterSource?.value);
+        }
+
+        function toast(message) {
+            const el = document.getElementById('wip-ops-toast');
+            if (!el) return;
+            el.textContent = message;
+            el.style.display = 'block';
+            window.setTimeout(() => { el.style.display = 'none'; }, 2800);
+        }
+
+        async function persistOrder() {
+            if (reorderInFlight) return;
+            reorderInFlight = true;
+            const leadIds = Array.from(stack.querySelectorAll('.wip-lead-row')).map(card => Number(card.dataset.leadId));
+            try {
+                const response = await fetch(wipStackReorderUrl, {
+                    method: 'PATCH',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({ lead_ids: leadIds }),
+                });
+                if (!response.ok) throw new Error('Could not save stack order');
+                toast('Working stack order saved.');
+            } catch (error) {
+                toast('Could not save stack order. Reloading…');
+                window.setTimeout(() => window.location.reload(), 900);
+            } finally {
+                reorderInFlight = false;
+            }
+        }
+
+        stack.querySelectorAll('.wip-stack-handle').forEach(handle => {
+            handle.addEventListener('dragstart', event => {
+                if (filtersAreActive()) {
+                    event.preventDefault();
+                    toast('Clear the filters before reordering the stack.');
+                    return;
+                }
+
+                draggedCard = handle.closest('.wip-lead-row');
+                if (!draggedCard) return;
+                draggedCard.classList.add('is-dragging');
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', draggedCard.dataset.leadId || '');
+            });
+
+            handle.addEventListener('dragend', async () => {
+                if (!draggedCard) return;
+                draggedCard.classList.remove('is-dragging');
+                stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+                draggedCard = null;
+                await persistOrder();
+            });
+        });
+
+        stack.addEventListener('dragover', event => {
+            if (!draggedCard) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+
+            const cards = Array.from(stack.querySelectorAll('.wip-lead-row:not(.is-dragging)'))
+                .filter(card => card.style.display !== 'none');
+
+            let after = null;
+            let bestOffset = Number.NEGATIVE_INFINITY;
+
+            cards.forEach(card => {
+                const box = card.getBoundingClientRect();
+                const offset = event.clientY - box.top - box.height / 2;
+                if (offset < 0 && offset > bestOffset) {
+                    bestOffset = offset;
+                    after = card;
+                }
+            });
+
+            stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+
+            if (after) {
+                after.classList.add('is-drop-target');
+                stack.insertBefore(draggedCard, after);
+            } else {
+                stack.appendChild(draggedCard);
+            }
+        });
+
+        const modal = document.getElementById('wip-actioned-modal');
+        const form = document.getElementById('wip-actioned-form');
+        const caseName = document.getElementById('wip-actioned-case-name');
+        const waitingOn = document.getElementById('wip-actioned-waiting-on');
+        const chasePreset = document.getElementById('wip-actioned-chase-preset');
+        const customWrap = document.getElementById('wip-actioned-custom-wrap');
+        const custom = document.getElementById('wip-actioned-custom');
+        const note = document.getElementById('wip-actioned-note');
+        const save = document.getElementById('wip-actioned-save');
+        const close = document.getElementById('wip-actioned-close');
+        const cancel = document.getElementById('wip-actioned-cancel');
+        let actionLeadId = null;
+
+        function closeActionedModal() {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            actionLeadId = null;
+        }
+
+        function openActionedModal(button) {
+            actionLeadId = Number(button.dataset.actionedLeadId);
+            caseName.textContent = (button.dataset.actionedCaseName || 'Case') + ' — what are you waiting on now?';
+            waitingOn.value = '';
+            chasePreset.value = '';
+            custom.value = '';
+            customWrap.style.display = 'none';
+            note.value = '';
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            window.setTimeout(() => waitingOn.focus(), 0);
+        }
+
+        function chaseDateFromPreset(value) {
+            if (!value) return null;
+            if (value === 'custom') return custom.value || null;
+
+            const date = new Date();
+            if (value === 'tomorrow') date.setDate(date.getDate() + 1);
+            if (value === '2d') date.setDate(date.getDate() + 2);
+            if (value === '3d') date.setDate(date.getDate() + 3);
+            if (value === '1w') date.setDate(date.getDate() + 7);
+
+            const pad = number => String(number).padStart(2, '0');
+            return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+                + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+        }
+
+        function renderQueueState(card, item) {
+            const wrap = card.querySelector('[data-stack-state]');
+            if (!wrap) return;
+
+            const waiting = item.waiting_on_label
+                ? '<span class="wip-stack-state__pill">Waiting on: <strong>' + escapeHtml(item.waiting_on_label) + '</strong></span>'
+                : '<span class="wip-stack-state__pill">Not actioned yet</span>';
+            const chase = item.next_chase_display
+                ? '<span class="wip-stack-state__pill' + (item.chase_due ? ' is-due' : '') + '">' + (item.chase_due ? 'Chase due' : 'Chase') + ': ' + escapeHtml(item.next_chase_display) + '</span>'
+                : '';
+            const actioned = item.last_actioned_display
+                ? '<span class="wip-stack-state__pill">Last actioned ' + escapeHtml(item.last_actioned_display) + '</span>'
+                : '';
+            const actionNote = item.action_note
+                ? '<span class="wip-stack-state__note" title="' + escapeHtml(item.action_note) + '">' + escapeHtml(item.action_note) + '</span>'
+                : '';
+
+            wrap.innerHTML = waiting + chase + actioned + actionNote;
+        }
+
+        document.querySelectorAll('.wip-actioned-btn').forEach(button => {
+            button.addEventListener('click', () => openActionedModal(button));
+        });
+
+        chasePreset.addEventListener('change', () => {
+            customWrap.style.display = chasePreset.value === 'custom' ? '' : 'none';
+            if (chasePreset.value === 'custom') custom.focus();
+        });
+
+        close.addEventListener('click', closeActionedModal);
+        cancel.addEventListener('click', closeActionedModal);
+        modal.addEventListener('click', event => {
+            if (event.target === modal) closeActionedModal();
+        });
+
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!actionLeadId || !waitingOn.value) return;
+
+            const nextChaseAt = chaseDateFromPreset(chasePreset.value);
+            if (chasePreset.value === 'custom' && !nextChaseAt) {
+                custom.focus();
+                return;
+            }
+
+            save.disabled = true;
+            save.textContent = 'Saving…';
+
+            try {
+                const response = await fetch('/lead/' + actionLeadId + '/wip-actioned', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        waiting_on: waitingOn.value,
+                        next_chase_at: nextChaseAt,
+                        action_note: note.value.trim() || null,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    const validation = data.errors ? Object.values(data.errors).flat().join(' ') : null;
+                    throw new Error(validation || data.message || 'Could not update case');
+                }
+
+                const card = stack.querySelector('.wip-lead-row[data-lead-id="' + actionLeadId + '"]');
+                if (card) {
+                    renderQueueState(card, data.queue_item);
+                    stack.appendChild(card);
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+
+                closeActionedModal();
+                toast('Case moved to the bottom of your working stack.');
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                save.disabled = false;
+                save.textContent = 'Move to bottom';
+            }
+        });
+    })();
 
     const modal = document.getElementById('checklist-modal');
     const modalCaseName = document.getElementById('modal-case-name');
@@ -1362,6 +1662,9 @@
 
         setInterval(function () {
             if (document.getElementById('checklist-modal') && document.getElementById('checklist-modal').style.display === 'block') {
+                return;
+            }
+            if (document.getElementById('wip-actioned-modal')?.classList.contains('is-open')) {
                 return;
             }
             if (isFormFieldFocused()) return;

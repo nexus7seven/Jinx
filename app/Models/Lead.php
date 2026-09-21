@@ -159,6 +159,11 @@ class Lead extends Model
         return $created->greaterThanOrEqualTo($now->copy()->subHours(self::IMMEDIATE_ATTENTION_FRESH_HOURS));
     }
 
+    public function wipQueueItems()
+    {
+        return $this->hasMany(WipCaseQueueItem::class);
+    }
+
     public function debts()
     {
         return $this->hasMany(Debt::class);
