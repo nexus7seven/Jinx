@@ -261,7 +261,6 @@ class IpCreditorVotingOverrideService
                 'outcome' => $after['outcome'],
                 'voting_house' => $after['voting_house'],
                 'condition_text' => $after['condition_text'],
-                'created_by' => $userId,
                 'updated_at' => now(),
             ];
 
@@ -271,6 +270,7 @@ class IpCreditorVotingOverrideService
                 DB::table('ip_creditor_voting_overrides')->insert(array_merge($values, [
                     'creditor_id' => $creditor->id,
                     'ip_key' => $normalisedIp,
+                    'created_by' => $userId,
                     'created_at' => now(),
                 ]));
             }
