@@ -32,6 +32,7 @@ class JinxAssistantController extends Controller
             'active_callback' => $callback,
             'knowledge_count' => AssistantKnowledgeItem::active()->count(),
             'pending_knowledge' => data_get($conversation->metadata, 'pending_knowledge'),
+            'pending_ip_voting_change' => data_get($conversation->metadata, 'pending_ip_voting_change'),
             'established_facts' => data_get($conversation->metadata, 'established_facts', []),
             'last_suitability_assessment' => data_get($conversation->metadata, 'last_suitability_assessment'),
             'messages' => $conversation->messages()->latest('id')->limit(60)->get()->reverse()->values()->map(fn (AssistantMessage $message) => [
