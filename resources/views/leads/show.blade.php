@@ -446,13 +446,16 @@
             <h2 style="margin:0; font-size:24px;">Debts</h2>
 
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                <label for="practiceSelect" style="font-size:13px; color:#9ca3af;">Practice View</label>
+                <label for="ivaIpSelect" style="font-size:13px; color:#9ca3af;">IVA IP</label>
                 <select
-                    id="practiceSelect"
+                    id="ivaIpSelect"
+                    data-update-url="{{ route('lead.iva-ip.update', $lead) }}"
+                    data-voting-url="{{ route('lead.ip-voting.show', $lead) }}"
                     style="padding:10px 12px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb;"
                 >
-                    @foreach($practices as $practice)
-                        <option value="{{ $practice->key }}">{{ $practice->label }}</option>
+                    <option value="">Select IP…</option>
+                    @foreach(\App\Models\Lead::IVA_IPS as $ipKey => $ipLabel)
+                        <option value="{{ $ipKey }}" @selected($lead->iva_ip_key === $ipKey)>{{ $ipLabel }}</option>
                     @endforeach
                 </select>
 
