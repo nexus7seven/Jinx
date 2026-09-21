@@ -576,7 +576,6 @@
 
     @php $scheduledCallbacks = $scheduled_callbacks ?? []; @endphp
     <div class="wip-workdesk">
-      <div class="wip-assistant-column">@include('wip.assistant')</div>
       <div class="wip-callback-column">
     <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}" style="border-color:rgba(59,130,246,.45); background:linear-gradient(180deg,rgba(30,58,138,.22) 0%,rgba(15,23,42,.65) 100%);">
         <div class="wip-attention-header">
@@ -699,7 +698,7 @@
         @endif
     </section>
 
-    <div class="wip-queue-heading"><div><h2>WIP</h2><p>Case queue · priority work first, then oldest untouched cases.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
+    <div class="wip-queue-heading"><div><h2>Working stack</h2><p>Work from the top. Drag cases to reorder them; after actioning a case, record what you are waiting on and it moves to the bottom.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
     <div id="wip-filter-bar" class="wip-filter-bar">
         <input
             type="search"
@@ -854,6 +853,8 @@
     </main>
     </div>
 </div>
+
+@include('wip.assistant')
 
 <div id="checklist-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999; padding:16px; box-sizing:border-box;">
     <div style="max-width:720px; margin:30px auto; background:#111827; border:1px solid #374151; border-radius:18px; overflow:hidden;">
