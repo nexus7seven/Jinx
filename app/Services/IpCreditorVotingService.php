@@ -47,7 +47,7 @@ class IpCreditorVotingService
             'debts' => $items,
             'unresolved' => array_values(array_filter(
                 $items,
-                fn (array $item) => ($item['needs_input'] ?? false) === true
+                fn (array $item) => ($item['needs_input'] ?? false) === true || ($item['needs_review'] ?? false) === true
             )),
         ];
     }
@@ -79,7 +79,7 @@ class IpCreditorVotingService
                     'source_rows' => [],
                     'representative_rules' => [],
                     'needs_input' => false,
-                    'needs_review' => $manual->outcome === 'unknown',
+                    'needs_review' => false,
                     'can_save_override' => true,
                     'reason' => 'manual_override',
                 ];
@@ -201,13 +201,14 @@ class IpCreditorVotingService
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
             || $value === 'moc'
+            || $value === 'will consider'
+            || $value === 'will consider'
         ) {
             return 'accept_conditional';
         }
 
         if (
             str_contains($value, 'represented by')
-            || str_contains($value, 'represented by')
             || str_contains($value, 'representented by')
             || str_starts_with($value, 'represented ')
             || str_starts_with($value, 'represented')
