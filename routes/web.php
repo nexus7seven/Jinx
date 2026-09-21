@@ -7,7 +7,6 @@ use Illuminate\Validation\Rule;
 use App\Models\Lead;
 use App\Models\Debt;
 use App\Models\Creditor;
-use App\Models\VotingPractice;
 use App\Models\LeadPortalShortLink;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CreditCheckWorkerController;
