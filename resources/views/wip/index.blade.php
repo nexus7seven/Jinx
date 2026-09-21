@@ -1077,6 +1077,237 @@
         wipFilterSource.addEventListener('change', applyWipFilters);
     }
 
+    (function () {
+        const stack = document.getElementById('wip-leads-grid');
+        if (!stack) return;
+
+        let draggedCard = null;
+        let reorderInFlight = false;
+
+        function filtersAreActive() {
+            return !!((wipFilterNameInput?.value || '').trim() || wipFilterStatus?.value || wipFilterSource?.value);
+        }
+
+        function toast(message) {
+            const el = document.getElementById('wip-ops-toast');
+            if (!el) return;
+            el.textContent = message;
+            el.style.display = 'block';
+            window.setTimeout(() => { el.style.display = 'none'; }, 2800);
+        }
+
+        async function persistOrder() {
+            if (reorderInFlight) return;
+            reorderInFlight = true;
+            const leadIds = Array.from(stack.querySelectorAll('.wip-lead-row')).map(card => Number(card.dataset.leadId));
+            try {
+                const response = await fetch(wipStackReorderUrl, {
+                    method: 'PATCH',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({ lead_ids: leadIds }),
+                });
+                if (!response.ok) throw new Error('Could not save stack order');
+                toast('Working stack order saved.');
+            } catch (error) {
+                toast('Could not save stack order. Reloading…');
+                window.setTimeout(() => window.location.reload(), 900);
+            } finally {
+                reorderInFlight = false;
+            }
+        }
+
+        stack.querySelectorAll('.wip-stack-handle').forEach(handle => {
+            handle.addEventListener('dragstart', event => {
+                if (filtersAreActive()) {
+                    event.preventDefault();
+                    toast('Clear the filters before reordering the stack.');
+                    return;
+                }
+
+                draggedCard = handle.closest('.wip-lead-row');
+                if (!draggedCard) return;
+                draggedCard.classList.add('is-dragging');
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', draggedCard.dataset.leadId || '');
+            });
+
+            handle.addEventListener('dragend', async () => {
+                if (!draggedCard) return;
+                draggedCard.classList.remove('is-dragging');
+                stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+                draggedCard = null;
+                await persistOrder();
+            });
+        });
+
+        stack.addEventListener('dragover', event => {
+            if (!draggedCard) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+
+            const cards = Array.from(stack.querySelectorAll('.wip-lead-row:not(.is-dragging)'))
+                .filter(card => card.style.display !== 'none');
+
+            let after = null;
+            let bestOffset = Number.NEGATIVE_INFINITY;
+
+            cards.forEach(card => {
+                const box = card.getBoundingClientRect();
+                const offset = event.clientY - box.top - box.height / 2;
+                if (offset < 0 && offset > bestOffset) {
+                    bestOffset = offset;
+                    after = card;
+                }
+            });
+
+            stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+
+            if (after) {
+                after.classList.add('is-drop-target');
+                stack.insertBefore(draggedCard, after);
+            } else {
+                stack.appendChild(draggedCard);
+            }
+        });
+
+        const modal = document.getElementById('wip-actioned-modal');
+        const form = document.getElementById('wip-actioned-form');
+        const caseName = document.getElementById('wip-actioned-case-name');
+        const waitingOn = document.getElementById('wip-actioned-waiting-on');
+        const chasePreset = document.getElementById('wip-actioned-chase-preset');
+        const customWrap = document.getElementById('wip-actioned-custom-wrap');
+        const custom = document.getElementById('wip-actioned-custom');
+        const note = document.getElementById('wip-actioned-note');
+        const save = document.getElementById('wip-actioned-save');
+        const close = document.getElementById('wip-actioned-close');
+        const cancel = document.getElementById('wip-actioned-cancel');
+        let actionLeadId = null;
+
+        function closeActionedModal() {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            actionLeadId = null;
+        }
+
+        function openActionedModal(button) {
+            actionLeadId = Number(button.dataset.actionedLeadId);
+            caseName.textContent = (button.dataset.actionedCaseName || 'Case') + ' — what are you waiting on now?';
+            waitingOn.value = '';
+            chasePreset.value = '';
+            custom.value = '';
+            customWrap.style.display = 'none';
+            note.value = '';
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            window.setTimeout(() => waitingOn.focus(), 0);
+        }
+
+        function chaseDateFromPreset(value) {
+            if (!value) return null;
+            if (value === 'custom') return custom.value || null;
+
+            const date = new Date();
+            if (value === 'tomorrow') date.setDate(date.getDate() + 1);
+            if (value === '2d') date.setDate(date.getDate() + 2);
+            if (value === '3d') date.setDate(date.getDate() + 3);
+            if (value === '1w') date.setDate(date.getDate() + 7);
+
+            const pad = number => String(number).padStart(2, '0');
+            return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+                + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+        }
+
+        function renderQueueState(card, item) {
+            const wrap = card.querySelector('[data-stack-state]');
+            if (!wrap) return;
+
+            const waiting = item.waiting_on_label
+                ? '<span class="wip-stack-state__pill">Waiting on: <strong>' + escapeHtml(item.waiting_on_label) + '</strong></span>'
+                : '<span class="wip-stack-state__pill">Not actioned yet</span>';
+            const chase = item.next_chase_display
+                ? '<span class="wip-stack-state__pill' + (item.chase_due ? ' is-due' : '') + '">' + (item.chase_due ? 'Chase due' : 'Chase') + ': ' + escapeHtml(item.next_chase_display) + '</span>'
+                : '';
+            const actioned = item.last_actioned_display
+                ? '<span class="wip-stack-state__pill">Last actioned ' + escapeHtml(item.last_actioned_display) + '</span>'
+                : '';
+            const actionNote = item.action_note
+                ? '<span class="wip-stack-state__note" title="' + escapeHtml(item.action_note) + '">' + escapeHtml(item.action_note) + '</span>'
+                : '';
+
+            wrap.innerHTML = waiting + chase + actioned + actionNote;
+        }
+
+        document.querySelectorAll('.wip-actioned-btn').forEach(button => {
+            button.addEventListener('click', () => openActionedModal(button));
+        });
+
+        chasePreset.addEventListener('change', () => {
+            customWrap.style.display = chasePreset.value === 'custom' ? '' : 'none';
+            if (chasePreset.value === 'custom') custom.focus();
+        });
+
+        close.addEventListener('click', closeActionedModal);
+        cancel.addEventListener('click', closeActionedModal);
+        modal.addEventListener('click', event => {
+            if (event.target === modal) closeActionedModal();
+        });
+
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!actionLeadId || !waitingOn.value) return;
+
+            const nextChaseAt = chaseDateFromPreset(chasePreset.value);
+            if (chasePreset.value === 'custom' && !nextChaseAt) {
+                custom.focus();
+                return;
+            }
+
+            save.disabled = true;
+            save.textContent = 'Saving…';
+
+            try {
+                const response = await fetch('/lead/' + actionLeadId + '/wip-actioned', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        waiting_on: waitingOn.value,
+                        next_chase_at: nextChaseAt,
+                        action_note: note.value.trim() || null,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    const validation = data.errors ? Object.values(data.errors).flat().join(' ') : null;
+                    throw new Error(validation || data.message || 'Could not update case');
+                }
+
+                const card = stack.querySelector('.wip-lead-row[data-lead-id="' + actionLeadId + '"]');
+                if (card) {
+                    renderQueueState(card, data.queue_item);
+                    stack.appendChild(card);
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+
+                closeActionedModal();
+                toast('Case moved to the bottom of your working stack.');
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                save.disabled = false;
+                save.textContent = 'Move to bottom';
+            }
+        });
+    })();
+
     const modal = document.getElementById('checklist-modal');
     const modalCaseName = document.getElementById('modal-case-name');
     const modalSubtitle = document.getElementById('modal-subtitle');
@@ -1431,6 +1662,9 @@
 
         setInterval(function () {
             if (document.getElementById('checklist-modal') && document.getElementById('checklist-modal').style.display === 'block') {
+                return;
+            }
+            if (document.getElementById('wip-actioned-modal')?.classList.contains('is-open')) {
                 return;
             }
             if (isFormFieldFocused()) return;
