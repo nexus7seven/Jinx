@@ -37,7 +37,7 @@ class IpCreditorVotingServiceTest extends TestCase
             ['Non-vote', 'non_voting'],
             ['DO NOT VOTE', 'non_voting'],
             ['NO VOTE', 'non_voting'],
-            ['MOC', 'unknown'],
+            ['MOC', 'accept'],
             ['Will Consider', 'unknown'],
             ['Trial @ MOC/Reject', 'unknown'],
             ['Non-voting or reject', 'unknown'],
@@ -52,6 +52,7 @@ class IpCreditorVotingServiceTest extends TestCase
         $this->assertSame('via_house', $service->acceptKind('Represented by TIX', 'TIX'));
         $this->assertSame('conditions', $service->acceptKind('Accept with conditions'));
         $this->assertSame('trial_moc', $service->acceptKind('Trial @ MOC'));
+        $this->assertSame('trial_moc', $service->acceptKind('MOC'));
         $this->assertSame('referral', $service->acceptKind('Referral'));
 
         $this->assertSame('ACCEPT · VIA HOUSE', $service->displayLabel('accept', 'Represented by TIX', 'TIX'));
