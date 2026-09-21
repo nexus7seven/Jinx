@@ -296,10 +296,6 @@ class IpCreditorVotingService
 
     public function acceptKind(?string $statusRaw, ?string $votingHouse = null): ?string
     {
-        if ($this->interpretStatus($statusRaw) !== 'accept' && !blank($statusRaw)) {
-            return null;
-        }
-
         $value = Str::of((string) $statusRaw)
             ->lower()
             ->replace(['–', '—'], '-')
