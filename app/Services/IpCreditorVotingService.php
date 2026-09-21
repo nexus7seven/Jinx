@@ -266,6 +266,7 @@ class IpCreditorVotingService
             || $value === 'referral'
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
+            || $value === 'moc'
             || $value === 'represented'
             || str_contains($value, 'represented by')
             || str_contains($value, 'representented by')
@@ -307,7 +308,7 @@ class IpCreditorVotingService
             return 'referral';
         }
 
-        if (str_contains($value, 'trial @ moc') || str_contains($value, 'trial at moc')) {
+        if (str_contains($value, 'trial @ moc') || str_contains($value, 'trial at moc') || $value === 'moc') {
             return 'trial_moc';
         }
 
