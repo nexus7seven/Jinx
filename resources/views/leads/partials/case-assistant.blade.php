@@ -381,7 +381,21 @@
         ipVotingAlert.style.display = 'block';
         ipVotingTitle.textContent = creditor + ' · ' + ipLabel;
         ipVotingCreditorId.value = item.creditor_id || '';
-        ipVotingStatus.value = item.status_raw || '';
+        if (item.outcome === 'accept') {
+            ipVotingStatus.value = ({
+                via_house: 'Accept - via house vote',
+                conditions: 'Accept - with conditions',
+                trial_moc: 'Accept - Trial @ MOC',
+                referral: 'Accept - Referral',
+                direct: 'Accept'
+            })[item.accept_kind] || 'Accept';
+        } else if (item.outcome === 'reject') {
+            ipVotingStatus.value = 'Reject';
+        } else if (item.outcome === 'non_voting') {
+            ipVotingStatus.value = 'Non-vote';
+        } else {
+            ipVotingStatus.value = '';
+        }
         ipVotingHouse.value = item.voting_house || '';
         ipVotingNotes.value = item.notes || '';
 
