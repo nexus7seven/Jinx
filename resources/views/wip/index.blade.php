@@ -786,6 +786,12 @@
                     $cardAttentionClass = '';
                 }
                 $reengagementSeenCalm = $isReengaged && ! $reengagementUnseen;
+                $queueItem = $lead->wipQueueItem;
+                $waitingOnLabel = $lead->wip_waiting_on_label ?? null;
+                $nextChaseAt = $queueItem?->next_chase_at;
+                $lastActionedAt = $queueItem?->last_actioned_at;
+                $actionNote = trim((string) ($queueItem?->action_note ?? ''));
+                $chaseDue = (bool) ($lead->wip_chase_due ?? false);
             @endphp
 
             <div
@@ -795,7 +801,9 @@
                 data-wip-status="{{ $lead->wip_status }}"
                 data-lead-source="{{ e($sourceRaw) }}"
                 data-reengagement-unseen="{{ $reengagementUnseen ? '1' : '0' }}"
+                data-queue-position="{{ (int) ($lead->wip_queue_position ?? 0) }}"
             >
+                <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">≡</button>
                 <div class="wip-card__row1">
                     <div class="wip-card__title">
                         <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
@@ -832,6 +840,23 @@
                     <span class="wip-meta-pill">{{ $sourceLabel }}</span>
                 </div>
 
+                <div class="wip-stack-state" data-stack-state>
+                    @if ($waitingOnLabel)
+                        <span class="wip-stack-state__pill">Waiting on: <strong>{{ $waitingOnLabel }}</strong></span>
+                    @else
+                        <span class="wip-stack-state__pill">Not actioned yet</span>
+                    @endif
+                    @if ($nextChaseAt)
+                        <span class="wip-stack-state__pill {{ $chaseDue ? 'is-due' : '' }}" data-chase-pill>{{ $chaseDue ? 'Chase due' : 'Chase' }}: {{ $nextChaseAt->format('D j M, H:i') }}</span>
+                    @endif
+                    @if ($lastActionedAt)
+                        <span class="wip-stack-state__pill">Last actioned {{ $lastActionedAt->diffForHumans() }}</span>
+                    @endif
+                    @if ($actionNote !== '')
+                        <span class="wip-stack-state__note" title="{{ $actionNote }}">{{ $actionNote }}</span>
+                    @endif
+                </div>
+
                 <div class="wip-card__controls">
                     <select
                         data-lead-id="{{ $lead->id }}"
@@ -842,6 +867,7 @@
                             </option>
                         @endforeach
                     </select>
+                    <button type="button" class="wip-actioned-btn" data-actioned-lead-id="{{ $lead->id }}" data-actioned-case-name="{{ $caseName }}">Actioned ↓</button>
                 </div>
             </div>
         @empty
@@ -855,6 +881,56 @@
 </div>
 
 @include('wip.assistant')
+
+<div id="wip-actioned-modal" class="wip-action-modal" aria-hidden="true">
+    <div class="wip-action-modal__card" role="dialog" aria-modal="true" aria-labelledby="wip-actioned-title">
+        <div class="wip-action-modal__head">
+            <div>
+                <div id="wip-actioned-title" class="wip-action-modal__title">Case actioned</div>
+                <div id="wip-actioned-case-name" class="wip-action-modal__sub">What are you waiting on now?</div>
+            </div>
+            <button type="button" id="wip-actioned-close" class="wip-action-modal__close" aria-label="Close">×</button>
+        </div>
+        <form id="wip-actioned-form" class="wip-action-modal__body">
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-waiting-on">Waiting on</label>
+                <select id="wip-actioned-waiting-on" required>
+                    <option value="">Choose…</option>
+                    <option value="client">Client</option>
+                    <option value="creditor">Creditor</option>
+                    <option value="ip_provider">IP / IVA provider</option>
+                    <option value="documents">Documents</option>
+                    <option value="internal">Internal action</option>
+                    <option value="review_later">Nothing / review later</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-chase-preset">Chase again</label>
+                <select id="wip-actioned-chase-preset">
+                    <option value="">No fixed date</option>
+                    <option value="tomorrow">Tomorrow</option>
+                    <option value="2d">In 2 days</option>
+                    <option value="3d">In 3 days</option>
+                    <option value="1w">In 1 week</option>
+                    <option value="custom">Choose date/time…</option>
+                </select>
+            </div>
+            <div class="wip-action-modal__field" id="wip-actioned-custom-wrap" style="display:none;">
+                <label for="wip-actioned-custom">Custom chase time</label>
+                <input type="datetime-local" id="wip-actioned-custom">
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-actioned-note">Action note <span style="text-transform:none;font-weight:400;">(optional)</span></label>
+                <textarea id="wip-actioned-note" rows="3" placeholder="e.g. Requested latest bank statements"></textarea>
+            </div>
+            <div class="wip-action-modal__actions">
+                <button type="button" id="wip-actioned-cancel" class="wip-action-modal__cancel">Cancel</button>
+                <button type="submit" id="wip-actioned-save" class="wip-action-modal__save">Move to bottom</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div id="checklist-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999; padding:16px; box-sizing:border-box;">
     <div style="max-width:720px; margin:30px auto; background:#111827; border:1px solid #374151; border-radius:18px; overflow:hidden;">
@@ -894,6 +970,7 @@
     const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
     const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
     const wipCallbackPollUrl = @json(route('wip.callback-poll'));
+    const wipStackReorderUrl = @json(route('wip.stack.reorder'));
     const wipCallbackInitialDueIds = new Set(@json(collect($scheduled_callbacks ?? [])->where('due', true)->pluck('callback_id')->values()->all()));
 
     (function () {
