@@ -278,7 +278,9 @@ class JinxAssistantController extends Controller
                 ]);
             }
 
-            $answerFacts = $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
+            $answerFacts = $this->looksLikeVotingRuleChange($messageText)
+                ? []
+                : $zebraAnswers->extract($lead, $factsForAnswer, $messageText);
             $preFacts = array_replace($startFacts, $householdFacts, $answerFacts);
 
             $syncedFields = [];
