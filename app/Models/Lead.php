@@ -8,6 +8,14 @@ use Illuminate\Support\Carbon;
 
 class Lead extends Model
 {
+    public const IVA_IPS = [
+        'tig' => 'TIG',
+        'assure' => 'Assure',
+        'zebra' => 'Zebra',
+        'lawson_fox' => 'Lawson Fox',
+        'anchorage_chambers' => 'Anchorage Chambers',
+    ];
+
     /** Shown first on WIP with highlight; partner + website intake. */
     public const PRIORITY_WIP_STATUSES = [
         'New Lead',
@@ -83,6 +91,7 @@ class Lead extends Model
         'submitted_by_vicidial_user',
         'from_vicidial_webform',
         'wip_status',
+        'iva_ip_key',
         'dead_reason',
         'financial_statement',
         'estimated_total_debt',
