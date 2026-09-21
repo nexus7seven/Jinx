@@ -103,8 +103,12 @@ class WipWorkingStackTest extends TestCase
 
     private function lead(string $name): Lead
     {
+        static $sequence = 7600000;
+        $sequence++;
+
         return Lead::query()->create([
-            'phone_number' => '07700'.str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
+            'vicidial_lead_id' => $sequence,
+            'phone_number' => '07700'.substr((string) $sequence, -6),
             'first_name' => $name,
             'last_name' => 'Case',
             'wip_status' => 'Collecting Docs',
