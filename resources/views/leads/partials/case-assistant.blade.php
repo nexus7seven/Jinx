@@ -547,11 +547,18 @@
                 history.scrollTop = history.scrollHeight;
             }
 
-            status.textContent = data.knowledge_proposed
-                ? 'New rule proposed — confirm or correct it in chat'
-                : (data.knowledge_saved ? 'Shared knowledge updated' : 'Ready');
+            status.textContent = data.ip_voting_change_pending
+                ? 'Voting rule change waiting for confirmation'
+                : (data.knowledge_proposed
+                    ? 'New rule proposed — confirm or correct it in chat'
+                    : (data.knowledge_saved ? 'Shared knowledge updated' : 'Ready'));
 
             window.dispatchEvent(new CustomEvent('jinx:case-updated', { detail:data }));
+
+            if (data.ip_voting_changed) {
+                status.textContent = 'Voting rule updated';
+                window.dispatchEvent(new CustomEvent('jinx:ip-voting-refresh'));
+            }
 
             if (data.debt_import_complete) {
                 status.textContent = 'Refreshing debts…';
