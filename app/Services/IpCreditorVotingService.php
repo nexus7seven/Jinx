@@ -11,26 +11,33 @@ use Illuminate\Support\Str;
 
 class IpCreditorVotingService
 {
+    public const MANUAL_STATUS_OPTIONS = [
+        'Accept',
+        'Accept - via house vote',
+        'Accept - with conditions',
+        'Accept - Trial @ MOC',
+        'Accept - Referral',
+        'Reject',
+        'Non-vote',
+    ];
+
     public function analyseLead(Lead $lead): array
     {
         $lead->loadMissing('debts.creditor');
 
         $ipKey = $lead->iva_ip_key;
         $items = [];
-        $totalDebt = 0.0;
         $routesByDebt = [];
 
         if ($ipKey && Schema::hasTable('creditor_voting_routes')) {
             $routeAnalysis = app(DecisionVotingService::class)->analyse($lead, $ipKey, null);
+
             foreach ($routeAnalysis['debts'] ?? [] as $routeDebt) {
                 $routesByDebt[(int) ($routeDebt['debt_id'] ?? 0)] = $routeDebt;
             }
         }
 
         foreach ($lead->debts as $debt) {
-            $balance = (float) $debt->balance;
-            $totalDebt += $balance;
-
             if (!$ipKey) {
                 $assessment = $this->emptyAssessment('ip_not_selected');
             } else {
@@ -42,6 +49,7 @@ class IpCreditorVotingService
 
                     if (str_starts_with($routeSource, 'sourced_route')) {
                         $resolvedHouse = trim((string) ($routeDebt['voting_house'] ?? ''));
+
                         if ($resolvedHouse !== '' && $resolvedHouse !== 'Unresolved representative') {
                             $assessment['voting_house'] = $resolvedHouse;
                             $assessment['representative_rules'] = $this->representativeRules($ipKey, $resolvedHouse);
@@ -56,21 +64,26 @@ class IpCreditorVotingService
                 }
             }
 
+            $assessment = $this->withPresentation($assessment);
+
             $items[] = array_merge([
                 'debt_id' => (int) $debt->id,
                 'creditor_id' => (int) $debt->creditor_id,
                 'creditor_name' => $debt->creditor?->name,
-                'balance' => round($balance, 2),
+                'balance' => round((float) $debt->balance, 2),
                 'reference' => $debt->reference,
             ], $assessment);
         }
+
+        $summary = $this->summarise($items);
 
         return [
             'success' => true,
             'lead_id' => (int) $lead->id,
             'ip_key' => $ipKey,
             'ip_label' => $ipKey ? (Lead::IVA_IPS[$ipKey] ?? $ipKey) : null,
-            'total_debt' => round($totalDebt, 2),
+            'total_debt' => $summary['total_debt'],
+            'summary' => $summary,
             'debts' => $items,
             'unresolved' => array_values(array_filter(
                 $items,
@@ -96,9 +109,12 @@ class IpCreditorVotingService
                 ->first();
 
             if ($manual) {
-                return [
-                    'outcome' => (string) $manual->outcome,
-                    'status_raw' => (string) $manual->status_text,
+                $statusRaw = (string) $manual->status_text;
+                $outcome = $this->interpretStatus($statusRaw);
+
+                return $this->withPresentation([
+                    'outcome' => $outcome,
+                    'status_raw' => $statusRaw,
                     'voting_house' => filled($manual->voting_house) ? (string) $manual->voting_house : null,
                     'notes' => filled($manual->condition_text) ? (string) $manual->condition_text : null,
                     'source_type' => 'manual',
@@ -106,10 +122,10 @@ class IpCreditorVotingService
                     'source_rows' => [],
                     'representative_rules' => [],
                     'needs_input' => false,
-                    'needs_review' => false,
+                    'needs_review' => $outcome === 'unknown',
                     'can_save_override' => true,
                     'reason' => 'manual_override',
-                ];
+                ]);
             }
         }
 
@@ -128,6 +144,7 @@ class IpCreditorVotingService
         if ($rows->isEmpty()) {
             $assessment = $this->emptyAssessment('not_in_ip_workbook');
             $assessment['can_save_override'] = strcasecmp(trim((string) $creditor->name), 'Could Not Match') !== 0;
+
             return $assessment;
         }
 
@@ -164,21 +181,32 @@ class IpCreditorVotingService
             ->unique()
             ->implode(' | ');
 
-        $outcome = $this->interpretStatus($statusRaw);
+        $interpretedStatuses = $distinctStatuses
+            ->map(fn ($status) => $this->interpretStatus((string) $status))
+            ->unique()
+            ->values();
+
         $reason = 'workbook_status';
 
-        if ($distinctStatuses->count() > 1) {
+        if ($distinctStatuses->isEmpty() && $votingHouse) {
+            // A creditor routed to a voting house is a hard accept for the headline vote.
+            $outcome = 'accept';
+            $reason = 'workbook_house_vote';
+        } elseif ($interpretedStatuses->count() === 1 && $interpretedStatuses->first() !== 'unknown') {
+            // Multiple raw workbook rows are fine when they all resolve to the same hard bucket.
+            $outcome = (string) $interpretedStatuses->first();
+        } else {
             $outcome = 'unknown';
-            $reason = 'multiple_workbook_statuses';
-        } elseif ($outcome === 'unknown' && !$statusRaw && $votingHouse) {
-            $outcome = 'represented';
-            $reason = 'workbook_representative';
+            $reason = $distinctStatuses->count() > 1
+                ? 'multiple_workbook_statuses'
+                : 'unrecognised_workbook_status';
         }
 
         if (!$statusRaw && !$votingHouse) {
             $assessment = $this->emptyAssessment('workbook_row_without_voting_data');
             $assessment['source_rows'] = $this->serialiseSourceRows($rows);
             $assessment['can_save_override'] = strcasecmp(trim((string) $creditor->name), 'Could Not Match') !== 0;
+
             return $assessment;
         }
 
@@ -188,7 +216,7 @@ class IpCreditorVotingService
             ? $this->representativeRules($ipKey, $votingHouse)
             : [];
 
-        return [
+        return $this->withPresentation([
             'outcome' => $outcome,
             'status_raw' => $statusRaw,
             'voting_house' => $votingHouse,
@@ -198,10 +226,10 @@ class IpCreditorVotingService
             'source_rows' => $sourceRows,
             'representative_rules' => $representativeRules,
             'needs_input' => false,
-            'needs_review' => $outcome === 'unknown' || ($outcome === 'represented' && !$votingHouse),
+            'needs_review' => $outcome === 'unknown',
             'can_save_override' => true,
             'reason' => $reason,
-        ];
+        ]);
     }
 
     public function interpretStatus(?string $status): string
@@ -217,63 +245,183 @@ class IpCreditorVotingService
             return 'unknown';
         }
 
-        if ($value === 'accept') {
-            return 'accept';
-        }
+        $nonVote = str_contains($value, 'non-voting')
+            || str_contains($value, 'non voting')
+            || str_contains($value, 'non-noting')
+            || str_contains($value, 'non noting')
+            || str_contains($value, 'non-vote')
+            || str_contains($value, 'non vote')
+            || str_contains($value, 'no vote')
+            || str_contains($value, 'do not vote');
 
-        if (
-            str_contains($value, 'accept with condition')
+        $reject = $value === 'reject';
+
+        $accept = $value === 'accept'
+            || $value === 'accept - via house vote'
+            || $value === 'accept - with conditions'
+            || $value === 'accept - trial @ moc'
+            || $value === 'accept - referral'
+            || str_contains($value, 'accept with condition')
             || str_contains($value, 'accept with modification')
             || $value === 'referral'
             || $value === 'trial @ moc'
             || $value === 'trial at moc'
-        ) {
-            return 'accept_conditional';
-        }
-
-        if (
-            $value === 'represented'
+            || $value === 'represented'
             || str_contains($value, 'represented by')
             || str_contains($value, 'representented by')
-            || str_starts_with($value, 'represented ')
-            || str_starts_with($value, 'represented')
+            || str_starts_with($value, 'represented ');
+
+        // Never guess when a single source phrase explicitly mixes hard buckets.
+        if (
+            ($nonVote && (str_contains($value, 'reject') || $accept))
+            || (str_contains($value, 'reject') && $accept)
         ) {
-            return 'represented';
+            return 'unknown';
         }
 
-        if (
-            str_contains($value, 'non-voting')
-            || str_contains($value, 'non voting')
-            || str_contains($value, 'non-noting')
-            || str_contains($value, 'non noting')
-            || str_contains($value, 'no vote')
-            || str_contains($value, 'do not vote')
-        ) {
-            if (str_contains($value, ' or reject')) {
-                return 'unknown';
-            }
-
+        if ($nonVote) {
             return 'non_voting';
         }
 
-        if ($value === 'reject') {
+        if ($reject) {
             return 'reject';
+        }
+
+        if ($accept) {
+            return 'accept';
         }
 
         return 'unknown';
     }
 
-    public function outcomeLabel(string $outcome, ?string $statusRaw = null): string
+    public function acceptKind(?string $statusRaw, ?string $votingHouse = null): ?string
     {
+        if ($this->interpretStatus($statusRaw) !== 'accept' && !blank($statusRaw)) {
+            return null;
+        }
+
+        $value = Str::of((string) $statusRaw)
+            ->lower()
+            ->replace(['–', '—'], '-')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+
+        if (str_contains($value, 'referral')) {
+            return 'referral';
+        }
+
+        if (str_contains($value, 'trial @ moc') || str_contains($value, 'trial at moc')) {
+            return 'trial_moc';
+        }
+
+        if (str_contains($value, 'condition') || str_contains($value, 'modification')) {
+            return 'conditions';
+        }
+
+        if (
+            str_contains($value, 'via house vote')
+            || str_contains($value, 'represented')
+            || filled($votingHouse)
+        ) {
+            return 'via_house';
+        }
+
+        return 'direct';
+    }
+
+    public function displayLabel(string $outcome, ?string $statusRaw = null, ?string $votingHouse = null): string
+    {
+        if ($outcome === 'accept') {
+            return match ($this->acceptKind($statusRaw, $votingHouse)) {
+                'via_house' => 'ACCEPT · VIA HOUSE',
+                'conditions' => 'ACCEPT · WITH CONDITIONS',
+                'trial_moc' => 'ACCEPT · TRIAL @ MOC',
+                'referral' => 'ACCEPT · REFERRAL',
+                default => 'ACCEPT',
+            };
+        }
+
         return match ($outcome) {
-            'accept' => 'ACCEPT',
-            'accept_conditional' => 'ACCEPT — CONDITIONS',
             'reject' => 'REJECT',
-            'non_voting' => 'NON-VOTING',
-            'represented' => 'REPRESENTED',
+            'non_voting' => 'NON-VOTE',
             'missing' => 'NO IP CRITERIA',
-            default => filled($statusRaw) ? mb_strtoupper((string) $statusRaw) : 'REVIEW',
+            default => filled($statusRaw) ? mb_strtoupper((string) $statusRaw).' · REVIEW' : 'REVIEW',
         };
+    }
+
+    public function summarise(array $items): array
+    {
+        $totalDebt = 0.0;
+        $acceptBalance = 0.0;
+        $rejectBalance = 0.0;
+        $nonVoteBalance = 0.0;
+        $unresolvedBalance = 0.0;
+
+        foreach ($items as $item) {
+            $balance = (float) ($item['balance'] ?? 0);
+            $outcome = (string) ($item['outcome'] ?? 'unknown');
+            $totalDebt += $balance;
+
+            if ($outcome === 'accept') {
+                $acceptBalance += $balance;
+            } elseif ($outcome === 'reject') {
+                $rejectBalance += $balance;
+            } elseif ($outcome === 'non_voting') {
+                $nonVoteBalance += $balance;
+            } else {
+                $unresolvedBalance += $balance;
+            }
+        }
+
+        $votingBalance = $acceptBalance + $rejectBalance;
+
+        if ($votingBalance > 0) {
+            $acceptPercent = round(($acceptBalance / $votingBalance) * 100, 1);
+            // There are only two voting directions, so force the displayed pair to total 100.0.
+            $rejectPercent = round(100 - $acceptPercent, 1);
+        } else {
+            $acceptPercent = 0.0;
+            $rejectPercent = 0.0;
+        }
+
+        return [
+            'total_debt' => round($totalDebt, 2),
+            'voting_balance' => round($votingBalance, 2),
+            'accept_balance' => round($acceptBalance, 2),
+            'reject_balance' => round($rejectBalance, 2),
+            'non_vote_balance' => round($nonVoteBalance, 2),
+            'unresolved_balance' => round($unresolvedBalance, 2),
+            'accept_percent' => $acceptPercent,
+            'reject_percent' => $rejectPercent,
+        ];
+    }
+
+    private function withPresentation(array $assessment): array
+    {
+        $outcome = (string) ($assessment['outcome'] ?? 'unknown');
+        $statusRaw = $assessment['status_raw'] ?? null;
+        $votingHouse = $assessment['voting_house'] ?? null;
+
+        $assessment['accept_kind'] = $outcome === 'accept'
+            ? $this->acceptKind($statusRaw, $votingHouse)
+            : null;
+
+        $assessment['display_label'] = $this->displayLabel($outcome, $statusRaw, $votingHouse);
+
+        if (
+            $outcome === 'accept'
+            && $assessment['accept_kind'] === 'via_house'
+            && blank($votingHouse)
+        ) {
+            $assessment['needs_review'] = true;
+
+            if (($assessment['reason'] ?? null) === 'workbook_status') {
+                $assessment['reason'] = 'house_vote_missing_house';
+            }
+        }
+
+        return $assessment;
     }
 
     private function emptyAssessment(string $reason): array
@@ -287,6 +435,8 @@ class IpCreditorVotingService
             'source_label' => null,
             'source_rows' => [],
             'representative_rules' => [],
+            'accept_kind' => null,
+            'display_label' => 'NO IP CRITERIA',
             'needs_input' => in_array($reason, ['not_in_ip_workbook', 'workbook_row_without_voting_data'], true),
             'needs_review' => false,
             'can_save_override' => true,
@@ -311,6 +461,7 @@ class IpCreditorVotingService
     private function sourceLabel(Collection $rows): ?string
     {
         $first = $rows->first();
+
         if (!$first) {
             return null;
         }
