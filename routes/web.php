@@ -28,6 +28,7 @@ use App\Services\LeadPortalTokenService;
 use App\Http\Controllers\PartnerLeadController;
 use App\Http\Controllers\PartnerPortalAuthController;
 use App\Http\Controllers\LeadFinancialStatementController;
+use App\Http\Controllers\LeadIpVotingController;
 use App\Http\Controllers\WebsiteLeadController;
 use App\Http\Controllers\Portal\LeadPortalEmailClickController;
 use App\Http\Controllers\Portal\LeadPortalController;
@@ -211,14 +212,13 @@ Route::middleware('auth')->group(function () {
         ])->findOrFail($id);
 
         $creditors = Creditor::orderBy('name')->get();
-        $practices = VotingPractice::orderBy('id')->get();
         $financialStatementService = app(FinancialStatementService::class);
         $financialStatement = $financialStatementService->uiStateForLead($lead);
         $fsClientPayload = $financialStatementService->clientViewPayload();
 
         $lastDialledAt = app(VicidialDialActivityService::class)->lastDialledAtForLead($lead);
 
-        return view('leads.show', compact('lead', 'creditors', 'practices', 'financialStatement', 'fsClientPayload', 'lastDialledAt'));
+        return view('leads.show', compact('lead', 'creditors', 'financialStatement', 'fsClientPayload', 'lastDialledAt'));
     });
 
     Route::get('/leads/{id}/credit-check-helper', function ($id) {
@@ -318,6 +318,13 @@ Route::middleware('auth')->group(function () {
     Route::patch('/lead/{lead}/financial-statement', [LeadFinancialStatementController::class, 'update'])
         ->name('lead.financial-statement.update');
 
+
+    Route::get('/lead/{lead}/ip-voting', [LeadIpVotingController::class, 'show'])
+        ->name('lead.ip-voting.show');
+    Route::patch('/lead/{lead}/iva-ip', [LeadIpVotingController::class, 'updateIp'])
+        ->name('lead.iva-ip.update');
+    Route::post('/lead/{lead}/ip-voting/override', [LeadIpVotingController::class, 'storeOverride'])
+        ->name('lead.ip-voting.override');
 
     Route::post('/lead/{lead}/portal-link', function (Lead $lead, Request $request, LeadPortalLinkService $leadPortalLinkService) {
         $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());
