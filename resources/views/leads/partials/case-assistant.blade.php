@@ -336,7 +336,9 @@
             }
 
             subtitle.textContent = 'Case-aware assistant · ' + (data.knowledge_count || 0) + ' shared rules remembered';
-            status.textContent = data.pending_knowledge ? 'Waiting for confirmation of a new rule' : 'Ready';
+            status.textContent = data.pending_ip_voting_change
+                ? 'Voting rule change waiting for confirmation'
+                : (data.pending_knowledge ? 'Waiting for confirmation of a new rule' : 'Ready');
             const cb = data.active_callback;
             if (cb) {
                 document.getElementById('caseAssistantCallbackBrief').style.display = 'block';
