@@ -36,10 +36,15 @@ class CaseAssessmentTabTest extends TestCase
             ->assertSee('id="caseAssistantLauncher"', false)
             ->assertSee('case-assistant-drawer', false)
             ->assertSee('id="caseAssistantClose"', false)
+            ->assertDontSee('caseAssistantScrim', false)
             ->assertSee('Full Financial Statement')
             ->assertSee('>Yes</button>', false)
             ->assertSee('>No</button>', false)
             ->assertSee('Case Assessment');
+
+        $assistantView = file_get_contents(resource_path('views/leads/partials/case-assistant.blade.php'));
+        $this->assertStringNotContainsString('backdrop-filter', $assistantView);
+        $this->assertStringNotContainsString('case-assistant-scrim', $assistantView);
     }
 
     public function test_case_assessment_endpoint_returns_fact_provenance_routes_and_debt_reasoning(): void
