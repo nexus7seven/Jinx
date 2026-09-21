@@ -15,8 +15,6 @@
     <span id="caseAssistantLauncherDot" class="case-assistant-launcher-dot" aria-hidden="true"></span>
 </button>
 
-<div id="caseAssistantScrim" class="case-assistant-scrim" aria-hidden="true"></div>
-
 <aside
     id="caseAssistant"
     class="case-assistant case-assistant-drawer"
@@ -96,16 +94,6 @@
     .case-assistant-launcher:hover { border-color:#60a5fa; transform:translateY(-1px); }
     .case-assistant-launcher-icon { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,.14); font-size:14px; }
     .case-assistant-launcher-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.14); }
-
-    .case-assistant-scrim {
-        display:none;
-        position:fixed;
-        inset:0;
-        z-index:11980;
-        background:rgba(2,6,23,.18);
-        backdrop-filter:blur(1px);
-    }
-    .case-assistant-scrim.is-open { display:block; }
 
     .case-assistant.case-assistant-drawer {
         position:fixed;
@@ -193,7 +181,6 @@
     const shell = document.getElementById('caseAssistant');
     const launcher = document.getElementById('caseAssistantLauncher');
     const launcherDot = document.getElementById('caseAssistantLauncherDot');
-    const scrim = document.getElementById('caseAssistantScrim');
     const closeButton = document.getElementById('caseAssistantClose');
     if (!shell || !launcher || shell.dataset.initialised === '1') return;
 
@@ -294,7 +281,6 @@
 
     function setOpen(open) {
         shell.classList.toggle('is-open', open);
-        scrim.classList.toggle('is-open', open);
         shell.setAttribute('aria-hidden', open ? 'false' : 'true');
         launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
         sessionStorage.setItem(storageKey, open ? '1' : '0');
@@ -307,7 +293,6 @@
 
     launcher.addEventListener('click', () => setOpen(!shell.classList.contains('is-open')));
     closeButton.addEventListener('click', () => setOpen(false));
-    scrim.addEventListener('click', () => setOpen(false));
 
     composer.addEventListener('submit', async(event) => {
         event.preventDefault();
