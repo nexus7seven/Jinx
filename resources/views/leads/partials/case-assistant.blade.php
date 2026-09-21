@@ -23,6 +23,7 @@
     data-lead-id="{{ $lead->id }}"
     data-lead-name="{{ $assistantName !== '' ? $assistantName : 'Unknown' }}"
     data-wip-status="{{ $lead->wip_status ?: '—' }}"
+    data-ip-voting-override-url="{{ route('lead.ip-voting.override', $lead) }}"
 >
     <div class="case-assistant-header">
         <div style="min-width:0;">
@@ -37,6 +38,58 @@
             <div class="case-assistant-callback-kicker">Callback brief</div>
             <div id="caseAssistantCallbackWhen" class="case-assistant-callback-when"></div>
             <div id="caseAssistantCallbackNotes" class="case-assistant-callback-notes"></div>
+        </section>
+
+        <section id="caseAssistantIpVotingAlert" class="case-assistant-ip-voting-alert" style="display:none;">
+            <div class="case-assistant-ip-voting-kicker">Creditor voting needs input</div>
+            <div id="caseAssistantIpVotingTitle" class="case-assistant-ip-voting-title"></div>
+            <div id="caseAssistantIpVotingReason" class="case-assistant-ip-voting-reason"></div>
+
+            <form id="caseAssistantIpVotingForm" style="margin-top:10px;">
+                <input type="hidden" id="caseAssistantIpVotingCreditorId">
+
+                <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingStatus">Voting</label>
+                <input
+                    id="caseAssistantIpVotingStatus"
+                    class="case-assistant-ip-voting-input"
+                    list="caseAssistantIpVotingStatusOptions"
+                    placeholder="e.g. Accept, Referral, Trial @ MOC, Reject"
+                    autocomplete="off"
+                >
+                <datalist id="caseAssistantIpVotingStatusOptions">
+                    <option value="Accept"></option>
+                    <option value="Accept with conditions"></option>
+                    <option value="Referral"></option>
+                    <option value="Trial @ MOC"></option>
+                    <option value="Reject"></option>
+                    <option value="Non-voting"></option>
+                    <option value="Represented"></option>
+                </datalist>
+
+                <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingHouse">Voting house</label>
+                <input
+                    id="caseAssistantIpVotingHouse"
+                    class="case-assistant-ip-voting-input"
+                    placeholder="e.g. TIX, WATCH, Evolve — leave blank if independent"
+                    autocomplete="off"
+                >
+
+                <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingNotes">Conditions / notes</label>
+                <textarea
+                    id="caseAssistantIpVotingNotes"
+                    class="case-assistant-ip-voting-input case-assistant-ip-voting-notes"
+                    rows="3"
+                    placeholder="Any conditions or notes to keep with this creditor + IP rule"
+                ></textarea>
+
+                <div id="caseAssistantIpVotingSource" class="case-assistant-ip-voting-source"></div>
+                <div id="caseAssistantIpVotingError" class="case-assistant-ip-voting-error" style="display:none;"></div>
+
+                <div class="case-assistant-ip-voting-actions">
+                    <span id="caseAssistantIpVotingCount" class="case-assistant-muted"></span>
+                    <button type="submit" id="caseAssistantIpVotingSave" class="case-assistant-ip-voting-save">Save rule</button>
+                </div>
+            </form>
         </section>
 
         <details class="case-assistant-panel case-assistant-context-panel">
@@ -169,6 +222,20 @@
     .case-assistant-callback-when { margin-top:5px; color:#dbeafe; font-size:13px; font-weight:800; }
     .case-assistant-callback-notes { margin-top:7px; color:#cbd5e1; font-size:11px; line-height:1.45; }
 
+    .case-assistant-ip-voting-alert { flex:0 0 auto; padding:12px; border:1px solid #b45309; background:linear-gradient(180deg,rgba(120,53,15,.26),rgba(15,23,42,.92)); border-radius:10px; }
+    .case-assistant-ip-voting-kicker { text-transform:uppercase; color:#fbbf24; font-size:9px; font-weight:900; letter-spacing:.06em; }
+    .case-assistant-ip-voting-title { margin-top:5px; color:#fff7ed; font-size:14px; font-weight:900; }
+    .case-assistant-ip-voting-reason { margin-top:5px; color:#fed7aa; font-size:11px; line-height:1.45; }
+    .case-assistant-ip-voting-label { display:block; margin:8px 0 4px; color:#cbd5e1; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+    .case-assistant-ip-voting-input { width:100%; box-sizing:border-box; border:1px solid #475569; border-radius:8px; background:#020617; color:#f8fafc; padding:8px 9px; font:inherit; font-size:12px; }
+    .case-assistant-ip-voting-input:focus { outline:none; border-color:#f59e0b; }
+    .case-assistant-ip-voting-notes { min-height:64px; resize:vertical; }
+    .case-assistant-ip-voting-source { margin-top:8px; white-space:pre-wrap; color:#94a3b8; font-size:10px; line-height:1.4; }
+    .case-assistant-ip-voting-error { margin-top:8px; padding:7px 8px; border:1px solid #7f1d1d; border-radius:7px; background:#3f1d1d; color:#fecaca; font-size:10px; line-height:1.4; }
+    .case-assistant-ip-voting-actions { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
+    .case-assistant-ip-voting-save { border:0; border-radius:8px; background:#d97706; color:#fff; padding:8px 11px; font-size:11px; font-weight:900; cursor:pointer; }
+    .case-assistant-ip-voting-save:disabled { opacity:.55; cursor:not-allowed; }
+
     @media (max-width:720px) {
         .case-assistant-launcher { right:14px; bottom:14px; }
         .case-assistant.case-assistant-drawer { width:100vw; }
@@ -194,10 +261,24 @@
     const subtitle = document.getElementById('caseAssistantSubtitle');
     const resetButton = document.getElementById('caseAssistantReset');
     const activeContext = document.getElementById('caseAssistantActiveTab');
+    const ipVotingAlert = document.getElementById('caseAssistantIpVotingAlert');
+    const ipVotingForm = document.getElementById('caseAssistantIpVotingForm');
+    const ipVotingTitle = document.getElementById('caseAssistantIpVotingTitle');
+    const ipVotingReason = document.getElementById('caseAssistantIpVotingReason');
+    const ipVotingCreditorId = document.getElementById('caseAssistantIpVotingCreditorId');
+    const ipVotingStatus = document.getElementById('caseAssistantIpVotingStatus');
+    const ipVotingHouse = document.getElementById('caseAssistantIpVotingHouse');
+    const ipVotingNotes = document.getElementById('caseAssistantIpVotingNotes');
+    const ipVotingSource = document.getElementById('caseAssistantIpVotingSource');
+    const ipVotingError = document.getElementById('caseAssistantIpVotingError');
+    const ipVotingCount = document.getElementById('caseAssistantIpVotingCount');
+    const ipVotingSave = document.getElementById('caseAssistantIpVotingSave');
     const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const storageKey = 'jinxCaseAssistantOpen:' + leadId;
     let bootstrapped = false;
     let opening = false;
+    let ipVotingQueue = [];
+    let ipVotingMeta = { ip_key:null, ip_label:null };
 
     const escapeHtml = (value) => String(value ?? '')
         .replaceAll('&','&amp;')
@@ -291,7 +372,139 @@
         }
     }
 
-    launcher.addEventListener('click', () => setOpen(!shell.classList.contains('is-open')));
+    function renderIpVotingAlert() {
+        if (!ipVotingAlert || !ipVotingForm) return;
+
+        if (!ipVotingQueue.length || !ipVotingMeta.ip_key) {
+            ipVotingAlert.style.display = 'none';
+            return;
+        }
+
+        const item = ipVotingQueue[0];
+        const creditor = item.creditor_name || 'Unknown creditor';
+        const ipLabel = ipVotingMeta.ip_label || ipVotingMeta.ip_key;
+
+        ipVotingAlert.style.display = 'block';
+        ipVotingTitle.textContent = creditor + ' · ' + ipLabel;
+        ipVotingCreditorId.value = item.creditor_id || '';
+        ipVotingStatus.value = item.status_raw || '';
+        ipVotingHouse.value = item.voting_house || '';
+        ipVotingNotes.value = item.notes || '';
+
+        if (item.reason === 'not_in_ip_workbook' || item.reason === 'workbook_row_without_voting_data') {
+            ipVotingReason.textContent = 'No usable ' + ipLabel + ' workbook voting entry was found. Tell Jinx what voting result and voting house should be used for this creditor.';
+        } else if (item.reason === 'representative_route_conflict') {
+            ipVotingReason.textContent = 'The workbook contains more than one possible voting-house route. Confirm the voting result and house for this creditor.';
+        } else {
+            ipVotingReason.textContent = 'The workbook entry cannot be interpreted safely without an operator decision. Confirm what Jinx should use.';
+        }
+
+        const sourceLines = [];
+        if (item.status_raw) sourceLines.push('Workbook status: ' + item.status_raw);
+        if (item.notes) sourceLines.push('Workbook notes: ' + item.notes);
+        if (item.source_label) sourceLines.push('Source: ' + item.source_label);
+        if (item.route_conflict_reason) sourceLines.push('House routing: ' + item.route_conflict_reason);
+        ipVotingSource.textContent = sourceLines.join('\n');
+
+        ipVotingCount.textContent = ipVotingQueue.length === 1
+            ? '1 creditor needs input'
+            : ipVotingQueue.length + ' creditors need input';
+
+        const canSave = item.can_save_override !== false;
+        ipVotingSave.disabled = !canSave;
+        ipVotingStatus.disabled = !canSave;
+        ipVotingHouse.disabled = !canSave;
+        ipVotingNotes.disabled = !canSave;
+
+        if (!canSave) {
+            ipVotingError.style.display = 'block';
+            ipVotingError.textContent = 'Match this debt to the real creditor first. Jinx will not save a reusable rule against “Could Not Match”.';
+        } else {
+            ipVotingError.style.display = 'none';
+            ipVotingError.textContent = '';
+        }
+    }
+
+    window.addEventListener('jinx:ip-voting-unresolved', event => {
+        const detail = event.detail || {};
+        ipVotingMeta = {
+            ip_key: detail.ip_key || null,
+            ip_label: detail.ip_label || null
+        };
+        ipVotingQueue = Array.isArray(detail.unresolved) ? detail.unresolved : [];
+        renderIpVotingAlert();
+
+        if (ipVotingQueue.length && ipVotingMeta.ip_key) {
+            setAvailability('busy');
+            setOpen(true);
+        } else if (bootstrapped) {
+            setAvailability('ready');
+        }
+    });
+
+    if (ipVotingForm) {
+        ipVotingForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!ipVotingQueue.length || ipVotingSave.disabled) return;
+
+            const statusText = ipVotingStatus.value.trim();
+            if (!statusText) {
+                ipVotingError.style.display = 'block';
+                ipVotingError.textContent = 'Enter the creditor voting result.';
+                ipVotingStatus.focus();
+                return;
+            }
+
+            ipVotingSave.disabled = true;
+            ipVotingSave.textContent = 'Saving…';
+            ipVotingError.style.display = 'none';
+
+            try {
+                const response = await fetch(shell.dataset.ipVotingOverrideUrl, {
+                    method:'POST',
+                    credentials:'same-origin',
+                    headers:{
+                        'Accept':'application/json',
+                        'Content-Type':'application/json',
+                        'X-CSRF-TOKEN':csrf
+                    },
+                    body:JSON.stringify({
+                        creditor_id: ipVotingCreditorId.value,
+                        status_text: statusText,
+                        voting_house: ipVotingHouse.value.trim() || null,
+                        condition_text: ipVotingNotes.value.trim() || null
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Could not save creditor voting rule');
+                }
+
+                ipVotingQueue = Array.isArray(data.unresolved) ? data.unresolved : [];
+                ipVotingMeta = {
+                    ip_key: data.ip_key || ipVotingMeta.ip_key,
+                    ip_label: data.ip_label || ipVotingMeta.ip_label
+                };
+                renderIpVotingAlert();
+                window.dispatchEvent(new CustomEvent('jinx:ip-voting-refresh'));
+
+                status.textContent = ipVotingQueue.length
+                    ? 'Voting rule saved · ' + ipVotingQueue.length + ' still need input'
+                    : 'Voting rules complete';
+                setAvailability(ipVotingQueue.length ? 'busy' : 'ready');
+            } catch (error) {
+                ipVotingError.style.display = 'block';
+                ipVotingError.textContent = error.message;
+            } finally {
+                const nextItem = ipVotingQueue[0] || null;
+                ipVotingSave.disabled = !nextItem || nextItem.can_save_override === false;
+                ipVotingSave.textContent = 'Save rule';
+            }
+        });
+    }
+
+        launcher.addEventListener('click', () => setOpen(!shell.classList.contains('is-open')));
     closeButton.addEventListener('click', () => setOpen(false));
 
     composer.addEventListener('submit', async(event) => {

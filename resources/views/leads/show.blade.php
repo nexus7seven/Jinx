@@ -446,13 +446,16 @@
             <h2 style="margin:0; font-size:24px;">Debts</h2>
 
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                <label for="practiceSelect" style="font-size:13px; color:#9ca3af;">Practice View</label>
+                <label for="ivaIpSelect" style="font-size:13px; color:#9ca3af;">IVA IP</label>
                 <select
-                    id="practiceSelect"
+                    id="ivaIpSelect"
+                    data-update-url="{{ route('lead.iva-ip.update', $lead) }}"
+                    data-voting-url="{{ route('lead.ip-voting.show', $lead) }}"
                     style="padding:10px 12px; border-radius:8px; border:1px solid #374151; background:#020617; color:#f9fafb;"
                 >
-                    @foreach($practices as $practice)
-                        <option value="{{ $practice->key }}">{{ $practice->label }}</option>
+                    <option value="">Select IP…</option>
+                    @foreach(\App\Models\Lead::IVA_IPS as $ipKey => $ipLabel)
+                        <option value="{{ $ipKey }}" @selected($lead->iva_ip_key === $ipKey)>{{ $ipLabel }}</option>
                     @endforeach
                 </select>
 
@@ -1246,7 +1249,8 @@
         }
     });
 
-    const practiceSelect = document.getElementById('practiceSelect');
+    const ivaIpSelect = document.getElementById('ivaIpSelect');
+    let currentIpVoting = null;
     let debtList = document.getElementById('debtList');
     let warningBox = document.getElementById('warningBox');
     let totalDebtValue = document.getElementById('totalDebtValue');
@@ -1323,7 +1327,7 @@
         bindDebtSectionRefs();
         bindEditButtons();
         bindDeleteButtons();
-        refreshDebtInterpretation();
+        await refreshIpVoting();
     }
 
     async function refreshDebtsSectionForced(signatureToStore) {
@@ -1336,7 +1340,7 @@
         bindDebtSectionRefs();
         bindEditButtons();
         bindDeleteButtons();
-        refreshDebtInterpretation();
+        await refreshIpVoting();
         if (signatureToStore) {
             ccV3LastDebtSignature = signatureToStore;
         }
@@ -1598,101 +1602,272 @@
         return map[source] || source;
     }
 
-    function normaliseVotingType(value) {
+
+    function normaliseVotingOutcome(value) {
         return String(value || '').trim().toLowerCase();
     }
 
-    function formatVotingTypeLabel(value) {
-        const normalised = normaliseVotingType(value);
-
-        if (normalised === 'accept') return 'ACCEPT';
-        if (normalised === 'reject') return 'REJECT';
-        if (normalised === 'cbc') return 'CBC';
-        if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') return 'NON VOTE';
-
-        return String(value || '').toUpperCase();
+    function htmlEscape(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
     }
 
-    function getVotingTypePillStyle(value) {
-        const normalised = normaliseVotingType(value);
+    function formatVotingOutcomeLabel(outcome, statusRaw, hasIp) {
+        const normalised = normaliseVotingOutcome(outcome);
+        const raw = String(statusRaw || '').trim();
+
+        if (!hasIp) return 'SELECT IP';
+        if (normalised === 'accept') return raw ? raw.toUpperCase() : 'ACCEPT';
+        if (normalised === 'accept_conditional') return (raw ? raw.toUpperCase() : 'ACCEPT') + ' · ACCEPT*';
+        if (normalised === 'reject') return raw ? raw.toUpperCase() : 'REJECT';
+        if (normalised === 'non_voting') return raw ? raw.toUpperCase() : 'NON-VOTING';
+        if (normalised === 'represented') return raw ? raw.toUpperCase() : 'REPRESENTED';
+        if (normalised === 'missing') return 'NO IP CRITERIA';
+        if (normalised === 'loading') return 'LOADING…';
+
+        return raw ? raw.toUpperCase() + ' · REVIEW' : 'REVIEW';
+    }
+
+    function getVotingTypePillStyle(outcome) {
+        const normalised = normaliseVotingOutcome(outcome);
 
         if (normalised === 'accept') {
             return 'background:#14532d; color:#dcfce7;';
+        }
+
+        if (normalised === 'accept_conditional') {
+            return 'background:#854d0e; color:#fef3c7;';
         }
 
         if (normalised === 'reject') {
             return 'background:#7f1d1d; color:#fecaca;';
         }
 
-        if (normalised === 'cbc') {
-            return 'background:#92400e; color:#fde68a;';
+        if (normalised === 'non_voting') {
+            return 'background:#3f3f46; color:#f4f4f5;';
         }
 
-        if (normalised === 'non vote' || normalised === 'non-vote' || normalised === 'nonvote') {
-            return 'background:#3f3f46; color:#f4f4f5;';
+        if (normalised === 'represented') {
+            return 'background:#1e3a8a; color:#dbeafe;';
+        }
+
+        if (normalised === 'missing' || normalised === 'unknown') {
+            return 'background:#78350f; color:#fde68a;';
         }
 
         return 'background:#1f2937; color:#e5e7eb;';
     }
 
-    function getVotingTypeForPractice(row, practiceKey) {
-        if (practiceKey === 'practice2') return row.dataset.votePractice2;
-        if (practiceKey === 'practice3') return row.dataset.votePractice3;
-        return row.dataset.votePractice1;
+    function votingTooltip(item) {
+        const lines = [];
+        if (item.status_raw) lines.push('Workbook status: ' + item.status_raw);
+        if (item.notes) lines.push('Notes: ' + item.notes);
+        if (item.voting_house) lines.push('Voting house: ' + item.voting_house);
+        if (item.source_label) lines.push('Source: ' + item.source_label);
+        if (item.route_conflict_reason) lines.push('House routing: ' + item.route_conflict_reason);
+        return lines.join('\n');
     }
 
-    function refreshDebtInterpretation() {
-        if (!practiceSelect || !totalDebtValue || !eligibleBalanceValue || !acceptPercentValue || !rejectPercentValue || !warningBox) {
+    function applyIpVotingAnalysis(data, raiseAlerts = true) {
+        currentIpVoting = data || null;
+        const hasIp = Boolean(data && data.ip_key);
+        const byDebt = new Map(
+            Array.isArray(data?.debts)
+                ? data.debts.map(item => [String(item.debt_id), item])
+                : []
+        );
+
+        document.querySelectorAll('.debt-row').forEach(row => {
+            const item = byDebt.get(String(row.dataset.debtId)) || {
+                outcome: hasIp ? 'missing' : 'missing',
+                status_raw: null,
+                voting_house: null,
+                notes: null,
+                source_label: null,
+                source_rows: [],
+                representative_rules: [],
+                needs_input: false,
+                needs_review: false,
+                reason: hasIp ? 'not_found' : 'ip_not_selected'
+            };
+
+            row.dataset.voteOutcome = item.outcome || 'unknown';
+            row.dataset.voteStatusRaw = item.status_raw || '';
+            row.dataset.votingHouse = item.voting_house || '';
+            row.dataset.voteSource = item.source_type || '';
+            row.dataset.voteNeedsInput = item.needs_input ? '1' : '0';
+            row.dataset.voteNeedsReview = item.needs_review ? '1' : '0';
+
+            const pill = row.querySelector('.debt-voting-type');
+            if (pill) {
+                pill.textContent = formatVotingOutcomeLabel(item.outcome, item.status_raw, hasIp);
+                pill.style.cssText = getVotingTypePillStyle(item.outcome) + ' padding:6px 10px; border-radius:999px; font-size:12px;';
+                const tooltip = votingTooltip(item);
+                pill.title = tooltip;
+                pill.style.cursor = tooltip ? 'help' : 'default';
+            }
+
+            const houseEl = row.querySelector('.debt-voting-house');
+            if (houseEl) {
+                if (item.voting_house) {
+                    houseEl.textContent = item.voting_house;
+                    houseEl.style.display = 'inline-block';
+                    houseEl.title = 'Voting house from ' + (item.source_type === 'manual' ? 'manual Jinx criteria' : 'the selected IP workbook');
+                } else {
+                    houseEl.textContent = '';
+                    houseEl.style.display = 'none';
+                    houseEl.title = '';
+                }
+            }
+
+            const details = row.querySelector('.debt-ip-notes');
+            const body = row.querySelector('.debt-ip-notes-body');
+            if (details && body) {
+                const lines = [];
+
+                if (item.source_type === 'manual') {
+                    lines.push('Source: Manual Jinx entry for ' + (data.ip_label || data.ip_key || 'selected IP'));
+                } else if (item.source_label) {
+                    lines.push('Source: ' + item.source_label);
+                }
+
+                if (item.status_raw) lines.push('Workbook status: ' + item.status_raw);
+                if (item.notes) lines.push('Notes: ' + item.notes);
+                if (item.voting_house) lines.push('Voting house: ' + item.voting_house);
+                if (item.route_conflict_reason) lines.push('Voting house needs review: ' + item.route_conflict_reason);
+
+                if (Array.isArray(item.source_rows) && item.source_rows.length) {
+                    lines.push('Workbook rows:');
+                    item.source_rows.forEach(source => {
+                        const bits = [
+                            source.source_name,
+                            source.sheet ? 'sheet ' + source.sheet : null,
+                            source.row ? 'row ' + source.row : null,
+                            source.status ? 'status: ' + source.status : null,
+                            source.detail ? 'note: ' + source.detail : null,
+                            source.voting_house ? 'house: ' + source.voting_house : null
+                        ].filter(Boolean);
+                        lines.push('• ' + bits.join(' · '));
+                    });
+                }
+
+                if (Array.isArray(item.representative_rules) && item.representative_rules.length) {
+                    lines.push((item.voting_house || 'Representative') + ' notes from this IP workbook:');
+                    item.representative_rules.forEach(rule => {
+                        lines.push('• ' + rule.text);
+                    });
+                }
+
+                body.textContent = lines.join('\n');
+                details.style.display = lines.length ? 'block' : 'none';
+            }
+        });
+
+        refreshDebtInterpretation();
+
+        if (raiseAlerts) {
+            const unresolved = Array.isArray(data?.unresolved) ? data.unresolved : [];
+            window.dispatchEvent(new CustomEvent('jinx:ip-voting-unresolved', {
+                detail: {
+                    ip_key: data?.ip_key || null,
+                    ip_label: data?.ip_label || null,
+                    unresolved: unresolved
+                }
+            }));
+        }
+    }
+
+    async function refreshIpVoting(raiseAlerts = true) {
+        if (!ivaIpSelect || !ivaIpSelect.dataset.votingUrl) {
+            refreshDebtInterpretation();
             return;
         }
 
-        const practiceKey = practiceSelect.value;
-        const rows = document.querySelectorAll('.debt-row');
+        try {
+            const response = await fetch(ivaIpSelect.dataset.votingUrl, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Unable to load IP voting criteria');
+            }
 
+            applyIpVotingAnalysis(data, raiseAlerts);
+        } catch (error) {
+            if (warningBox) {
+                warningBox.style.display = 'block';
+                warningBox.textContent = 'Could not load IP voting criteria: ' + error.message;
+            }
+        }
+    }
+
+    function refreshDebtInterpretation() {
+        if (!totalDebtValue || !eligibleBalanceValue || !acceptPercentValue || !rejectPercentValue || !warningBox) {
+            return;
+        }
+
+        const rows = document.querySelectorAll('.debt-row');
         let totalDebt = 0;
         let eligibleTotal = 0;
         let acceptTotal = 0;
         let rejectTotal = 0;
+        let unresolvedTotal = 0;
+        let representedTotal = 0;
         const houseTotals = {};
         const houseRejectTotals = {};
 
         rows.forEach(row => {
-            const votingType = normaliseVotingType(getVotingTypeForPractice(row, practiceKey));
-            const votingTypeEl = row.querySelector('.debt-voting-type');
-
-            if (votingTypeEl) {
-                votingTypeEl.textContent = formatVotingTypeLabel(votingType);
-                votingTypeEl.style.cssText = getVotingTypePillStyle(votingType) + ' padding:6px 10px; border-radius:999px; font-size:12px;';
-            }
-
+            const outcome = normaliseVotingOutcome(row.dataset.voteOutcome);
             const balance = parseFloat(row.dataset.balance || '0');
-            const house = String(row.dataset.votingHouse || 'Independent').trim() || 'Independent';
+            const house = String(row.dataset.votingHouse || '').trim();
             totalDebt += balance;
 
-            if (votingType === 'accept' || votingType === 'reject') {
+            const isVoting = ['accept', 'accept_conditional', 'reject', 'represented'].includes(outcome);
+            if (isVoting) {
                 eligibleTotal += balance;
-                houseTotals[house] = (houseTotals[house] || 0) + balance;
+                const houseKey = house || 'Independent';
+                houseTotals[houseKey] = (houseTotals[houseKey] || 0) + balance;
 
-                if (votingType === 'accept') acceptTotal += balance;
-                if (votingType === 'reject') {
+                if (outcome === 'accept' || outcome === 'accept_conditional') {
+                    acceptTotal += balance;
+                } else if (outcome === 'reject') {
                     rejectTotal += balance;
-                    houseRejectTotals[house] = (houseRejectTotals[house] || 0) + balance;
+                    houseRejectTotals[houseKey] = (houseRejectTotals[houseKey] || 0) + balance;
+                } else if (outcome === 'represented') {
+                    representedTotal += balance;
                 }
+            } else if (outcome === 'missing' || outcome === 'unknown') {
+                unresolvedTotal += balance;
             }
         });
 
         const acceptPercent = eligibleTotal > 0 ? (acceptTotal / eligibleTotal) * 100 : 0;
         const rejectPercent = eligibleTotal > 0 ? (rejectTotal / eligibleTotal) * 100 : 0;
+
         totalDebtValue.textContent = formatMoney(totalDebt);
         if (leadInfoTotalDebt) leadInfoTotalDebt.textContent = totalDebtValue.textContent;
         eligibleBalanceValue.textContent = formatMoney(eligibleTotal);
         acceptPercentValue.textContent = acceptPercent.toFixed(1) + '%';
         rejectPercentValue.textContent = rejectPercent.toFixed(1) + '%';
 
-        const independentKey = Object.keys(houseTotals).find(h => h.trim().toLowerCase() === 'independent');
-        const independentReject = independentKey ? (houseRejectTotals[independentKey] || 0) : 0;
-        const independentRejectPercent = eligibleTotal > 0 ? (independentReject / eligibleTotal) * 100 : 0;
         const warnings = [];
+
+        if (!ivaIpSelect || !ivaIpSelect.value) {
+            warnings.push('Select an IVA IP to load creditor voting criteria from that IP workbook.');
+        }
+
+        if (unresolvedTotal > 0 && ivaIpSelect && ivaIpSelect.value) {
+            warnings.push('Voting criteria needs review for ' + formatMoney(unresolvedTotal) + ' of debt.');
+        }
+
+        if (representedTotal > 0) {
+            warnings.push(formatMoney(representedTotal) + ' is represented voting debt. Jinx does not assume the representative will accept or reject.');
+        }
 
         if (votingHouseExposure && votingHouseExposureRows) {
             const houses = Object.entries(houseTotals).sort((a, b) => b[1] - a[1]);
@@ -1701,53 +1876,76 @@
 
             houses.forEach(([house, total]) => {
                 const housePercent = eligibleTotal > 0 ? (total / eligibleTotal) * 100 : 0;
-                const isIndependent = house.trim().toLowerCase() === 'independent';
                 const currentHouseReject = houseRejectTotals[house] || 0;
-                // Scenario = all voting debt controlled by this house rejects, plus rejects
-                // already sitting outside that house. For a voting house this naturally
-                // includes independent rejects without double-counting existing house rejects.
                 const outsideRejects = Math.max(0, rejectTotal - currentHouseReject);
-                const scenarioReject = isIndependent ? rejectTotal : Math.min(eligibleTotal, total + outsideRejects);
+                const scenarioReject = Math.min(eligibleTotal, total + outsideRejects);
                 const scenarioPercent = eligibleTotal > 0 ? (scenarioReject / eligibleTotal) * 100 : 0;
 
-                const row = document.createElement('div');
-                row.style.cssText = 'display:grid; grid-template-columns:minmax(120px,1.3fr) minmax(105px,1fr) minmax(90px,.8fr) minmax(150px,1.4fr); gap:10px; align-items:center; background:#0f172a; border:1px solid #1e293b; border-radius:9px; padding:10px 12px; font-size:13px;';
+                const exposureRow = document.createElement('div');
+                exposureRow.style.cssText = 'display:grid; grid-template-columns:minmax(120px,1.3fr) minmax(105px,1fr) minmax(90px,.8fr) minmax(150px,1.4fr); gap:10px; align-items:center; background:#0f172a; border:1px solid #1e293b; border-radius:9px; padding:10px 12px; font-size:13px;';
                 const riskStyle = scenarioPercent >= 25 ? 'color:#fecaca; font-weight:700;' : 'color:#d1fae5; font-weight:700;';
-                row.innerHTML = '<div style="font-weight:700; color:#f8fafc;">' + house + '</div>' +
+                exposureRow.innerHTML = '<div style="font-weight:700; color:#f8fafc;">' + htmlEscape(house) + '</div>' +
                     '<div style="color:#cbd5e1;">' + formatMoney(total) + '</div>' +
                     '<div style="font-weight:700;">' + housePercent.toFixed(1) + '%</div>' +
-                    '<div style="' + riskStyle + '">' + (isIndependent ? 'Current reject: ' : 'If house rejects: ') + scenarioPercent.toFixed(1) + '%</div>';
-                votingHouseExposureRows.appendChild(row);
-
-                if (!isIndependent && scenarioPercent >= 25) {
-                    warnings.push('If ' + house + ' rejects, total rejection would be ' + scenarioPercent.toFixed(1) + '%.');
-                }
+                    '<div style="' + riskStyle + '">If house rejects: ' + scenarioPercent.toFixed(1) + '%</div>';
+                votingHouseExposureRows.appendChild(exposureRow);
             });
 
             if (independentRejectScenario) {
-                if (independentReject > 0) {
-                    independentRejectScenario.style.display = 'block';
-                    independentRejectScenario.textContent = 'Independent creditors already rejecting: ' + formatMoney(independentReject) + ' (' + independentRejectPercent.toFixed(1) + '% of voting debt). These rejects are included in every house rejection scenario.';
-                } else {
-                    independentRejectScenario.style.display = 'none';
-                    independentRejectScenario.textContent = '';
-                }
+                independentRejectScenario.style.display = 'none';
+                independentRejectScenario.textContent = '';
             }
         }
 
-        if (eligibleTotal > 0 && acceptPercent < 75) warnings.push('Accept voting is below 75%.');
-        if (eligibleTotal > 0 && rejectPercent >= 25) warnings.push('Reject-heavy mix detected.');
+        if (eligibleTotal > 0 && acceptPercent < 75) {
+            warnings.push('Known accept direction is ' + acceptPercent.toFixed(1) + '% of voting balance.');
+        }
+        if (eligibleTotal > 0 && rejectPercent >= 25) {
+            warnings.push('Known reject direction is ' + rejectPercent.toFixed(1) + '% of voting balance.');
+        }
 
         if (warnings.length) {
             warningBox.style.display = 'block';
-            warningBox.innerHTML = [...new Set(warnings)].map(w => '<div style="margin-bottom:6px;">• ' + w + '</div>').join('');
+            warningBox.innerHTML = [...new Set(warnings)]
+                .map(warning => '<div style="margin-bottom:6px;">• ' + htmlEscape(warning) + '</div>')
+                .join('');
         } else {
             warningBox.style.display = 'none';
             warningBox.innerHTML = '';
         }
     }
 
-    practiceSelect.addEventListener('change', refreshDebtInterpretation);
+    if (ivaIpSelect) {
+        ivaIpSelect.addEventListener('change', async function () {
+            const previous = currentIpVoting?.ip_key || '';
+            ivaIpSelect.disabled = true;
+
+            try {
+                const response = await fetch(ivaIpSelect.dataset.updateUrl, {
+                    method: 'PATCH',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken
+                    },
+                    body: JSON.stringify({ iva_ip_key: ivaIpSelect.value || null })
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Could not save IVA IP');
+                }
+
+                applyIpVotingAnalysis(data, true);
+            } catch (error) {
+                ivaIpSelect.value = previous;
+                alert('Could not save IVA IP: ' + error.message);
+            } finally {
+                ivaIpSelect.disabled = false;
+            }
+        });
+    }
 
     const debtModal = document.getElementById('debtModal');
     const debtModalOverlay = document.getElementById('debtModalOverlay');
@@ -1884,11 +2082,16 @@
         }
     });
 
-    function buildDebtRowHtml(debt, votingType) {
+
+    function buildDebtRowHtml(debt) {
+        const creditorName = htmlEscape(debt.creditor_name || 'Unknown creditor');
+        const reference = debt.reference ? htmlEscape(debt.reference) : '—';
+        const source = htmlEscape(sourceLabel(debt.source_expected));
+
         return `
             <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap;">
                 <div style="flex:1; min-width:240px;">
-                    <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">${debt.creditor_name}</div>
+                    <div style="font-size:18px; font-weight:700; margin-bottom:8px;" class="debt-creditor-name">${creditorName}</div>
 
                     <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
                         <span style="background:#1e293b; border:1px solid #334155; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;">
@@ -1896,16 +2099,14 @@
                         </span>
 
                         <span style="background:#1d4ed8; color:#ffffff; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-source-tag">
-                            ${sourceLabel(debt.source_expected)}
+                            ${source}
                         </span>
 
-                        <span style="${getVotingTypePillStyle(votingType)} padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
-                            ${formatVotingTypeLabel(votingType)}
+                        <span style="background:#1f2937; color:#e5e7eb; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-type">
+                            ${ivaIpSelect && ivaIpSelect.value ? 'LOADING…' : 'SELECT IP'}
                         </span>
 
-                        <span style="background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house">
-                            ${debt.voting_house}
-                        </span>
+                        <span style="display:none; background:#3f3f46; color:#f4f4f5; padding:6px 10px; border-radius:999px; font-size:12px;" class="debt-voting-house"></span>
 
                         <span
                             class="debt-evidence-status"
@@ -1917,8 +2118,13 @@
                     </div>
 
                     <div style="font-size:13px; color:#9ca3af;">
-                        Ref: <span class="debt-reference">${debt.reference ? debt.reference : '—'}</span>
+                        Ref: <span class="debt-reference">${reference}</span>
                     </div>
+
+                    <details class="debt-ip-notes" style="display:none; margin-top:10px; border:1px solid #263244; border-radius:9px; background:#0b1220; padding:8px 10px;">
+                        <summary style="cursor:pointer; font-size:12px; font-weight:700; color:#93c5fd;">IP notes / source</summary>
+                        <div class="debt-ip-notes-body" style="margin-top:8px; white-space:pre-wrap; font-size:12px; line-height:1.45; color:#cbd5e1;"></div>
+                    </details>
                 </div>
 
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -1945,20 +2151,17 @@
     }
 
     function applyDebtRowData(row, debt) {
-        const practiceKey = practiceSelect.value;
-        let votingType = debt.voting_practice1;
-
-        if (practiceKey === 'practice2') votingType = debt.voting_practice2;
-        if (practiceKey === 'practice3') votingType = debt.voting_practice3;
-
         row.dataset.debtId = debt.id;
+        row.dataset.creditorId = debt.creditor_id || '';
+        row.dataset.creditorName = debt.creditor_name || '';
         row.dataset.balance = Number(debt.balance).toFixed(2);
-        row.dataset.votingHouse = debt.voting_house;
-        row.dataset.votePractice1 = debt.voting_practice1;
-        row.dataset.votePractice2 = debt.voting_practice2;
-        row.dataset.votePractice3 = debt.voting_practice3;
-
-        row.innerHTML = buildDebtRowHtml(debt, votingType);
+        row.dataset.votingHouse = '';
+        row.dataset.voteOutcome = ivaIpSelect && ivaIpSelect.value ? 'loading' : 'missing';
+        row.dataset.voteStatusRaw = '';
+        row.dataset.voteSource = '';
+        row.dataset.voteNeedsInput = '0';
+        row.dataset.voteNeedsReview = '0';
+        row.innerHTML = buildDebtRowHtml(debt);
     }
 
     function buildDebtRow(debt) {
@@ -1981,7 +2184,7 @@
         debtList.prepend(row);
         bindDeleteButtons();
         bindEditButtons();
-        refreshDebtInterpretation();
+        refreshIpVoting();
     }
 
     function updateDebtRow(debt) {
@@ -1991,7 +2194,7 @@
         applyDebtRowData(row, debt);
         bindDeleteButtons();
         bindEditButtons();
-        refreshDebtInterpretation();
+        refreshIpVoting();
     }
 
     async function openEditDebtModal(debtId) {
@@ -2163,7 +2366,7 @@
                         debtList.appendChild(empty);
                     }
 
-                    refreshDebtInterpretation();
+                    refreshIpVoting();
                 } catch (e) {
                     alert('Delete failed');
                 }
@@ -2173,7 +2376,11 @@
 
     bindEditButtons();
     bindDeleteButtons();
-    refreshDebtInterpretation();
+    refreshIpVoting();
+
+    window.addEventListener('jinx:ip-voting-refresh', function () {
+        refreshIpVoting();
+    });
 
     (function () {
         const leadWipStatusSelect = document.getElementById('lead-wip-status-select');
