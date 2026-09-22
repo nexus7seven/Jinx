@@ -1813,11 +1813,20 @@
         }
 
         function priorityRank(card) {
-            if (card.dataset.wipStatus !== 'SIP Booked') return [20, queuePosition(card)];
-            if (!card.dataset.sipAt) return [-1, queuePosition(card)];
-            const sipTime = new Date(card.dataset.sipAt).getTime();
-            if (!card.dataset.sipPrepCompletedAt) return [0, new Date(card.dataset.sipPrepAt).getTime()];
-            return [10, sipTime];
+            const sipBooked = card.dataset.wipStatus === 'SIP Booked';
+            const sipPending = sipBooked && !card.dataset.sipPrepCompletedAt;
+            const sipMs = sipPending ? millisUntil(card.dataset.sipPrepAt) : Number.POSITIVE_INFINITY;
+            const callback = callbackRank(card);
+
+            // Due SIP prep remains first. A due callback on a Ready to Refer
+            // card must still jump above the ordinary Priority stack.
+            if (sipPending && !card.dataset.sipAt) return [-3, queuePosition(card)];
+            if (sipPending && sipMs <= 0) return [-2, new Date(card.dataset.sipPrepAt).getTime()];
+            if (callback[0] === 0) return [-1, callback[1]];
+            if (sipPending) return [0, new Date(card.dataset.sipPrepAt).getTime()];
+            if (callback[0] < 20) return [callback[0], callback[1]];
+            if (sipBooked) return [10, new Date(card.dataset.sipAt).getTime()];
+            return [20, queuePosition(card)];
         }
 
         function compareRanks(a, b, ranker) {
@@ -1959,6 +1968,8 @@
             document.querySelectorAll('.wip-lead-row').forEach(updateCardTiming);
             sortStack(document.getElementById('wip-priority-stack'), priorityRank);
             sortStack(document.getElementById('wip-active-stack'), callbackRank);
+            sortStack(document.getElementById('wip-dmp-stack'), callbackRank);
+            sortStack(document.getElementById('wip-other-stack'), callbackRank);
             updateNextSipBanner();
             updateLaneCounts();
         }
