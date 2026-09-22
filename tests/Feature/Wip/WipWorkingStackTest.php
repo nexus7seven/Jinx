@@ -90,23 +90,93 @@ class WipWorkingStackTest extends TestCase
     {
         $index = file_get_contents(resource_path('views/wip/index.blade.php'));
         $assistant = file_get_contents(resource_path('views/wip/assistant.blade.php'));
+        $card = file_get_contents(resource_path('views/wip/partials/lead-card.blade.php'));
 
-        $this->assertStringContainsString('class="wip-stack-handle"', $index);
+        $this->assertStringContainsString('class="wip-stack-handle"', $card);
         $this->assertStringContainsString('id="wip-actioned-modal"', $index);
-        $this->assertStringContainsString('Actioned ↓', $index);
+        $this->assertStringContainsString('Actioned ↓', $card);
         $this->assertStringContainsString('Move to bottom', $index);
         $this->assertStringContainsString('id="wip-actioned-waiting-on"', $index);
         $this->assertStringNotContainsString('id="wip-actioned-chase-preset"', $index);
         $this->assertStringNotContainsString('id="wip-actioned-note"', $index);
         $this->assertStringNotContainsString('scrollIntoView', $index);
+
         $this->assertStringContainsString('class="wip-board-layout"', $index);
-        $this->assertStringContainsString('grid-template-columns:minmax(0,4fr) minmax(250px,1fr)', $index);
-        $this->assertStringContainsString('class="wip-callback-item', $index);
+        $this->assertStringContainsString('id="wip-dashboard-grid"', $index);
+        $this->assertStringContainsString('data-wip-lane="priority"', $index);
+        $this->assertStringContainsString('data-wip-lane="active"', $index);
+        $this->assertStringContainsString('data-wip-lane="dmp"', $index);
+        $this->assertStringContainsString('id="wip-next-sip-banner"', $index);
+        $this->assertStringContainsString('id="wip-sip-modal"', $index);
+        $this->assertStringContainsString('LIVE_SYNC_MS = 15000', $index);
+        $this->assertStringNotContainsString('const IDLE_MS', $index);
+        $this->assertStringContainsString('data-sip-prep-done', $card);
+        $this->assertStringContainsString('data-callback-at=', $card);
 
         $this->assertStringContainsString('id="wipAssistantLauncher"', $assistant);
         $this->assertStringContainsString('.wip-assistant.is-open', $assistant);
         $this->assertStringNotContainsString('backdrop-filter', $assistant);
         $this->assertStringNotContainsString('wip-assistant-scrim', $assistant);
+    }
+
+    public function test_sip_booked_requires_an_appointment_time(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('SIP Missing');
+
+        $this->actingAs($user)->patchJson(route('lead.wip-status', ['lead' => $lead->id]), [
+            'wip_status' => 'SIP Booked',
+        ])->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertSame('Collecting Docs', $lead->fresh()->wip_status);
+        $this->assertNull($lead->fresh()->sip_booked_at);
+    }
+
+    public function test_sip_time_is_stored_and_prep_call_can_be_completed(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('SIP Timed');
+        $when = now()->addHour()->startOfMinute();
+        $browserIso = $when->copy()->utc()->toIso8601String();
+
+        $this->actingAs($user)->patchJson(route('lead.wip-status', ['lead' => $lead->id]), [
+            'wip_status' => 'SIP Booked',
+            'sip_booked_at' => $browserIso,
+        ])->assertOk()
+            ->assertJsonPath('wip_status', 'SIP Booked')
+            ->assertJsonPath('sip.sip_booked_at', $when->toIso8601String());
+
+        $lead->refresh();
+        $this->assertSame('SIP Booked', $lead->wip_status);
+        $this->assertTrue($lead->sip_booked_at->equalTo($when));
+        $this->assertNull($lead->sip_prep_completed_at);
+
+        $this->actingAs($user)->postJson(route('lead.sip-prep-complete', ['lead' => $lead->id]))
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertNotNull($lead->fresh()->sip_prep_completed_at);
+    }
+
+    public function test_leaving_sip_booked_clears_appointment_and_prep_state(): void
+    {
+        $user = User::factory()->create();
+        $lead = $this->lead('SIP Leaving');
+        $lead->update([
+            'wip_status' => 'SIP Booked',
+            'sip_booked_at' => now()->addHour(),
+            'sip_prep_completed_at' => now(),
+        ]);
+
+        $this->actingAs($user)->patchJson(route('lead.wip-status', ['lead' => $lead->id]), [
+            'wip_status' => 'Ready to Refer',
+        ])->assertOk();
+
+        $lead->refresh();
+        $this->assertSame('Ready to Refer', $lead->wip_status);
+        $this->assertNull($lead->sip_booked_at);
+        $this->assertNull($lead->sip_prep_completed_at);
     }
 
     private function lead(string $name): Lead
@@ -115,7 +185,7 @@ class WipWorkingStackTest extends TestCase
         $sequence++;
 
         return Lead::query()->create([
-            'vicidial_lead_id' => $sequence,
+            'vicidial_lead_id' => 'test-'.$sequence,
             'phone_number' => '07700'.substr((string) $sequence, -6),
             'first_name' => $name,
             'last_name' => 'Case',

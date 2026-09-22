@@ -176,6 +176,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip/callback-poll', [WipController::class, 'pollCallbacks'])->name('wip.callback-poll');
     Route::patch('/wip/stack/reorder', [WipController::class, 'reorderStack'])->name('wip.stack.reorder');
     Route::post('/lead/{lead}/wip-actioned', [WipController::class, 'actioned'])->name('lead.wip-actioned');
+    Route::post('/lead/{lead}/sip-prep-complete', [WipController::class, 'completeSipPrep'])->name('lead.sip-prep-complete');
     Route::get('/assistant/wip', [WipAssistantController::class, 'bootstrap']);
     Route::post('/assistant/wip/message', [WipAssistantController::class, 'send']);
     Route::post('/assistant/wip/reset', [WipAssistantController::class, 'reset']);
