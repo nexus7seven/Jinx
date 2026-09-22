@@ -49,6 +49,13 @@ class WipController extends Controller
     {
         $show = $request->get('show', 'active');
 
+        // All is an unprioritised directory of every Jinx lead, not a WIP queue.
+        // Keep it separate so queue sync, callback sorting and re-engagement
+        // suppression never remove or reorder a lead in the directory.
+        if ($show === 'all') {
+            return $this->allLeads($request);
+        }
+
         $firstPass = Lead::query()
             ->when($show !== 'all', function ($query) {
                 $query->whereNotIn('wip_status', Lead::WIP_STATUSES_EXCLUDED_FROM_ACTIVE_TAB);
@@ -264,6 +271,67 @@ class WipController extends Controller
             'reengagement_channel_by_lead_id' => $reengagementChannelByLeadId,
             'remarketing_response_events' => $remarketingResponseEvents,
             'scheduled_callbacks' => $callbackByLead->values()->all(),
+        ]);
+    }
+
+    private function allLeads(Request $request): View
+    {
+        $search = mb_substr(trim((string) $request->query('q', '')), 0, 120);
+        $status = trim((string) $request->query('status', ''));
+        $source = trim((string) $request->query('source', ''));
+
+        $query = Lead::query()->select([
+            'id', 'vicidial_lead_id', 'first_name', 'last_name',
+            'phone_number', 'email', 'wip_status', 'source', 'created_at',
+        ]);
+
+        // Each word may match a different field: "Jane Smith", a phone,
+        // email, postcode or either Jinx/VICIdial ID can all be searched.
+        foreach (preg_split('/\\s+/u', $search, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
+            $query->where(function ($match) use ($word): void {
+                $like = '%'.$word.'%';
+                $match->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhere('phone_number', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('postcode', 'like', $like)
+                    ->orWhere('address_line_1', 'like', $like)
+                    ->orWhere('vicidial_lead_id', 'like', $like)
+                    ->orWhere('source', 'like', $like)
+                    ->orWhere('wip_status', 'like', $like);
+
+                if (ctype_digit($word)) {
+                    $match->orWhere('id', (int) $word);
+                }
+            });
+        }
+
+        if ($status !== '') {
+            $query->where('wip_status', $status);
+        }
+
+        if ($source === '__EMPTY__') {
+            $query->whereRaw("TRIM(COALESCE(source, '')) = ''");
+        } elseif ($source !== '') {
+            $query->where('source', $source);
+        }
+
+        $leads = $query->orderByDesc('id')->paginate(50)->withQueryString();
+        $statuses = collect(Lead::WIP_STATUSES)
+            ->merge(Lead::query()->distinct()->pluck('wip_status')->filter())
+            ->unique()->values()->all();
+        $sources = Lead::query()->distinct()->pluck('source')
+            ->map(fn ($value) => trim((string) $value))
+            ->unique()->sort()->values()->all();
+
+        return view('wip.all', [
+            'show' => 'all',
+            'leads' => $leads,
+            'statuses' => $statuses,
+            'wip_source_filter_options' => $sources,
+            'search' => $search,
+            'status' => $status,
+            'source' => $source,
         ]);
     }
 
