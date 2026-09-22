@@ -484,12 +484,43 @@ class WipController extends Controller
         $validated = $request->validate([
             'wip_status' => ['required', Rule::in(Lead::WIP_STATUSES)],
             'dead_reason' => ['nullable', 'string', 'max:1000', Rule::requiredIf(fn () => $request->input('wip_status') === 'Dead')],
+            'sip_booked_at' => ['nullable', 'date'],
         ]);
 
-        $lead->update([
-            'wip_status' => $validated['wip_status'],
-            'dead_reason' => $validated['wip_status'] === 'Dead' ? trim((string) ($validated['dead_reason'] ?? '')) : null,
-        ]);
+        $targetStatus = (string) $validated['wip_status'];
+        $updates = [
+            'wip_status' => $targetStatus,
+            'dead_reason' => $targetStatus === 'Dead' ? trim((string) ($validated['dead_reason'] ?? '')) : null,
+        ];
+
+        if ($targetStatus === 'SIP Booked') {
+            $rawSipAt = $validated['sip_booked_at'] ?? $lead->sip_booked_at;
+            if (! $rawSipAt) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Add the SIP appointment time before marking this case SIP Booked.',
+                ], 422);
+            }
+
+            $sipAt = Carbon::parse($rawSipAt)->setTimezone((string) config('app.timezone', 'Europe/London'));
+            if ($sipAt->lte(now()->subMinute())) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The SIP appointment time must be in the future.',
+                ], 422);
+            }
+
+            $existingSipAt = $lead->sip_booked_at;
+            $updates['sip_booked_at'] = $sipAt;
+            if ($existingSipAt === null || ! $existingSipAt->equalTo($sipAt)) {
+                $updates['sip_prep_completed_at'] = null;
+            }
+        } elseif ($previousStatus === 'SIP Booked') {
+            $updates['sip_booked_at'] = null;
+            $updates['sip_prep_completed_at'] = null;
+        }
+
+        $lead->update($updates);
 
         // Once a case is being worked beyond New Lead, it must not remain in the auto-dial hopper.
         if (is_numeric($lead->vicidial_lead_id) && in_array($validated['wip_status'], ['Collecting Docs', 'Callback Set', 'DMP Transfer', 'Ready to Refer', 'SIP Booked', 'IVA Verified', 'DMP Verified', 'Lost Contact', 'Dead'], true)) {
@@ -704,9 +735,30 @@ class WipController extends Controller
             }
         }
 
+        $lead->refresh();
+
         return response()->json([
             'success' => true,
             'wip_status' => $lead->wip_status,
+            'sip' => $this->sipPayload($lead),
+        ]);
+    }
+
+    public function completeSipPrep(Lead $lead): JsonResponse
+    {
+        if ($lead->wip_status !== 'SIP Booked' || $lead->sip_booked_at === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This case does not have an active SIP appointment.',
+            ], 422);
+        }
+
+        $lead->update(['sip_prep_completed_at' => now()]);
+        $lead->refresh();
+
+        return response()->json([
+            'success' => true,
+            'sip' => $this->sipPayload($lead),
         ]);
     }
 
@@ -836,6 +888,21 @@ class WipController extends Controller
             'counts' => $this->checklistCounts($lead->id),
             'wip_status' => $lead->fresh()->wip_status,
         ]);
+    }
+
+    private function sipPayload(Lead $lead): array
+    {
+        $sipAt = $lead->sip_booked_at;
+        $prepAt = $sipAt?->copy()->subMinutes(15);
+
+        return [
+            'sip_booked_at' => $sipAt?->toIso8601String(),
+            'sip_booked_display' => $sipAt?->format('D j M, H:i'),
+            'sip_prep_at' => $prepAt?->toIso8601String(),
+            'sip_prep_display' => $prepAt?->format('D j M, H:i'),
+            'sip_prep_completed_at' => $lead->sip_prep_completed_at?->toIso8601String(),
+            'sip_prep_completed_display' => $lead->sip_prep_completed_at?->format('H:i'),
+        ];
     }
 
     private function checklistCounts(int $leadId): array

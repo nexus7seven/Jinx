@@ -511,7 +511,7 @@
         }
 
         .wip-desktop-layout{display:block}.wip-main-column{min-width:0}
-        .wip-board-layout{display:grid;grid-template-columns:minmax(0,4fr) minmax(250px,1fr);gap:14px;align-items:start}.wip-board-main{min-width:0}.wip-callback-column{min-width:0;position:sticky;top:14px;max-height:calc(100vh - 28px)}
+        .wip-board-layout{display:block}.wip-board-main{min-width:0}.wip-callback-column{min-width:0;position:sticky;top:14px;max-height:calc(100vh - 28px)}
         .wip-callback-column #wip-callback-section{margin:0;box-sizing:border-box;padding:0;overflow:hidden;border-color:rgba(59,130,246,.45);background:linear-gradient(180deg,rgba(30,58,138,.18) 0%,rgba(15,23,42,.78) 100%)}.wip-callback-column .wip-attention-header{padding:10px 11px 9px;margin:0;border-bottom:1px solid rgba(51,65,85,.65);background:rgba(15,23,42,.5)}.wip-callback-column #wip-callback-list{max-height:calc(100vh - 105px);overflow-y:auto;overscroll-behavior:contain;padding:7px;scrollbar-width:thin;scrollbar-color:#475569 transparent;display:flex;flex-direction:column;gap:6px}
         .wip-callback-item{display:block;border:1px solid rgba(51,65,85,.65);border-radius:8px;background:rgba(15,23,42,.76);padding:9px 10px;text-decoration:none;color:inherit;transition:border-color .15s ease,background .15s ease}.wip-callback-item:hover{border-color:#475569;background:#111b2d}.wip-callback-item.is-due{border-color:rgba(248,113,113,.45);background:rgba(69,10,10,.2)}.wip-callback-item__top{display:flex;align-items:flex-start;justify-content:space-between;gap:7px}.wip-callback-item__name{font-size:12px;font-weight:800;color:#f8fafc;line-height:1.25}.wip-callback-item__due{font-size:9px;font-weight:800;color:#94a3b8;white-space:nowrap}.wip-callback-item.is-due .wip-callback-item__due{color:#fecaca}.wip-callback-item__when{font-size:10px;font-weight:700;color:#93c5fd;margin-top:5px}.wip-callback-item__note{font-size:10px;line-height:1.35;color:#94a3b8;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
         .wip-queue-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;border-top:1px solid rgba(51,65,85,.7);padding-top:18px;margin:22px 0 10px}.wip-queue-heading h2{margin:0;font-size:22px;letter-spacing:-.025em;color:#f8fafc}.wip-queue-heading p{font-size:12px;margin:4px 0 0;color:#64748b}.wip-queue-count{font-size:11px;color:#94a3b8;border:1px solid #334155;background:#111827;padding:5px 9px;border-radius:999px}
@@ -521,14 +521,53 @@
         .wip-stack-state{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:#94a3b8}.wip-stack-state__pill{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;border:1px solid #334155;background:#0b1220;color:#cbd5e1}.wip-stack-state__pill.is-due{border-color:#b45309;background:#451a03;color:#fde68a}.wip-stack-state__note{color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:560px}
         .wip-actioned-btn{margin-left:auto;min-height:32px;border:1px solid #2563eb;border-radius:7px;background:#172554;color:#bfdbfe;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer}.wip-actioned-btn:hover{background:#1e3a8a;border-color:#60a5fa}
         .wip-action-modal{display:none;position:fixed;inset:0;z-index:12100;background:rgba(2,6,23,.68);padding:18px;box-sizing:border-box}.wip-action-modal.is-open{display:block}.wip-action-modal__card{max-width:440px;margin:12vh auto 0;background:#111827;border:1px solid #374151;border-radius:14px;box-shadow:0 22px 60px rgba(0,0,0,.55);overflow:hidden}.wip-action-modal__head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #334155}.wip-action-modal__title{font-size:17px;font-weight:800;color:#f8fafc}.wip-action-modal__sub{margin-top:3px;color:#64748b;font-size:11px}.wip-action-modal__close{width:32px;height:32px;border:1px solid #334155;border-radius:7px;background:#0f172a;color:#cbd5e1;cursor:pointer}.wip-action-modal__body{padding:15px}.wip-action-modal__field{margin-bottom:13px}.wip-action-modal__field label{display:block;margin-bottom:5px;color:#94a3b8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.wip-action-modal__field select{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px}.wip-action-modal__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.wip-action-modal__cancel,.wip-action-modal__save{border-radius:8px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.wip-action-modal__cancel{border:1px solid #334155;background:#111827;color:#cbd5e1}.wip-action-modal__save{border:1px solid #2563eb;background:#2563eb;color:#fff}
-        @media(max-width:1100px){.wip-board-layout{grid-template-columns:minmax(0,3fr) minmax(230px,1fr)}}@media(max-width:820px){.wip-page{padding-left:16px!important;padding-right:16px!important}.wip-board-layout{grid-template-columns:1fr}.wip-callback-column{position:static;max-height:none;order:-1}.wip-callback-column #wip-callback-list{max-height:320px}.wip-lead-row{padding-left:42px}.wip-actioned-btn{margin-left:0}}
-    </style>
+        @media(max-width:1100px){}@media(max-width:820px){.wip-page{padding-left:16px!important;padding-right:16px!important}.wip-board-layout{grid-template-columns:1fr}.wip-callback-column{position:static;max-height:none;order:-1}.wip-callback-column #wip-callback-list{max-height:320px}.wip-lead-row{padding-left:42px}.wip-actioned-btn{margin-left:0}}
+
+        /* Live WIP dashboard */
+        .wip-page{max-width:1920px!important}
+        .wip-live-meta{display:flex;align-items:center;gap:8px;color:#64748b;font-size:11px}
+        .wip-live-indicator{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid rgba(34,197,94,.35);border-radius:999px;background:rgba(20,83,45,.22);color:#86efac;font-weight:800;letter-spacing:.05em}
+        .wip-live-indicator.is-error{border-color:rgba(248,113,113,.55);background:rgba(127,29,29,.25);color:#fecaca}
+        .wip-live-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.5);animation:wip-live-pulse 2s infinite}
+        .wip-live-indicator.is-error .wip-live-dot{background:#ef4444;animation:none}
+        @keyframes wip-live-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.45)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+        .wip-next-sip-banner{position:sticky;top:8px;z-index:80;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:12px;margin:0 0 12px;padding:11px 13px;border:1px solid #f59e0b;border-radius:12px;background:linear-gradient(90deg,rgba(120,53,15,.96),rgba(30,41,59,.97));box-shadow:0 10px 30px rgba(0,0,0,.35)}
+        .wip-next-sip-banner.is-due{border-color:#ef4444;background:linear-gradient(90deg,rgba(127,29,29,.98),rgba(30,41,59,.98))}
+        .wip-next-sip-banner__pulse{width:11px;height:11px;border-radius:50%;background:#fbbf24;box-shadow:0 0 0 0 rgba(251,191,36,.55);animation:wip-sip-pulse 1.5s infinite}
+        .wip-next-sip-banner.is-due .wip-next-sip-banner__pulse{background:#f87171}
+        @keyframes wip-sip-pulse{0%{box-shadow:0 0 0 0 rgba(251,191,36,.55)}70%{box-shadow:0 0 0 9px rgba(251,191,36,0)}100%{box-shadow:0 0 0 0 rgba(251,191,36,0)}}
+        .wip-next-sip-banner__copy{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}.wip-next-sip-banner__eyebrow{font-size:9px;font-weight:900;letter-spacing:.1em;color:#fde68a}.wip-next-sip-banner__copy strong{font-size:14px;color:#fff}.wip-next-sip-banner__copy span:last-child{font-size:11px;color:#cbd5e1}
+        .wip-next-sip-banner__countdown{font-size:14px;font-weight:900;color:#fde68a;white-space:nowrap}.wip-next-sip-banner.is-due .wip-next-sip-banner__countdown{color:#fecaca}.wip-next-sip-banner__open{padding:6px 9px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:rgba(15,23,42,.55);color:#fff;text-decoration:none;font-size:11px;font-weight:800}
+        .wip-dashboard-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr) minmax(0,.92fr);gap:12px;align-items:start}
+        .wip-lane,.wip-other-statuses{min-width:0;border:1px solid #263244;border-radius:13px;background:rgba(15,23,42,.56);overflow:hidden}
+        .wip-lane--priority{border-color:rgba(245,158,11,.42);background:linear-gradient(180deg,rgba(120,53,15,.12),rgba(15,23,42,.64) 160px)}
+        .wip-lane--active{border-color:rgba(59,130,246,.35)}.wip-lane--dmp{border-color:rgba(168,85,247,.35)}
+        .wip-lane__head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:12px 13px;border-bottom:1px solid rgba(51,65,85,.7);background:rgba(15,23,42,.78);position:sticky;top:0;z-index:5}
+        .wip-lane__head h3{margin:2px 0 0;font-size:17px;letter-spacing:-.02em;color:#f8fafc}.wip-lane__head p{margin:3px 0 0;font-size:10px;color:#64748b}.wip-lane__eyebrow{display:block;font-size:8px;font-weight:900;letter-spacing:.11em;color:#64748b}.wip-lane--priority .wip-lane__eyebrow{color:#fbbf24}.wip-lane--dmp .wip-lane__eyebrow{color:#c4b5fd}
+        .wip-lane__count{min-width:25px;height:25px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #334155;border-radius:999px;background:#0b1220;color:#cbd5e1;font-size:10px;font-weight:800}
+        .wip-lane__stack{display:flex;flex-direction:column;gap:7px;padding:8px;min-height:84px}.wip-lane__empty{padding:24px 10px;text-align:center;color:#475569;font-size:11px;border:1px dashed #263244;border-radius:9px}
+        .wip-other-statuses{margin-top:12px}.wip-lane__stack--other{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+        .wip-lead-row{padding:9px 9px 9px 39px!important;gap:6px!important;border-radius:9px!important;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .25s ease!important}
+        .wip-stack-handle{left:7px!important;top:9px!important;width:24px!important;height:32px!important}
+        .wip-lead-row .wip-card__title a{font-size:14px!important}.wip-lead-row .wip-card__meta{font-size:10px!important}.wip-lead-row .wip-card__controls .status-select{min-width:0!important;flex:1!important}
+        .wip-sip-panel{margin:2px 0;padding:9px 10px;border:1px solid rgba(245,158,11,.5);border-radius:8px;background:linear-gradient(135deg,rgba(120,53,15,.55),rgba(30,41,59,.7));box-shadow:inset 3px 0 0 #f59e0b}
+        .wip-sip-panel__label{font-size:9px;font-weight:950;letter-spacing:.11em;color:#fbbf24}.wip-sip-panel__main{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px}.wip-sip-panel__time{font-size:16px;font-weight:900;color:#fff}.wip-sip-panel__prep{font-size:11px;font-weight:850;color:#fde68a;margin-top:1px}.wip-sip-panel__prep [data-sip-countdown]{margin-left:4px;color:#fbbf24}.wip-sip-panel__actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
+        .wip-sip-prep-btn,.wip-sip-edit-btn{border-radius:6px;padding:5px 7px;font-size:9px;font-weight:900;cursor:pointer}.wip-sip-prep-btn{border:1px solid #f59e0b;background:#78350f;color:#fef3c7}.wip-sip-edit-btn{border:1px solid #475569;background:#111827;color:#cbd5e1}.wip-sip-edit-btn.is-primary{border-color:#f59e0b;color:#fef3c7}.wip-sip-done{font-size:9px;font-weight:900;color:#86efac}.wip-sip-panel__missing{font-size:10px;color:#fecaca;line-height:1.3}
+        .wip-card-sip-upcoming{border-color:rgba(245,158,11,.55)!important}.wip-card-sip-soon{border-color:#f59e0b!important;box-shadow:0 0 0 1px rgba(245,158,11,.15),0 8px 22px rgba(120,53,15,.12)}.wip-card-sip-urgent{border-color:#fb923c!important;background:rgba(124,45,18,.16)!important;box-shadow:0 0 0 1px rgba(251,146,60,.2)}.wip-card-sip-due{border-color:#ef4444!important;background:rgba(127,29,29,.22)!important;box-shadow:0 0 0 1px rgba(239,68,68,.22),0 10px 30px rgba(127,29,29,.2)}.wip-card-sip-due .wip-sip-panel{border-color:#ef4444;box-shadow:inset 3px 0 0 #ef4444}.wip-card-sip-due .wip-sip-panel__label,.wip-card-sip-due .wip-sip-panel__prep,.wip-card-sip-due .wip-sip-panel__prep [data-sip-countdown]{color:#fecaca}.wip-card-sip-prepped .wip-sip-panel{border-color:rgba(34,197,94,.45);box-shadow:inset 3px 0 0 #22c55e;background:rgba(20,83,45,.13)}.wip-card-sip-missing{border-color:#ef4444!important}
+        .wip-callback-strip{display:flex;align-items:center;gap:6px;min-width:0;margin:1px 0;padding:6px 8px;border:1px solid rgba(59,130,246,.38);border-radius:7px;background:rgba(30,64,175,.16);font-size:10px;color:#bfdbfe}.wip-callback-strip__label{font-size:8px;font-weight:900;letter-spacing:.08em;color:#93c5fd}.wip-callback-strip strong{white-space:nowrap;color:#dbeafe}.wip-callback-strip [data-callback-countdown]{font-weight:800;margin-left:auto;white-space:nowrap}.wip-callback-strip__note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;max-width:120px}
+        .wip-lead-row.is-callback-soon{border-color:rgba(59,130,246,.65)!important}.wip-lead-row.is-callback-urgent{border-color:#3b82f6!important;background:rgba(30,64,175,.16)!important}.wip-lead-row.is-callback-due{border-color:#ef4444!important;background:rgba(127,29,29,.17)!important}.wip-lead-row.is-callback-due .wip-callback-strip{border-color:#ef4444;background:rgba(127,29,29,.23);color:#fecaca}
+        .wip-actioned-btn{padding:6px 8px!important;white-space:nowrap}.wip-stack-state{font-size:10px!important}.wip-stack-state__pill{padding:2px 6px!important}
+        .wip-sip-modal .wip-action-modal__card{max-width:470px}.wip-sip-modal input[type="datetime-local"]{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px;color-scheme:dark}
+        @media(max-width:1280px){.wip-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-lane--dmp{grid-column:1/-1}.wip-lane--dmp .wip-lane__stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media(max-width:820px){.wip-dashboard-grid{grid-template-columns:1fr}.wip-lane--dmp{grid-column:auto}.wip-lane--dmp .wip-lane__stack,.wip-lane__stack--other{display:flex}.wip-next-sip-banner{position:static;grid-template-columns:auto 1fr auto}.wip-next-sip-banner__open{display:none}.wip-next-sip-banner__copy span:last-child{width:100%}}
+</style>
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
 <div class="wip-page" style="max-width:1680px; margin:0 auto; padding:18px 28px 28px; box-sizing:border-box;">
 
     @include('partials.app-nav')
+    @include('partials.lead-click-to-call', ['lead' => null, 'variant' => 'icon'])
 
     <div class="wip-desktop-layout">
     <main class="wip-main-column">
@@ -580,7 +619,7 @@
     <div class="wip-board-layout">
       <div class="wip-board-main">
 
-    <section aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
+    <section id="wip-attention-required-section" aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
         <div class="wip-attention-header">
             <h2 id="wip-attention-required-heading" class="wip-attention-title">⚠️ Attention Required</h2>
             @if ($attentionCount > 0)
@@ -679,28 +718,37 @@
         @endif
     </section>
 
-    <div class="wip-queue-heading"><div><h2>Working stack</h2><p>Work from the top. Drag cases to reorder them; after actioning a case, record what you are waiting on and it moves to the bottom.</p></div><span class="wip-queue-count">{{ count($leads) }} active</span></div>
+    <div class="wip-queue-heading">
+        <div>
+            <h2>Live workdesk</h2>
+            <p>Three independent working stacks. Timed SIP prep calls and callbacks rise automatically as they become due.</p>
+        </div>
+        <div class="wip-live-meta">
+            <span id="wip-live-indicator" class="wip-live-indicator"><span class="wip-live-dot"></span> LIVE</span>
+            <span id="wip-live-updated">Updated just now</span>
+        </div>
+    </div>
+
+    <div id="wip-next-sip-banner" class="wip-next-sip-banner" style="display:none" aria-live="polite">
+        <div class="wip-next-sip-banner__pulse"></div>
+        <div class="wip-next-sip-banner__copy">
+            <span class="wip-next-sip-banner__eyebrow">NEXT SIP PREP</span>
+            <strong data-next-sip-name>—</strong>
+            <span data-next-sip-times>—</span>
+        </div>
+        <div class="wip-next-sip-banner__countdown" data-next-sip-countdown>—</div>
+        <a href="#" class="wip-next-sip-banner__open" data-next-sip-open>Open case</a>
+    </div>
+
     <div id="wip-filter-bar" class="wip-filter-bar">
-        <input
-            type="search"
-            id="wip-filter-name"
-            autocomplete="off"
-            placeholder="Filter by name…"
-            aria-label="Filter leads by name"
-        >
-        <select
-            id="wip-filter-status"
-            aria-label="Filter by status"
-        >
+        <input type="search" id="wip-filter-name" autocomplete="off" placeholder="Filter by name…" aria-label="Filter leads by name">
+        <select id="wip-filter-status" aria-label="Filter by status">
             <option value="">All statuses</option>
             @foreach($statuses as $status)
                 <option value="{{ $status }}">{{ $status }}</option>
             @endforeach
         </select>
-        <select
-            id="wip-filter-source"
-            aria-label="Filter by source"
-        >
+        <select id="wip-filter-source" aria-label="Filter by source">
             <option value="">All sources</option>
             @foreach($wip_source_filter_options ?? [] as $rawSource)
                 @if($rawSource === '')
@@ -716,173 +764,102 @@
         No cases match the current filters.
     </div>
 
-    <div id="wip-leads-grid" style="display:grid; gap:10px;">
-        @php
-            $unseenReengagementLeadSet = $unseen_reengagement_lead_set ?? [];
-            $reengagementChannelByLeadId = $reengagement_channel_by_lead_id ?? [];
-            $formatReengagementChannel = static function (?string $raw): string {
-                if ($raw === null || trim($raw) === '') {
-                    return '';
-                }
-                $k = strtolower(trim($raw));
-
-                return match ($k) {
-                    'whatsapp' => 'WhatsApp',
-                    'sms' => 'SMS',
-                    'email' => 'Email',
-                    'call' => 'Call',
-                    default => \Illuminate\Support\Str::title(str_replace('_', ' ', $k)),
-                };
+    @php
+        $unseenReengagementLeadSet = $unseen_reengagement_lead_set ?? [];
+        $reengagementChannelByLeadId = $reengagement_channel_by_lead_id ?? [];
+        $formatReengagementChannel = static function (?string $raw): string {
+            if ($raw === null || trim($raw) === '') {
+                return '';
+            }
+            $k = strtolower(trim($raw));
+            return match ($k) {
+                'whatsapp' => 'WhatsApp',
+                'sms' => 'SMS',
+                'email' => 'Email',
+                'call' => 'Call',
+                default => \Illuminate\Support\Str::title(str_replace('_', ' ', $k)),
             };
-        @endphp
-        @forelse($leads as $lead)
-            @php
-                $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
-                if ($caseName === '') {
-                    $caseName = 'Lead #' . $lead->id;
-                }
+        };
 
-                $outstanding = (int) ($lead->checklist_outstanding_count ?? 0);
-                $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
-                $sourceRaw = $lead->source === null ? '' : trim((string) $lead->source);
-                $lastDialled = $lead->last_dialled_at;
-                $lastDialledText = $lastDialled ? $lastDialled->format('d M Y, H:i') : 'Never dialled';
-                $createdText = $lead->created_at
-                    ? $lead->created_at->format('j M Y, H:i')
-                    : '—';
-                $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
-                $needsImmediateAttention = $lead->needsImmediateAttention();
-                $isReengaged = $lead->wip_status === \App\Models\Lead::WIP_STATUS_REENGAGED;
-                $reengagementUnseen = $isReengaged && isset($unseenReengagementLeadSet[(int) $lead->id]);
-                $reengagementChannelLabel = $isReengaged
-                    ? $formatReengagementChannel($reengagementChannelByLeadId[(int) $lead->id] ?? null)
-                    : '';
-                if ($reengagementUnseen) {
-                    $cardAttentionClass = 'wip-card-reengagement-unseen';
-                } elseif ($needsImmediateAttention) {
-                    $cardAttentionClass = 'wip-card-undialled-attention';
-                } elseif ($lead->isPriorityWip()) {
-                    $cardAttentionClass = 'wip-card-priority';
-                } else {
-                    $cardAttentionClass = '';
-                }
-                $reengagementSeenCalm = $isReengaged && ! $reengagementUnseen;
-                $queueItem = $lead->wipQueueItem;
-                $waitingOnLabel = $lead->wip_waiting_on_label ?? null;
-                $nextChaseAt = $queueItem?->next_chase_at;
-                $lastActionedAt = $queueItem?->last_actioned_at;
-                $actionNote = trim((string) ($queueItem?->action_note ?? ''));
-                $chaseDue = (bool) ($lead->wip_chase_due ?? false);
-            @endphp
+        $priorityLeads = $leads->filter(fn ($lead) => in_array($lead->wip_status, ['SIP Booked', 'Ready to Refer'], true))->values();
+        $activeLeads = $leads->filter(fn ($lead) => in_array($lead->wip_status, ['New Lead', 'Collecting Docs', 'Callback Set'], true))->values();
+        $dmpLeads = $leads->filter(fn ($lead) => $lead->wip_status === 'DMP Transfer')->values();
+        $primaryLeadIds = $priorityLeads->concat($activeLeads)->concat($dmpLeads)->pluck('id')->all();
+        $otherLeads = $leads->reject(fn ($lead) => in_array($lead->id, $primaryLeadIds, true))->values();
+    @endphp
 
-            <div
-                class="wip-card wip-lead-row {{ $cardAttentionClass }}{{ $reengagementSeenCalm ? ' wip-card-reengagement-seen' : '' }}"
-                data-lead-id="{{ $lead->id }}"
-                data-lead-name="{{ strtolower($caseName) }}"
-                data-wip-status="{{ $lead->wip_status }}"
-                data-lead-source="{{ e($sourceRaw) }}"
-                data-reengagement-unseen="{{ $reengagementUnseen ? '1' : '0' }}"
-                data-queue-position="{{ (int) ($lead->wip_queue_position ?? 0) }}"
-            >
-                <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">≡</button>
-                <div class="wip-card__row1">
-                    <div class="wip-card__title">
-                        <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
-                    </div>
-                    <div class="wip-card-actions">
-                        @if ($isReengaged)
-                            <span class="wip-chip wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? 'Re-engaged · review' : 'Re-engaged' }}</span>
-                            @if ($reengagementChannelLabel !== '')
-                                <span class="wip-chip wip-card__badge--reengagement-channel" title="Channel">{{ $reengagementChannelLabel }}</span>
-                            @endif
-                        @endif
-                        @if ($needsImmediateAttention)
-                            <span class="wip-chip wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
-                        @endif
-                        <button
-                            type="button"
-                            id="outstanding-pill-{{ $lead->id }}"
-                            class="open-checklist-btn wip-chip wip-chip-outstanding {{ $outstanding === 0 ? 'wip-chip-outstanding--clear' : 'wip-chip-outstanding--pending' }}"
-                            data-lead-id="{{ $lead->id }}"
-                            data-case-name="{{ $caseName }}"
-                            title="Open checklist"
-                        >{{ $outstanding }} outstanding</button>
-                        @if ($canCall)
-                            @include('partials.lead-click-to-call', ['lead' => $lead, 'variant' => 'icon'])
-                        @endif
-                    </div>
+    <div id="wip-dashboard-grid" class="wip-dashboard-grid">
+        <section class="wip-lane wip-lane--priority" data-wip-lane="priority">
+            <div class="wip-lane__head">
+                <div>
+                    <span class="wip-lane__eyebrow">DO NOT MISS</span>
+                    <h3>Priority</h3>
+                    <p>SIP Booked + Ready to Refer</p>
                 </div>
-
-                <div class="wip-card__meta">
-                    <span class="wip-meta-k">Created</span> <span class="wip-meta-v">{{ $createdText }}</span>
-                    <span class="wip-meta-dot" aria-hidden="true">·</span>
-                    <span class="wip-meta-k">Last dialled</span> <span class="wip-meta-v">{{ $lastDialledText }}</span>
-                    <span class="wip-meta-dot" aria-hidden="true">·</span>
-                    <span class="wip-meta-pill">{{ $sourceLabel }}</span>
-                </div>
-
-                <div class="wip-stack-state" data-stack-state>
-                    @if ($waitingOnLabel)
-                        <span class="wip-stack-state__pill">Waiting on: <strong>{{ $waitingOnLabel }}</strong></span>
-                    @else
-                        <span class="wip-stack-state__pill">Not actioned yet</span>
-                    @endif
-                    @if ($nextChaseAt)
-                        <span class="wip-stack-state__pill {{ $chaseDue ? 'is-due' : '' }}" data-chase-pill>{{ $chaseDue ? 'Chase due' : 'Chase' }}: {{ $nextChaseAt->format('D j M, H:i') }}</span>
-                    @endif
-                    @if ($lastActionedAt)
-                        <span class="wip-stack-state__pill">Last actioned {{ $lastActionedAt->diffForHumans() }}</span>
-                    @endif
-                    @if ($actionNote !== '')
-                        <span class="wip-stack-state__note" title="{{ $actionNote }}">{{ $actionNote }}</span>
-                    @endif
-                </div>
-
-                <div class="wip-card__controls">
-                    <select
-                        data-lead-id="{{ $lead->id }}"
-                        class="status-select">
-                        @foreach($statuses as $status)
-                            <option value="{{ $status }}" {{ $lead->wip_status === $status ? 'selected' : '' }}>
-                                {{ $status }}
-                            </option>
-                        @endforeach
-                    </select>
-                    <button type="button" class="wip-actioned-btn" data-actioned-lead-id="{{ $lead->id }}" data-actioned-case-name="{{ $caseName }}">Actioned ↓</button>
-                </div>
+                <span class="wip-lane__count" data-lane-count="priority">{{ $priorityLeads->count() }}</span>
             </div>
-        @empty
-            <div style="background:#111827; border:1px solid #374151; border-radius:16px; padding:18px; color:#9ca3af;">
-                No cases found.
-            </div>
-        @endforelse
-    </div>
-      </div>
-
-      <aside class="wip-callback-column" aria-label="Scheduled callbacks">
-        <section id="wip-callback-section" class="wip-attention-section {{ collect($scheduledCallbacks)->contains('due', true) ? 'wip-attention-section--active' : '' }}">
-            <div class="wip-attention-header">
-                <h2 class="wip-attention-title">📞 Callbacks</h2>
-                <span class="wip-attention-count" id="wip-callback-count" style="border-color:rgba(96,165,250,.5);background:rgba(30,64,175,.4);">{{ count($scheduledCallbacks) }}</span>
-            </div>
-            <div id="wip-callback-list">
-                @forelse($scheduledCallbacks as $callback)
-                    <a href="{{ url('/lead/'.$callback['lead_id']) }}" class="wip-callback-item {{ $callback['due'] ? 'is-due' : '' }}" data-callback-id="{{ $callback['callback_id'] }}">
-                        <div class="wip-callback-item__top">
-                            <span class="wip-callback-item__name">{{ $callback['lead_name'] }}</span>
-                            <span class="wip-callback-item__due">{{ $callback['due'] ? ($callback['overdue'] ? 'OVERDUE' : 'DUE NOW') : $callback['relative_due'] }}</span>
-                        </div>
-                        <div class="wip-callback-item__when">{{ $callback['callback_full_display'] }}</div>
-                        @if(trim((string) ($callback['comments'] ?? '')) !== '')
-                            <div class="wip-callback-item__note">{{ $callback['comments'] }}</div>
-                        @endif
-                    </a>
+            <div id="wip-priority-stack" class="wip-lane__stack" data-stack-key="priority">
+                @forelse($priorityLeads as $lead)
+                    @include('wip.partials.lead-card', ['lead' => $lead])
                 @empty
-                    <div class="wip-attention-empty" id="wip-callback-empty">No scheduled callbacks.</div>
+                    <div class="wip-lane__empty" data-lane-empty>No priority cases.</div>
                 @endforelse
             </div>
         </section>
-      </aside>
+
+        <section class="wip-lane wip-lane--active" data-wip-lane="active">
+            <div class="wip-lane__head">
+                <div>
+                    <span class="wip-lane__eyebrow">WORKING QUEUE</span>
+                    <h3>Active Cases</h3>
+                    <p>New leads · collecting docs · callbacks</p>
+                </div>
+                <span class="wip-lane__count" data-lane-count="active">{{ $activeLeads->count() }}</span>
+            </div>
+            <div id="wip-active-stack" class="wip-lane__stack" data-stack-key="active">
+                @forelse($activeLeads as $lead)
+                    @include('wip.partials.lead-card', ['lead' => $lead])
+                @empty
+                    <div class="wip-lane__empty" data-lane-empty>No active cases.</div>
+                @endforelse
+            </div>
+        </section>
+
+        <section class="wip-lane wip-lane--dmp" data-wip-lane="dmp">
+            <div class="wip-lane__head">
+                <div>
+                    <span class="wip-lane__eyebrow">DMP</span>
+                    <h3>DMP Transfers</h3>
+                    <p>Dedicated transfer stack</p>
+                </div>
+                <span class="wip-lane__count" data-lane-count="dmp">{{ $dmpLeads->count() }}</span>
+            </div>
+            <div id="wip-dmp-stack" class="wip-lane__stack" data-stack-key="dmp">
+                @forelse($dmpLeads as $lead)
+                    @include('wip.partials.lead-card', ['lead' => $lead])
+                @empty
+                    <div class="wip-lane__empty" data-lane-empty>No DMP transfers.</div>
+                @endforelse
+            </div>
+        </section>
+    </div>
+
+    @if ($otherLeads->isNotEmpty())
+        <section class="wip-other-statuses">
+            <div class="wip-lane__head">
+                <div><span class="wip-lane__eyebrow">ALL VIEW</span><h3>Other statuses</h3></div>
+                <span class="wip-lane__count">{{ $otherLeads->count() }}</span>
+            </div>
+            <div id="wip-other-stack" class="wip-lane__stack wip-lane__stack--other" data-stack-key="other">
+                @foreach($otherLeads as $lead)
+                    @include('wip.partials.lead-card', ['lead' => $lead])
+                @endforeach
+            </div>
+        </section>
+    @endif
+      </div>
+
+
     </div>
     </main>
     </div>
@@ -921,6 +898,29 @@
     </div>
 </div>
 
+<div id="wip-sip-modal" class="wip-action-modal wip-sip-modal" aria-hidden="true">
+    <div class="wip-action-modal__card" role="dialog" aria-modal="true" aria-labelledby="wip-sip-title">
+        <div class="wip-action-modal__head">
+            <div>
+                <div id="wip-sip-title" class="wip-action-modal__title">SIP appointment</div>
+                <div id="wip-sip-case-name" class="wip-action-modal__sub">Set the booked appointment time.</div>
+            </div>
+            <button type="button" id="wip-sip-close" class="wip-action-modal__close" aria-label="Close">×</button>
+        </div>
+        <form id="wip-sip-form" class="wip-action-modal__body">
+            <div class="wip-action-modal__field">
+                <label for="wip-sip-booked-at">Appointment date & time</label>
+                <input id="wip-sip-booked-at" type="datetime-local" required>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;line-height:1.45;">Jinx will automatically make the prep call due 15 minutes before this appointment and keep it visible until prep is marked complete.</div>
+            <div class="wip-action-modal__actions">
+                <button type="button" id="wip-sip-cancel" class="wip-action-modal__cancel">Cancel</button>
+                <button type="submit" id="wip-sip-save" class="wip-action-modal__save">Save SIP time</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="checklist-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999; padding:16px; box-sizing:border-box;">
     <div style="max-width:720px; margin:30px auto; background:#111827; border:1px solid #374151; border-radius:18px; overflow:hidden;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #374151;">
@@ -954,11 +954,9 @@
 
 <script>
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    const wipOpsAlertLeads = @json($ops_alert_leads ?? []);
     const wipReengagementSnapshotIds = new Set(@json($unseen_reengagement_event_ids ?? []));
     const wipReengagementPollUrl = @json(route('wip.reengagement-poll'));
     const wipReengagementAckUrl = @json(route('wip.reengagement-acknowledge'));
-    const wipCallbackPollUrl = @json(route('wip.callback-poll'));
     const wipStackReorderUrl = @json(route('wip.stack.reorder'));
     const wipCallbackInitialDueIds = new Set(@json(collect($scheduled_callbacks ?? [])->where('due', true)->pluck('callback_id')->values()->all()));
 
@@ -1067,10 +1065,11 @@
     }
 
     (function () {
-        const stack = document.getElementById('wip-leads-grid');
-        if (!stack) return;
+        const dashboard = document.getElementById('wip-dashboard-grid');
+        if (!dashboard) return;
 
         let draggedCard = null;
+        let draggedStack = null;
         let reorderInFlight = false;
 
         function filtersAreActive() {
@@ -1082,13 +1081,39 @@
             if (!el) return;
             el.textContent = message;
             el.style.display = 'block';
-            window.setTimeout(() => { el.style.display = 'none'; }, 2800);
+            window.setTimeout(() => { el.style.display = 'none'; }, 3000);
+        }
+        window.jinxWipToast = toast;
+
+        function callbackWasActioned(card) {
+            if (!card?.dataset.callbackAt || !card.dataset.lastActionedAt) return false;
+            const callbackAt = new Date(card.dataset.callbackAt).getTime();
+            const actionedAt = new Date(card.dataset.lastActionedAt).getTime();
+            return Number.isFinite(callbackAt) && Number.isFinite(actionedAt) && actionedAt >= callbackAt;
+        }
+
+        window.jinxWipCallbackWasActioned = callbackWasActioned;
+
+        function timedOrderingOwnsCard(card) {
+            if (!card) return false;
+            if (card.dataset.wipStatus === 'SIP Booked' && !card.dataset.sipPrepCompletedAt) return true;
+            const raw = card.dataset.callbackAt;
+            if (!raw || callbackWasActioned(card)) return false;
+            const ms = new Date(raw).getTime() - Date.now();
+            return Number.isFinite(ms) && ms <= 60 * 60 * 1000;
         }
 
         async function persistOrder() {
             if (reorderInFlight) return;
             reorderInFlight = true;
-            const leadIds = Array.from(stack.querySelectorAll('.wip-lead-row')).map(card => Number(card.dataset.leadId));
+            const leadIds = Array.from(document.querySelectorAll('[data-stack-key] .wip-lead-row'))
+                .map(card => Number(card.dataset.leadId))
+                .filter(Boolean);
+            if (!leadIds.length) {
+                reorderInFlight = false;
+                return;
+            }
+
             try {
                 const response = await fetch(wipStackReorderUrl, {
                     method: 'PATCH',
@@ -1100,50 +1125,69 @@
                     body: JSON.stringify({ lead_ids: leadIds }),
                 });
                 if (!response.ok) throw new Error('Could not save stack order');
-                toast('Working stack order saved.');
+                leadIds.forEach((id, index) => {
+                    const card = document.querySelector('.wip-lead-row[data-lead-id="' + id + '"]');
+                    if (card) card.dataset.queuePosition = String((index + 1) * 1000);
+                });
+                toast('Stack order saved.');
             } catch (error) {
-                toast('Could not save stack order. Reloading…');
-                window.setTimeout(() => window.location.reload(), 900);
+                toast('Could not save stack order. Refreshing…');
+                window.setTimeout(() => window.jinxWipSyncDashboard?.(true), 900);
             } finally {
                 reorderInFlight = false;
             }
         }
+        window.jinxWipPersistOrder = persistOrder;
 
-        stack.querySelectorAll('.wip-stack-handle').forEach(handle => {
-            handle.addEventListener('dragstart', event => {
-                if (filtersAreActive()) {
-                    event.preventDefault();
-                    toast('Clear the filters before reordering the stack.');
-                    return;
-                }
+        dashboard.addEventListener('dragstart', event => {
+            const handle = event.target.closest('.wip-stack-handle');
+            if (!handle) return;
 
-                draggedCard = handle.closest('.wip-lead-row');
-                if (!draggedCard) return;
-                draggedCard.classList.add('is-dragging');
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData('text/plain', draggedCard.dataset.leadId || '');
-            });
+            if (filtersAreActive()) {
+                event.preventDefault();
+                toast('Clear the filters before reordering a stack.');
+                return;
+            }
 
-            handle.addEventListener('dragend', async () => {
-                if (!draggedCard) return;
-                draggedCard.classList.remove('is-dragging');
-                stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+            draggedCard = handle.closest('.wip-lead-row');
+            draggedStack = draggedCard?.closest('[data-stack-key]') || null;
+            if (!draggedCard || !draggedStack) return;
+
+            if (timedOrderingOwnsCard(draggedCard)) {
+                event.preventDefault();
+                toast('This timed card is being positioned automatically.');
                 draggedCard = null;
-                await persistOrder();
-            });
+                draggedStack = null;
+                return;
+            }
+
+            draggedCard.classList.add('is-dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', draggedCard.dataset.leadId || '');
         });
 
-        stack.addEventListener('dragover', event => {
+        dashboard.addEventListener('dragend', async () => {
             if (!draggedCard) return;
+            draggedCard.classList.remove('is-dragging');
+            draggedStack?.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
+            draggedCard = null;
+            draggedStack = null;
+            await persistOrder();
+            window.jinxWipRunTimeEngine?.();
+        });
+
+        dashboard.addEventListener('dragover', event => {
+            if (!draggedCard || !draggedStack) return;
+            const overStack = event.target.closest('[data-stack-key]');
+            if (overStack !== draggedStack) return;
+
             event.preventDefault();
             event.dataTransfer.dropEffect = 'move';
-
-            const cards = Array.from(stack.querySelectorAll('.wip-lead-row:not(.is-dragging)'))
-                .filter(card => card.style.display !== 'none');
+            const cards = Array.from(draggedStack.querySelectorAll('.wip-lead-row:not(.is-dragging)'))
+                .filter(card => card.style.display !== 'none' && !timedOrderingOwnsCard(card));
 
             let after = null;
             let bestOffset = Number.NEGATIVE_INFINITY;
-
             cards.forEach(card => {
                 const box = card.getBoundingClientRect();
                 const offset = event.clientY - box.top - box.height / 2;
@@ -1153,13 +1197,12 @@
                 }
             });
 
-            stack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
-
+            draggedStack.querySelectorAll('.is-drop-target').forEach(row => row.classList.remove('is-drop-target'));
             if (after) {
                 after.classList.add('is-drop-target');
-                stack.insertBefore(draggedCard, after);
+                draggedStack.insertBefore(draggedCard, after);
             } else {
-                stack.appendChild(draggedCard);
+                draggedStack.appendChild(draggedCard);
             }
         });
 
@@ -1190,7 +1233,6 @@
         function renderQueueState(card, item) {
             const wrap = card.querySelector('[data-stack-state]');
             if (!wrap) return;
-
             const waiting = item.waiting_on_label
                 ? '<span class="wip-stack-state__pill">Waiting on: <strong>' + escapeHtml(item.waiting_on_label) + '</strong></span>'
                 : '<span class="wip-stack-state__pill">Not actioned yet</span>';
@@ -1203,12 +1245,12 @@
             const actionNote = item.action_note
                 ? '<span class="wip-stack-state__note" title="' + escapeHtml(item.action_note) + '">' + escapeHtml(item.action_note) + '</span>'
                 : '';
-
             wrap.innerHTML = waiting + chase + actioned + actionNote;
         }
 
-        document.querySelectorAll('.wip-actioned-btn').forEach(button => {
-            button.addEventListener('click', () => openActionedModal(button));
+        document.addEventListener('click', event => {
+            const button = event.target.closest('.wip-actioned-btn');
+            if (button) openActionedModal(button);
         });
 
         close.addEventListener('click', closeActionedModal);
@@ -1223,7 +1265,6 @@
 
             save.disabled = true;
             save.textContent = 'Saving…';
-
             try {
                 const response = await fetch('/lead/' + actionLeadId + '/wip-actioned', {
                     method: 'POST',
@@ -1245,14 +1286,18 @@
                     throw new Error(validation || data.message || 'Could not update case');
                 }
 
-                const card = stack.querySelector('.wip-lead-row[data-lead-id="' + actionLeadId + '"]');
+                const card = document.querySelector('.wip-lead-row[data-lead-id="' + actionLeadId + '"]');
                 if (card) {
                     renderQueueState(card, data.queue_item);
-                    stack.appendChild(card);
+                    card.dataset.queuePosition = String(data.queue_item.position || Number.MAX_SAFE_INTEGER);
+                    card.dataset.lastActionedAt = data.queue_item.last_actioned_at || '';
+                    const stack = card.closest('[data-stack-key]');
+                    if (stack) stack.appendChild(card);
                 }
 
                 closeActionedModal();
-                toast('Case moved to the bottom of your working stack.');
+                toast('Case moved to the bottom of this stack.');
+                window.jinxWipRunTimeEngine?.();
             } catch (error) {
                 alert(error.message);
             } finally {
@@ -1404,10 +1449,10 @@
         await loadChecklist(currentLeadId, currentCaseName);
     }
 
-    document.querySelectorAll('.open-checklist-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            await loadChecklist(btn.dataset.leadId, btn.dataset.caseName);
-        });
+    document.addEventListener('click', async (event) => {
+        const btn = event.target.closest('.open-checklist-btn');
+        if (!btn) return;
+        await loadChecklist(btn.dataset.leadId, btn.dataset.caseName);
     });
 
     closeModalBtn.addEventListener('click', () => {
@@ -1424,40 +1469,175 @@
         }
     });
 
-    document.querySelectorAll('.status-select').forEach(select => {
-        select.addEventListener('change', async () => {
-            const leadId = select.dataset.leadId;
-            const originalValue = select.getAttribute('data-original') || select.value;
-            const newValue = select.value;
-            let deadReason = null;
-            if (newValue === 'Dead') { deadReason = prompt('Why is this case Dead?'); if (!deadReason || !deadReason.trim()) { select.value = originalValue; return; } }
+    const sipModal = document.getElementById('wip-sip-modal');
+    const sipForm = document.getElementById('wip-sip-form');
+    const sipCaseName = document.getElementById('wip-sip-case-name');
+    const sipInput = document.getElementById('wip-sip-booked-at');
+    const sipSave = document.getElementById('wip-sip-save');
+    const sipClose = document.getElementById('wip-sip-close');
+    const sipCancel = document.getElementById('wip-sip-cancel');
+    let sipModalLeadId = null;
+    let sipModalSelect = null;
+    let sipModalOriginalStatus = null;
 
-            try {
-                const response = await fetch(`/lead/${leadId}/wip-status`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        wip_status: newValue,
-                        dead_reason: deadReason
-                    })
-                });
+    function toLocalDateTimeValue(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (!Number.isFinite(d.getTime())) return '';
+        const pad = value => String(value).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+            + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
 
-                if (!response.ok) {
-                    throw new Error('Failed to update status');
-                }
+    function closeSipModal(restoreStatus) {
+        if (restoreStatus && sipModalSelect && sipModalOriginalStatus !== null) {
+            sipModalSelect.value = sipModalOriginalStatus;
+        }
+        sipModal.classList.remove('is-open');
+        sipModal.setAttribute('aria-hidden', 'true');
+        sipModalLeadId = null;
+        sipModalSelect = null;
+        sipModalOriginalStatus = null;
+        sipInput.value = '';
+    }
 
-                const data = await response.json();
-                updateStatusSelect(leadId, data.wip_status);
-            } catch (error) {
-                alert('Could not update status.');
-                select.value = originalValue;
-            }
+    function openSipModal(card, select) {
+        sipModalLeadId = Number(card.dataset.leadId);
+        sipModalSelect = select || card.querySelector('.status-select');
+        sipModalOriginalStatus = sipModalSelect
+            ? (sipModalSelect.getAttribute('data-original') || card.dataset.wipStatus || sipModalSelect.value)
+            : (card.dataset.wipStatus || 'SIP Booked');
+        const title = card.querySelector('.wip-card__title')?.innerText?.trim() || ('Lead #' + sipModalLeadId);
+        sipCaseName.textContent = title + ' — booked SIP appointment';
+        sipInput.value = toLocalDateTimeValue(card.dataset.sipAt || '');
+        sipModal.classList.add('is-open');
+        sipModal.setAttribute('aria-hidden', 'false');
+        window.setTimeout(() => sipInput.focus(), 0);
+    }
+
+    async function saveWipStatus(leadId, newValue, deadReason, sipBookedAt) {
+        const response = await fetch('/lead/' + leadId + '/wip-status', {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                wip_status: newValue,
+                dead_reason: deadReason || null,
+                sip_booked_at: sipBookedAt || null,
+            })
         });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const validation = data.errors ? Object.values(data.errors).flat().join(' ') : '';
+            throw new Error(validation || data.message || 'Could not update status.');
+        }
+        updateStatusSelect(leadId, data.wip_status);
+        return data;
+    }
 
+    document.addEventListener('change', async event => {
+        const select = event.target.closest('.status-select');
+        if (!select) return;
+
+        const card = select.closest('.wip-lead-row');
+        const leadId = select.dataset.leadId;
+        const originalValue = select.getAttribute('data-original') || card?.dataset.wipStatus || select.value;
+        const newValue = select.value;
+
+        if (newValue === 'SIP Booked') {
+            openSipModal(card, select);
+            return;
+        }
+
+        let deadReason = null;
+        if (newValue === 'Dead') {
+            deadReason = prompt('Why is this case Dead?');
+            if (!deadReason || !deadReason.trim()) {
+                select.value = originalValue;
+                return;
+            }
+        }
+
+        select.disabled = true;
+        try {
+            await saveWipStatus(leadId, newValue, deadReason, null);
+            await window.jinxWipSyncDashboard?.(true);
+        } catch (error) {
+            alert(error.message || 'Could not update status.');
+            select.value = originalValue;
+        } finally {
+            select.disabled = false;
+        }
+    });
+
+    document.addEventListener('click', async event => {
+        const edit = event.target.closest('[data-sip-edit]');
+        if (edit) {
+            const card = edit.closest('.wip-lead-row');
+            if (card) openSipModal(card, card.querySelector('.status-select'));
+            return;
+        }
+
+        const done = event.target.closest('[data-sip-prep-done]');
+        if (!done) return;
+
+        const leadId = done.dataset.leadId;
+        done.disabled = true;
+        done.textContent = 'Saving…';
+        try {
+            const response = await fetch('/lead/' + leadId + '/sip-prep-complete', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.message || 'Could not mark prep complete.');
+            window.jinxWipToast?.('SIP prep call marked complete.');
+            await window.jinxWipSyncDashboard?.(true);
+        } catch (error) {
+            alert(error.message || 'Could not mark prep complete.');
+            done.disabled = false;
+            done.textContent = 'Prep done';
+        }
+    });
+
+    sipClose.addEventListener('click', () => closeSipModal(true));
+    sipCancel.addEventListener('click', () => closeSipModal(true));
+    sipModal.addEventListener('click', event => {
+        if (event.target === sipModal) closeSipModal(true);
+    });
+
+    sipForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!sipModalLeadId || !sipInput.value) return;
+
+        const date = new Date(sipInput.value);
+        if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
+            alert('Choose a future SIP appointment time.');
+            return;
+        }
+
+        sipSave.disabled = true;
+        sipSave.textContent = 'Saving…';
+        try {
+            await saveWipStatus(sipModalLeadId, 'SIP Booked', null, date.toISOString());
+            closeSipModal(false);
+            window.jinxWipToast?.('SIP booked — prep call protected 15 minutes before.');
+            await window.jinxWipSyncDashboard?.(true);
+        } catch (error) {
+            alert(error.message || 'Could not save SIP appointment.');
+        } finally {
+            sipSave.disabled = false;
+            sipSave.textContent = 'Save SIP time';
+        }
+    });
+
+    document.querySelectorAll('.status-select').forEach(select => {
         select.setAttribute('data-original', select.value);
     });
 
@@ -1581,143 +1761,334 @@
     });
 
     (function () {
+        const LIVE_SYNC_MS = 15000;
+        const TIME_TICK_MS = 1000;
+        const dashboard = document.getElementById('wip-dashboard-grid');
+        const liveIndicator = document.getElementById('wip-live-indicator');
+        const liveUpdated = document.getElementById('wip-live-updated');
         const refreshBtn = document.getElementById('wip-refresh-btn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', function () {
-                refreshBtn.classList.add('is-spinning');
-                window.location.reload();
-            });
-        }
-
-        const IDLE_MS = 60000;
-        const CHECK_MS = 5000;
-        let lastActivity = Date.now();
-
-        function markActive() {
-            lastActivity = Date.now();
-        }
-
-        ['click', 'keydown', 'scroll', 'touchstart', 'focusin'].forEach(function (ev) {
-            window.addEventListener(ev, markActive, { passive: true });
-        });
+        const nextSipBanner = document.getElementById('wip-next-sip-banner');
+        const alertedCallbacks = new Set(wipCallbackInitialDueIds);
+        const alertedSipPrep = new Set();
+        let syncInFlight = false;
+        let lastSyncAt = Date.now();
 
         function isFormFieldFocused() {
             const el = document.activeElement;
             if (!el) return false;
-            const tag = el.tagName;
-            if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
-            if (tag === 'INPUT') {
-                const t = el.type || 'text';
-                if (t === 'button' || t === 'submit' || t === 'checkbox' || t === 'radio') return false;
-                return true;
-            }
-            return false;
+            if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+            if (el.tagName !== 'INPUT') return false;
+            const type = el.type || 'text';
+            return !['button', 'submit', 'checkbox', 'radio'].includes(type);
         }
 
-        setInterval(function () {
-            if (document.getElementById('checklist-modal') && document.getElementById('checklist-modal').style.display === 'block') {
-                return;
-            }
-            if (document.getElementById('wip-actioned-modal')?.classList.contains('is-open')) {
-                return;
-            }
-            if (isFormFieldFocused()) return;
-            if (Date.now() - lastActivity < IDLE_MS) return;
-            window.location.reload();
-        }, CHECK_MS);
-
-        const BASELINE_KEY = 'jinx_wip_ops_baseline_done';
-        const MAX_SEEN_KEY = 'jinx_wip_max_seen_lead_id';
-
-        function playSoftBeep() {
-            try {
-                const Ctx = window.AudioContext || window.webkitAudioContext;
-                if (!Ctx) return;
-                const ctx = new Ctx();
-                const o = ctx.createOscillator();
-                const g = ctx.createGain();
-                o.type = 'sine';
-                o.frequency.value = 880;
-                g.gain.value = 0.035;
-                o.connect(g);
-                g.connect(ctx.destination);
-                o.start();
-                setTimeout(function () {
-                    o.stop();
-                    ctx.close();
-                }, 100);
-            } catch (e) {}
+        function syncBlocked() {
+            return document.getElementById('checklist-modal')?.style.display === 'block'
+                || document.getElementById('wip-actioned-modal')?.classList.contains('is-open')
+                || document.getElementById('wip-sip-modal')?.classList.contains('is-open')
+                || !!document.querySelector('.is-dragging')
+                || isFormFieldFocused();
         }
 
-        function runOpsAlerts() {
-            if (!wipOpsAlertLeads || !wipOpsAlertLeads.length) return;
-
-            const ids = wipOpsAlertLeads.map(function (r) { return r.id; });
-            const currentMax = ids.length ? Math.max.apply(null, ids) : 0;
-
-            try {
-                if (!localStorage.getItem(BASELINE_KEY)) {
-                    localStorage.setItem(MAX_SEEN_KEY, String(currentMax));
-                    localStorage.setItem(BASELINE_KEY, '1');
-                    return;
-                }
-            } catch (e) {
-                return;
+        function setLiveState(ok) {
+            if (liveIndicator) {
+                liveIndicator.classList.toggle('is-error', !ok);
+                liveIndicator.childNodes[liveIndicator.childNodes.length - 1].textContent = ok ? ' LIVE' : ' OFFLINE';
             }
+            if (ok) lastSyncAt = Date.now();
+        }
 
-            let storedMax = 0;
-            try {
-                storedMax = parseInt(localStorage.getItem(MAX_SEEN_KEY) || '0', 10) || 0;
-            } catch (e) {}
+        function updateLiveAge() {
+            if (!liveUpdated) return;
+            const seconds = Math.max(0, Math.floor((Date.now() - lastSyncAt) / 1000));
+            liveUpdated.textContent = seconds < 5 ? 'Updated just now' : ('Updated ' + seconds + 's ago');
+        }
 
-            const fresh = wipOpsAlertLeads.filter(function (r) {
-                return r.eligible && r.id > storedMax;
+        function queuePosition(card) {
+            const n = Number(card.dataset.queuePosition || Number.MAX_SAFE_INTEGER);
+            return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+        }
+
+        function millisUntil(raw) {
+            if (!raw) return Number.POSITIVE_INFINITY;
+            const time = new Date(raw).getTime();
+            return Number.isFinite(time) ? time - Date.now() : Number.POSITIVE_INFINITY;
+        }
+
+        function humanCountdown(ms, dueWord) {
+            if (!Number.isFinite(ms)) return '';
+            const overdue = ms < 0;
+            const totalSeconds = Math.max(0, Math.floor(Math.abs(ms) / 1000));
+            const hours = Math.floor(totalSeconds / 3600);
+            const mins = Math.floor((totalSeconds % 3600) / 60);
+            const secs = totalSeconds % 60;
+            let value = '';
+            if (hours > 0) value = hours + 'h ' + mins + 'm';
+            else if (mins > 0) value = mins + 'm ' + secs + 's';
+            else value = secs + 's';
+            return overdue ? ((dueWord || 'OVERDUE') + ' ' + value) : ('in ' + value);
+        }
+
+        function callbackRank(card) {
+            if (window.jinxWipCallbackWasActioned?.(card)) return [20, queuePosition(card)];
+            const ms = millisUntil(card.dataset.callbackAt);
+            if (!Number.isFinite(ms)) return [20, queuePosition(card)];
+            if (ms <= 0) return [0, new Date(card.dataset.callbackAt).getTime()];
+            if (ms <= 15 * 60000) return [1, new Date(card.dataset.callbackAt).getTime()];
+            if (ms <= 30 * 60000) return [2, new Date(card.dataset.callbackAt).getTime()];
+            if (ms <= 60 * 60000) return [3, new Date(card.dataset.callbackAt).getTime()];
+            return [20, queuePosition(card)];
+        }
+
+        function priorityRank(card) {
+            if (card.dataset.wipStatus !== 'SIP Booked') return [20, queuePosition(card)];
+            if (!card.dataset.sipAt) return [-1, queuePosition(card)];
+            const sipTime = new Date(card.dataset.sipAt).getTime();
+            if (!card.dataset.sipPrepCompletedAt) return [0, new Date(card.dataset.sipPrepAt).getTime()];
+            return [10, sipTime];
+        }
+
+        function compareRanks(a, b, ranker) {
+            const ar = ranker(a);
+            const br = ranker(b);
+            if (ar[0] !== br[0]) return ar[0] - br[0];
+            if (ar[1] !== br[1]) return ar[1] - br[1];
+            return Number(a.dataset.leadId) - Number(b.dataset.leadId);
+        }
+
+        function sortStack(stack, ranker) {
+            if (!stack) return;
+            const cards = Array.from(stack.querySelectorAll(':scope > .wip-lead-row'));
+            const sorted = cards.slice().sort((a, b) => compareRanks(a, b, ranker));
+            const changed = sorted.some((card, index) => card !== cards[index]);
+            if (!changed) return;
+
+            const rects = new Map(cards.map(card => [card.dataset.leadId, card.getBoundingClientRect()]));
+            sorted.forEach(card => stack.appendChild(card));
+            sorted.forEach(card => {
+                const old = rects.get(card.dataset.leadId);
+                const now = card.getBoundingClientRect();
+                if (!old) return;
+                const dx = old.left - now.left;
+                const dy = old.top - now.top;
+                if (!dx && !dy) return;
+                card.style.transition = 'none';
+                card.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+                requestAnimationFrame(() => {
+                    card.style.transition = '';
+                    card.style.transform = '';
+                });
             });
+        }
 
-            if (fresh.length) {
-                const toast = document.getElementById('wip-ops-toast');
-                if (toast) {
-                    toast.style.display = 'block';
-                    toast.textContent = fresh.length === 1
-                        ? ('New lead: ' + (fresh[0].label || ('#' + fresh[0].id)))
-                        : (fresh.length + ' new leads — latest: ' + (fresh[fresh.length - 1].label || ('#' + fresh[fresh.length - 1].id)));
-                    setTimeout(function () {
-                        toast.style.display = 'none';
-                    }, 8000);
+        function alertTimed(kind, card) {
+            if (typeof window.jinxWipPlayReengagementAlertSound === 'function') {
+                window.jinxWipPlayReengagementAlertSound();
+                setTimeout(window.jinxWipPlayReengagementAlertSound, 420);
+                setTimeout(window.jinxWipPlayReengagementAlertSound, 840);
+            }
+            if ('Notification' in window && Notification.permission === 'granted') {
+                const name = card.querySelector('.wip-card__title')?.innerText?.trim() || 'Jinx case';
+                new Notification(kind === 'sip' ? 'Jinx SIP prep call due' : 'Jinx callback due', {
+                    body: name,
+                });
+            }
+        }
+
+        function updateCardTiming(card) {
+            card.classList.remove(
+                'wip-card-sip', 'wip-card-sip-upcoming', 'wip-card-sip-soon',
+                'wip-card-sip-urgent', 'wip-card-sip-due', 'wip-card-sip-prepped',
+                'is-callback-soon', 'is-callback-urgent', 'is-callback-due'
+            );
+
+            if (card.dataset.wipStatus === 'SIP Booked') {
+                if (card.dataset.sipPrepCompletedAt) {
+                    card.classList.add('wip-card-sip-prepped');
+                } else if (card.dataset.sipAt && card.dataset.sipPrepAt) {
+                    const ms = millisUntil(card.dataset.sipPrepAt);
+                    if (ms <= 0) card.classList.add('wip-card-sip-due');
+                    else if (ms <= 15 * 60000) card.classList.add('wip-card-sip-urgent');
+                    else if (ms <= 30 * 60000) card.classList.add('wip-card-sip-soon');
+                    else if (ms <= 60 * 60000) card.classList.add('wip-card-sip-upcoming');
+                    else card.classList.add('wip-card-sip');
+
+                    const countdown = card.querySelector('[data-sip-countdown]');
+                    if (countdown) countdown.textContent = '· ' + humanCountdown(ms, 'OVERDUE');
+
+                    const id = Number(card.dataset.leadId);
+                    if (ms <= 0 && !alertedSipPrep.has(id)) {
+                        alertedSipPrep.add(id);
+                        alertTimed('sip', card);
+                    }
                 }
-                playSoftBeep();
             }
 
-            try {
-                localStorage.setItem(MAX_SEEN_KEY, String(Math.max(storedMax, currentMax)));
-            } catch (e) {}
+            if (card.dataset.callbackAt) {
+                const countdown = card.querySelector('[data-callback-countdown]');
+                if (window.jinxWipCallbackWasActioned?.(card)) {
+                    if (countdown) countdown.textContent = 'actioned';
+                } else {
+                    const ms = millisUntil(card.dataset.callbackAt);
+                    if (ms <= 0) card.classList.add('is-callback-due');
+                    else if (ms <= 15 * 60000) card.classList.add('is-callback-urgent');
+                    else if (ms <= 60 * 60000) card.classList.add('is-callback-soon');
+
+                    if (countdown) countdown.textContent = humanCountdown(ms, 'OVERDUE');
+
+                    const callbackId = Number(card.dataset.callbackId);
+                    if (callbackId && ms <= 0 && !alertedCallbacks.has(callbackId)) {
+                        alertedCallbacks.add(callbackId);
+                        alertTimed('callback', card);
+                    }
+                }
+            }
         }
 
-        runOpsAlerts();
+        function updateNextSipBanner() {
+            if (!nextSipBanner) return;
+            const candidates = Array.from(document.querySelectorAll('#wip-priority-stack .wip-lead-row[data-wip-status="SIP Booked"]'))
+                .filter(card => card.dataset.sipPrepAt && !card.dataset.sipPrepCompletedAt)
+                .sort((a, b) => new Date(a.dataset.sipPrepAt).getTime() - new Date(b.dataset.sipPrepAt).getTime());
+
+            const card = candidates[0];
+            if (!card) {
+                nextSipBanner.style.display = 'none';
+                return;
+            }
+
+            const prep = new Date(card.dataset.sipPrepAt);
+            const sip = new Date(card.dataset.sipAt);
+            const ms = prep.getTime() - Date.now();
+            const name = card.querySelector('.wip-card__title')?.innerText?.trim() || ('Lead #' + card.dataset.leadId);
+            const time = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+            nextSipBanner.style.display = 'grid';
+            nextSipBanner.classList.toggle('is-due', ms <= 0);
+            nextSipBanner.querySelector('[data-next-sip-name]').textContent = name;
+            nextSipBanner.querySelector('[data-next-sip-times]').textContent = 'Prep ' + time(prep) + ' · SIP ' + time(sip);
+            nextSipBanner.querySelector('[data-next-sip-countdown]').textContent = humanCountdown(ms, 'OVERDUE');
+            nextSipBanner.querySelector('[data-next-sip-open]').href = '/lead/' + card.dataset.leadId;
+        }
+
+        function updateLaneCounts() {
+            document.querySelectorAll('[data-wip-lane]').forEach(lane => {
+                const key = lane.dataset.wipLane;
+                const count = lane.querySelectorAll('.wip-lead-row').length;
+                const badge = lane.querySelector('[data-lane-count="' + key + '"]');
+                if (badge) badge.textContent = count;
+                const stack = lane.querySelector('[data-stack-key]');
+                const empty = stack?.querySelector('[data-lane-empty]');
+                if (empty) empty.style.display = count ? 'none' : '';
+            });
+        }
+
+        function runTimeEngine() {
+            document.querySelectorAll('.wip-lead-row').forEach(updateCardTiming);
+            sortStack(document.getElementById('wip-priority-stack'), priorityRank);
+            sortStack(document.getElementById('wip-active-stack'), callbackRank);
+            updateNextSipBanner();
+            updateLaneCounts();
+        }
+        window.jinxWipRunTimeEngine = runTimeEngine;
+
+        function captureRects() {
+            return new Map(Array.from(document.querySelectorAll('#wip-dashboard-grid .wip-lead-row')).map(card => [
+                card.dataset.leadId,
+                card.getBoundingClientRect(),
+            ]));
+        }
+
+        function animateFromRects(oldRects) {
+            requestAnimationFrame(() => {
+                document.querySelectorAll('#wip-dashboard-grid .wip-lead-row').forEach(card => {
+                    const old = oldRects.get(card.dataset.leadId);
+                    if (!old) return;
+                    const now = card.getBoundingClientRect();
+                    const dx = old.left - now.left;
+                    const dy = old.top - now.top;
+                    if (!dx && !dy) return;
+                    card.style.transition = 'none';
+                    card.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+                    requestAnimationFrame(() => {
+                        card.style.transition = '';
+                        card.style.transform = '';
+                    });
+                });
+            });
+        }
+
+        function runNewLeadAlerts() {
+            const key = 'jinx_wip_live_seen_leads';
+            let seen = [];
+            try { seen = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) {}
+            const seenSet = new Set(Array.isArray(seen) ? seen.map(Number) : []);
+            const cards = Array.from(document.querySelectorAll('.wip-card-undialled-attention[data-lead-id]'));
+            const fresh = cards.filter(card => !seenSet.has(Number(card.dataset.leadId)));
+            cards.forEach(card => seenSet.add(Number(card.dataset.leadId)));
+
+            if (fresh.length && seen.length) {
+                window.jinxWipPlayReengagementAlertSound?.();
+                const name = fresh[fresh.length - 1].querySelector('.wip-card__title')?.innerText?.trim() || 'New lead';
+                window.jinxWipToast?.(fresh.length === 1 ? ('New lead: ' + name) : (fresh.length + ' new leads — latest: ' + name));
+            }
+            try { localStorage.setItem(key, JSON.stringify(Array.from(seenSet).slice(-500))); } catch (e) {}
+        }
+
+        async function syncDashboard(force) {
+            if (syncInFlight || (!force && syncBlocked())) return;
+            syncInFlight = true;
+            refreshBtn?.classList.add('is-spinning');
+
+            try {
+                const response = await fetch(window.location.href, {
+                    headers: {
+                        'Accept': 'text/html',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Cache-Control': 'no-cache',
+                    },
+                    cache: 'no-store',
+                });
+                if (!response.ok) throw new Error('Refresh failed');
+                const html = await response.text();
+                const parsed = new DOMParser().parseFromString(html, 'text/html');
+                const nextDashboard = parsed.getElementById('wip-dashboard-grid');
+                if (!nextDashboard) throw new Error('Dashboard response missing');
+
+                const oldRects = captureRects();
+                dashboard.innerHTML = nextDashboard.innerHTML;
+
+                const currentAttention = document.getElementById('wip-attention-required-section');
+                const nextAttention = parsed.getElementById('wip-attention-required-section');
+                if (currentAttention && nextAttention) currentAttention.innerHTML = nextAttention.innerHTML;
+
+                runTimeEngine();
+                applyWipFilters();
+                animateFromRects(oldRects);
+                runNewLeadAlerts();
+                setLiveState(true);
+            } catch (error) {
+                setLiveState(false);
+            } finally {
+                refreshBtn?.classList.remove('is-spinning');
+                syncInFlight = false;
+            }
+        }
+        window.jinxWipSyncDashboard = syncDashboard;
+
+        refreshBtn?.addEventListener('click', () => syncDashboard(true));
+
+        if ('Notification' in window && Notification.permission === 'default') {
+            document.addEventListener('click', () => Notification.requestPermission().catch(() => {}), { once: true });
+        }
+
+        runTimeEngine();
+        runNewLeadAlerts();
+        setInterval(runTimeEngine, TIME_TICK_MS);
+        setInterval(() => syncDashboard(false), LIVE_SYNC_MS);
+        setInterval(updateLiveAge, 1000);
     })();
 
-    (function () {
-        const alerted = new Set(wipCallbackInitialDueIds);
-        const list = document.getElementById('wip-callback-list');
-        const count = document.getElementById('wip-callback-count');
-        const section = document.getElementById('wip-callback-section');
-        const esc = (v) => String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
-        function render(items) {
-            if (count) count.textContent = items.length;
-            if (!list) return;
-            if (!items.length) { list.innerHTML='<div class="wip-attention-empty">No scheduled callbacks.</div>'; if(section)section.classList.remove('wip-attention-section--active'); return; }
-            if(section)section.classList.toggle('wip-attention-section--active',items.some(x=>x.due));
-            list.innerHTML=items.map(x=>`<a href="/lead/${x.lead_id}" class="wip-callback-item ${x.due?'is-due':''}" data-callback-id="${x.callback_id}"><div class="wip-callback-item__top"><span class="wip-callback-item__name">${esc(x.lead_name)}</span><span class="wip-callback-item__due">${x.due?(x.overdue?'OVERDUE':'DUE NOW'):esc(x.relative_due)}</span></div><div class="wip-callback-item__when">${esc(x.callback_full_display)}</div>${x.comments?`<div class="wip-callback-item__note">${esc(x.comments)}</div>`:''}</a>`).join('');
-        }
-        async function poll() {
-            try {
-                const r=await fetch(wipCallbackPollUrl,{headers:{'Accept':'application/json'}}); if(!r.ok)return; const data=await r.json(); const items=data.callbacks||[]; render(items);
-                items.filter(x=>x.due).forEach(x=>{ if(alerted.has(x.callback_id))return; alerted.add(x.callback_id); if(typeof window.jinxWipPlayReengagementAlertSound==='function'){ window.jinxWipPlayReengagementAlertSound(); setTimeout(window.jinxWipPlayReengagementAlertSound,450); setTimeout(window.jinxWipPlayReengagementAlertSound,900); } if('Notification' in window && Notification.permission==='granted') new Notification('Jinx callback due',{body:x.lead_name+(x.comments?' — '+x.comments:'')}); });
-            } catch(e) {}
-        }
-        if ('Notification' in window && Notification.permission === 'default') document.addEventListener('click',()=>Notification.requestPermission().catch(()=>{}),{once:true});
-        setInterval(poll,10000);
-    })();
 
     (function () {
         const POLL_MS = 12000;
