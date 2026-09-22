@@ -619,7 +619,7 @@
     <div class="wip-board-layout">
       <div class="wip-board-main">
 
-    <section id="wip-attention-required-section" aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}">
+    <section id="wip-attention-required-section" aria-labelledby="wip-attention-required-heading" class="wip-attention-section {{ $attentionCount > 0 ? 'wip-attention-section--active' : '' }}" style="{{ $attentionCount > 0 ? '' : 'display:none;' }}">
         <div class="wip-attention-header">
             <h2 id="wip-attention-required-heading" class="wip-attention-title">⚠️ Attention Required</h2>
             @if ($attentionCount > 0)
@@ -2060,7 +2060,11 @@
 
                 const currentAttention = document.getElementById('wip-attention-required-section');
                 const nextAttention = parsed.getElementById('wip-attention-required-section');
-                if (currentAttention && nextAttention) currentAttention.innerHTML = nextAttention.innerHTML;
+                if (currentAttention && nextAttention) {
+                    currentAttention.innerHTML = nextAttention.innerHTML;
+                    currentAttention.className = nextAttention.className;
+                    currentAttention.style.display = nextAttention.style.display;
+                }
 
                 runTimeEngine();
                 applyWipFilters();
