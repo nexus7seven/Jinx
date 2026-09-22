@@ -10,6 +10,10 @@ use RuntimeException;
 
 class VicidialCallbackService
 {
+    // A scheduled callback can be worked slightly early. Ignore unrelated calls
+    // made earlier in the day, and never carry completion into a newly booked callback.
+    private const EARLY_CALLBACK_MINUTES = 30;
+
     public function schedule(Lead $lead, Carbon $when, string $comments = ''): array
     {
         $connection = (string) config('services.vicidial.db_connection', 'asterisk');
@@ -69,13 +73,64 @@ class VicidialCallbackService
         $rows = DB::connection($connection)->table('vicidial_callbacks as c')
             ->join('vicidial_list as v', 'v.lead_id', '=', 'c.lead_id')
             ->whereIn('c.status', ['ACTIVE', 'LIVE'])->orderBy('c.callback_time')
-            ->get(['c.callback_id','c.lead_id','c.callback_time','c.comments','c.status','v.status as lead_status']);
-        $leads = Lead::query()->whereIn('vicidial_lead_id', $rows->pluck('lead_id')->all())->get()->keyBy(fn (Lead $l) => (int) $l->vicidial_lead_id);
-        return $rows->map(function ($row) use ($leads) {
-            $lead = $leads->get((int) $row->lead_id); if (! $lead) return null;
+            ->get(['c.callback_id', 'c.lead_id', 'c.entry_time', 'c.callback_time', 'c.comments', 'c.status', 'v.status as lead_status']);
+
+        if ($rows->isEmpty()) return [];
+
+        // VICIdial can leave an already-dialled callback marked LIVE. Read its
+        // actual outbound call history in one query instead of trusting that flag.
+        // The cutoff is both the callback's creation and 30 minutes before its
+        // booked time: an earlier, unrelated call cannot complete this appointment.
+        $earliest = $rows->map(function ($row) {
+            return $this->callbackDialCutoff($row);
+        })->min();
+
+        $lastDialled = DB::connection($connection)->table('vicidial_log')
+            ->selectRaw('lead_id, MAX(call_date) as last_call_date')
+            ->whereIn('lead_id', $rows->pluck('lead_id')->all())
+            ->where('call_date', '>=', $earliest->toDateTimeString())
+            ->groupBy('lead_id')
+            ->pluck('last_call_date', 'lead_id');
+
+        $leads = Lead::query()->whereIn('vicidial_lead_id', $rows->pluck('lead_id')->all())
+            ->get()->keyBy(fn (Lead $lead) => (int) $lead->vicidial_lead_id);
+
+        return $rows->map(function ($row) use ($leads, $lastDialled) {
+            $lead = $leads->get((int) $row->lead_id);
+            if (! $lead) return null;
+
+            $cutoff = $this->callbackDialCutoff($row);
+            $lastCall = $lastDialled->get($row->lead_id);
+            if ($lastCall && Carbon::parse($lastCall)->gte($cutoff)) {
+                // This is a presentation decision only. Leave the VICIdial
+                // callback record untouched for its own scheduling workflow.
+                return null;
+            }
+
             $when = Carbon::parse($row->callback_time);
-            return ['callback_id'=>(int)$row->callback_id,'lead_id'=>$lead->id,'vicidial_lead_id'=>(int)$row->lead_id,'lead_name'=>trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,'callback_time'=>$when->toIso8601String(),'callback_display'=>$when->format('D j M, H:i'),'callback_full_display'=>$when->format('l j F Y \a\t H:i'),'relative_due'=>$when->isPast() ? $when->diffForHumans(null, true).' overdue' : 'in '.$when->diffForHumans(null, true),'comments'=>(string)($row->comments ?? ''),'creditor_contact'=>$this->creditorContactForCallback((string)($row->comments ?? '')),'due'=>$when->lte(now()),'overdue'=>$when->lt(now()->subMinutes(5))];
+            return [
+                'callback_id' => (int) $row->callback_id,
+                'lead_id' => $lead->id,
+                'vicidial_lead_id' => (int) $row->lead_id,
+                'lead_name' => trim(($lead->first_name ?? '').' '.($lead->last_name ?? '')) ?: 'Lead #'.$lead->id,
+                'callback_time' => $when->toIso8601String(),
+                'callback_display' => $when->format('D j M, H:i'),
+                'callback_full_display' => $when->format('l j F Y \a\t H:i'),
+                'relative_due' => $when->isPast() ? $when->diffForHumans(null, true).' overdue' : 'in '.$when->diffForHumans(null, true),
+                'comments' => (string) ($row->comments ?? ''),
+                'creditor_contact' => $this->creditorContactForCallback((string) ($row->comments ?? '')),
+                'due' => $when->lte(now()),
+                'overdue' => $when->lt(now()->subMinutes(5)),
+            ];
         })->filter()->values()->all();
+    }
+
+    private function callbackDialCutoff(object $callback): Carbon
+    {
+        $windowStart = Carbon::parse($callback->callback_time)->subMinutes(self::EARLY_CALLBACK_MINUTES);
+        $created = $callback->entry_time ? Carbon::parse($callback->entry_time) : $windowStart;
+
+        return $created->greaterThan($windowStart) ? $created : $windowStart;
     }
     private function creditorContactForCallback(string $comments): ?array
     {
