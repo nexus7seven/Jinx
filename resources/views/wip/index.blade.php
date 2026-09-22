@@ -561,6 +561,7 @@
         @media(max-width:1280px){.wip-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-lane--dmp{grid-column:1/-1}.wip-lane--dmp .wip-lane__stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media(max-width:820px){.wip-dashboard-grid{grid-template-columns:1fr}.wip-lane--dmp{grid-column:auto}.wip-lane--dmp .wip-lane__stack,.wip-lane__stack--other{display:flex}.wip-next-sip-banner{position:static;grid-template-columns:auto 1fr auto}.wip-next-sip-banner__open{display:none}.wip-next-sip-banner__copy span:last-child{width:100%}}
 </style>
+<link rel="stylesheet" href="{{ asset('css/wip-workdesk.css') }}?v=20260922-1">
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
@@ -571,40 +572,28 @@
 
     <div class="wip-desktop-layout">
     <main class="wip-main-column">
+    @php $attentionCount = count($remarketing_response_events ?? []); @endphp
     <header class="wip-header-block">
-        @php
-            $attentionCount = count($remarketing_response_events ?? []);
-        @endphp
         <div class="wip-header-toolbar">
             <div>
-                <div class="wip-header-title">Jinx Workdesk</div>
-                <div class="wip-header-sub">Assistant, callbacks and case priorities</div>
+                <h1 class="wip-header-title">Workdesk</h1>
+                <nav class="wip-scope-segment" aria-label="Lead view">
+                    <a href="{{ url('/wip?show=active') }}" class="wip-scope-segment__link wip-scope-segment__link--active" aria-current="page">Active</a>
+                    <a href="{{ url('/wip?show=all') }}" class="wip-scope-segment__link">All leads</a>
+                </nav>
             </div>
-            <button type="button" id="wip-refresh-btn" class="wip-refresh-btn" title="Reload">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
-                    <path d="M21 3v7h-7"/>
-                </svg>
-            </button>
-        </div>
-        <div class="wip-header-scope-row">
-            <div class="wip-scope-segment" role="group" aria-label="Queue scope">
-                <a
-                    href="{{ url('/wip?show=active') }}"
-                    class="wip-scope-segment__link {{ $show === 'active' ? 'wip-scope-segment__link--active' : '' }}"
-                    @if ($show === 'active') aria-current="page" @endif
-                >Active</a>
-                <a
-                    href="{{ url('/wip?show=all') }}"
-                    class="wip-scope-segment__link {{ $show === 'all' ? 'wip-scope-segment__link--active' : '' }}"
-                    @if ($show === 'all') aria-current="page" @endif
-                >All</a>
+            <div class="wip-header-utilities">
+                <div class="wip-live-meta" aria-label="Dashboard connection status">
+                    <span id="wip-live-indicator" class="wip-live-indicator"><span class="wip-live-dot"></span> LIVE</span>
+                    <span id="wip-live-updated">Updated just now</span>
+                </div>
+                <button type="button" id="wip-refresh-btn" class="wip-refresh-btn" title="Refresh workdesk" aria-label="Refresh workdesk">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                        <path d="M21 3v7h-7"/>
+                    </svg>
+                </button>
             </div>
-            @if ($attentionCount > 0)
-                <span class="wip-attention-badge" title="Inbound responses waiting for review">
-                    ⚠️ {{ $attentionCount }} Attention Required
-                </span>
-            @endif
         </div>
     </header>
 
@@ -718,17 +707,6 @@
         @endif
     </section>
 
-    <div class="wip-queue-heading">
-        <div>
-            <h2>Live workdesk</h2>
-            <p>Three independent working stacks. Timed SIP prep calls and callbacks rise automatically as they become due.</p>
-        </div>
-        <div class="wip-live-meta">
-            <span id="wip-live-indicator" class="wip-live-indicator"><span class="wip-live-dot"></span> LIVE</span>
-            <span id="wip-live-updated">Updated just now</span>
-        </div>
-    </div>
-
     <div id="wip-next-sip-banner" class="wip-next-sip-banner" style="display:none" aria-live="polite">
         <div class="wip-next-sip-banner__pulse"></div>
         <div class="wip-next-sip-banner__copy">
@@ -792,9 +770,8 @@
         <section class="wip-lane wip-lane--priority" data-wip-lane="priority">
             <div class="wip-lane__head">
                 <div>
-                    <span class="wip-lane__eyebrow">DO NOT MISS</span>
                     <h3>Priority</h3>
-                    <p>SIP Booked + Ready to Refer</p>
+                    <p>SIP appointments &amp; referrals</p>
                 </div>
                 <span class="wip-lane__count" data-lane-count="priority">{{ $priorityLeads->count() }}</span>
             </div>
@@ -810,9 +787,8 @@
         <section class="wip-lane wip-lane--active" data-wip-lane="active">
             <div class="wip-lane__head">
                 <div>
-                    <span class="wip-lane__eyebrow">WORKING QUEUE</span>
-                    <h3>Active Cases</h3>
-                    <p>New leads · collecting docs · callbacks</p>
+                    <h3>Active cases</h3>
+                    <p>Documents &amp; callbacks</p>
                 </div>
                 <span class="wip-lane__count" data-lane-count="active">{{ $activeLeads->count() }}</span>
             </div>
@@ -828,9 +804,8 @@
         <section class="wip-lane wip-lane--dmp" data-wip-lane="dmp">
             <div class="wip-lane__head">
                 <div>
-                    <span class="wip-lane__eyebrow">DMP</span>
-                    <h3>DMP Transfers</h3>
-                    <p>Dedicated transfer stack</p>
+                    <h3>DMP transfers</h3>
+                    <p>Your transfer queue</p>
                 </div>
                 <span class="wip-lane__count" data-lane-count="dmp">{{ $dmpLeads->count() }}</span>
             </div>
@@ -847,7 +822,7 @@
     @if ($otherLeads->isNotEmpty())
         <section class="wip-other-statuses">
             <div class="wip-lane__head">
-                <div><span class="wip-lane__eyebrow">ALL VIEW</span><h3>Other statuses</h3></div>
+                <div><h3>Other statuses</h3></div>
                 <span class="wip-lane__count">{{ $otherLeads->count() }}</span>
             </div>
             <div id="wip-other-stack" class="wip-lane__stack wip-lane__stack--other" data-stack-key="other">
@@ -1234,18 +1209,15 @@
             const wrap = card.querySelector('[data-stack-state]');
             if (!wrap) return;
             const waiting = item.waiting_on_label
-                ? '<span class="wip-stack-state__pill">Waiting on: <strong>' + escapeHtml(item.waiting_on_label) + '</strong></span>'
-                : '<span class="wip-stack-state__pill">Not actioned yet</span>';
+                ? '<span class="wip-stack-state__pill">Waiting on <strong>' + escapeHtml(item.waiting_on_label) + '</strong></span>'
+                : '';
             const chase = item.next_chase_display
                 ? '<span class="wip-stack-state__pill' + (item.chase_due ? ' is-due' : '') + '">' + (item.chase_due ? 'Chase due' : 'Chase') + ': ' + escapeHtml(item.next_chase_display) + '</span>'
-                : '';
-            const actioned = item.last_actioned_display
-                ? '<span class="wip-stack-state__pill">Last actioned ' + escapeHtml(item.last_actioned_display) + '</span>'
                 : '';
             const actionNote = item.action_note
                 ? '<span class="wip-stack-state__note" title="' + escapeHtml(item.action_note) + '">' + escapeHtml(item.action_note) + '</span>'
                 : '';
-            wrap.innerHTML = waiting + chase + actioned + actionNote;
+            wrap.innerHTML = waiting + chase + actionNote;
         }
 
         document.addEventListener('click', event => {
@@ -1328,7 +1300,7 @@
         const pill = document.getElementById(`outstanding-pill-${leadId}`);
         if (!pill) return;
 
-        pill.textContent = `${outstanding} outstanding`;
+        pill.textContent = outstanding === 0 ? '✓ Clear' : `${outstanding} to do`;
         pill.classList.remove('wip-chip-outstanding--clear', 'wip-chip-outstanding--pending');
         if (outstanding === 0) {
             pill.classList.add('wip-chip-outstanding--clear');

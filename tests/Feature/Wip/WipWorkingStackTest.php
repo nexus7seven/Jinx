@@ -119,6 +119,30 @@ class WipWorkingStackTest extends TestCase
         $this->assertStringNotContainsString('wip-assistant-scrim', $assistant);
     }
 
+    public function test_redesigned_workdesk_has_one_header_and_only_actionable_card_metadata(): void
+    {
+        $index = file_get_contents(resource_path('views/wip/index.blade.php'));
+        $card = file_get_contents(resource_path('views/wip/partials/lead-card.blade.php'));
+        $css = file_get_contents(public_path('css/wip-workdesk.css'));
+
+        $this->assertStringContainsString('<h1 class="wip-header-title">Workdesk</h1>', $index);
+        $this->assertSame(1, substr_count($index, 'id="wip-live-indicator"'));
+        $this->assertStringNotContainsString('<h2>Live workdesk</h2>', $index);
+        $this->assertStringContainsString('css/wip-workdesk.css', $index);
+        $this->assertStringContainsString('id="wip-dashboard-grid"', $index);
+        $this->assertStringContainsString('id="wip-next-sip-banner"', $index);
+        $this->assertStringNotContainsString('Created</span>', $card);
+        $this->assertStringNotContainsString('Last dialled</span>', $card);
+        $this->assertStringContainsString('data-callback-countdown', $card);
+        $this->assertStringContainsString('data-sip-countdown', $card);
+        $this->assertStringContainsString('data-sip-prep-done', $card);
+        $this->assertStringContainsString('class="wip-stack-handle"', $card);
+        $this->assertStringContainsString('class="status-select"', $card);
+        $this->assertStringContainsString('Actioned ↓', $card);
+        $this->assertStringContainsString('.wip-lane,.wip-other-statuses', $css);
+        $this->assertStringContainsString('.wip-callback-strip{margin:0;padding:0;', $css);
+    }
+
     public function test_sip_booked_requires_an_appointment_time(): void
     {
         $user = User::factory()->create();

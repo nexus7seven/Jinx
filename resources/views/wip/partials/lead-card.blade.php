@@ -1,15 +1,10 @@
 @php
     $caseName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
-    if ($caseName === '') {
-        $caseName = 'Lead #' . $lead->id;
-    }
+    if ($caseName === '') $caseName = 'Lead #'.$lead->id;
 
     $outstanding = (int) ($lead->checklist_outstanding_count ?? 0);
     $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
-    $sourceRaw = $lead->source === null ? '' : trim((string) $lead->source);
-    $lastDialled = $lead->last_dialled_at;
-    $lastDialledText = $lastDialled ? $lastDialled->format('d M Y, H:i') : 'Never dialled';
-    $createdText = $lead->created_at ? $lead->created_at->format('j M Y, H:i') : '—';
+    $sourceRaw = trim((string) ($lead->source ?? ''));
     $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
     $needsImmediateAttention = $lead->needsImmediateAttention();
     $isReengaged = $lead->wip_status === \App\Models\Lead::WIP_STATUS_REENGAGED;
@@ -18,17 +13,10 @@
         ? $formatReengagementChannel($reengagementChannelByLeadId[(int) $lead->id] ?? null)
         : '';
 
-    if ($reengagementUnseen) {
-        $cardAttentionClass = 'wip-card-reengagement-unseen';
-    } elseif ($needsImmediateAttention) {
-        $cardAttentionClass = 'wip-card-undialled-attention';
-    } elseif ($lead->isPriorityWip()) {
-        $cardAttentionClass = 'wip-card-priority';
-    } else {
-        $cardAttentionClass = '';
-    }
-
+    $cardAttentionClass = $reengagementUnseen ? 'wip-card-reengagement-unseen'
+        : ($needsImmediateAttention ? 'wip-card-undialled-attention' : ($lead->isPriorityWip() ? 'wip-card-priority' : ''));
     $reengagementSeenCalm = $isReengaged && ! $reengagementUnseen;
+
     $queueItem = $lead->wipQueueItem;
     $waitingOnLabel = $lead->wip_waiting_on_label ?? null;
     $nextChaseAt = $queueItem?->next_chase_at;
@@ -38,7 +26,6 @@
 
     $callback = is_array($lead->active_callback ?? null) ? $lead->active_callback : null;
     $callbackAt = $callback['callback_time'] ?? null;
-
     $sipAt = $lead->sip_booked_at;
     $sipPrepAt = $sipAt?->copy()->subMinutes(15);
     $sipPrepDoneAt = $lead->sip_prep_completed_at;
@@ -61,7 +48,7 @@
     }
 @endphp
 
-<div
+<article
     class="wip-card wip-lead-row {{ $cardAttentionClass }}{{ $reengagementSeenCalm ? ' wip-card-reengagement-seen' : '' }} {{ $sipUrgencyClass }}"
     data-lead-id="{{ $lead->id }}"
     data-lead-name="{{ strtolower($caseName) }}"
@@ -76,62 +63,62 @@
     data-callback-id="{{ $callback['callback_id'] ?? '' }}"
     data-callback-at="{{ $callbackAt ?? '' }}"
 >
-    <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">≡</button>
-
+    <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">
+        <span aria-hidden="true">⠿</span>
+    </button>
     <div class="wip-card__row1">
-        <div class="wip-card__title">
-            <a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a>
+        <div class="wip-card__identity">
+            <div class="wip-card__title"><a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a></div>
+            <div class="wip-card__source">
+                <span>{{ $sourceLabel }}</span>
+                @if ($isReengaged)
+                    <span class="wip-chip wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? 'Re-engaged · review' : 'Re-engaged' }}</span>
+                    @if ($reengagementChannelLabel !== '')
+                        <span class="wip-chip wip-card__badge--reengagement-channel">{{ $reengagementChannelLabel }}</span>
+                    @endif
+                @endif
+                @if ($needsImmediateAttention)
+                    <span class="wip-chip wip-card__badge--undialled" title="New, never-dialled lead">New · call needed</span>
+                @endif
+            </div>
         </div>
         <div class="wip-card-actions">
-            @if ($isReengaged)
-                <span class="wip-chip wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? 'Re-engaged · review' : 'Re-engaged' }}</span>
-                @if ($reengagementChannelLabel !== '')
-                    <span class="wip-chip wip-card__badge--reengagement-channel" title="Channel">{{ $reengagementChannelLabel }}</span>
-                @endif
-            @endif
-            @if ($needsImmediateAttention)
-                <span class="wip-chip wip-card__badge--undialled" title="Priority intake, never dialled, created within {{ \App\Models\Lead::IMMEDIATE_ATTENTION_FRESH_HOURS }}h">New undialled</span>
-            @endif
-            <button
-                type="button"
+            <button type="button"
                 id="outstanding-pill-{{ $lead->id }}"
                 class="open-checklist-btn wip-chip wip-chip-outstanding {{ $outstanding === 0 ? 'wip-chip-outstanding--clear' : 'wip-chip-outstanding--pending' }}"
                 data-lead-id="{{ $lead->id }}"
                 data-case-name="{{ $caseName }}"
-                title="Open checklist"
-            >{{ $outstanding }} outstanding</button>
+                title="Open checklist">{{ $outstanding === 0 ? '✓ Clear' : $outstanding.' to do' }}</button>
             @if ($canCall)
                 @include('partials.lead-click-to-call', ['lead' => $lead, 'variant' => 'icon'])
             @endif
         </div>
     </div>
-
     @if ($lead->wip_status === 'SIP Booked')
         <div class="wip-sip-panel" data-sip-panel>
             @if ($sipAt)
-                <div class="wip-sip-panel__label">SIP BOOKED</div>
                 <div class="wip-sip-panel__main">
-                    <div>
-                        <div class="wip-sip-panel__time">{{ $sipAt->format('D j M · H:i') }}</div>
-                        <div class="wip-sip-panel__prep">
-                            PREP CALL {{ $sipPrepAt->format('H:i') }}
-                            <span data-sip-countdown></span>
-                        </div>
+                    <div class="wip-sip-panel__details">
+                        <span class="wip-sip-panel__label">SIP booked</span>
+                        <span class="wip-sip-panel__time">{{ $sipAt->format('D j M · H:i') }}</span>
+                        <span class="wip-sip-panel__prep">Prep call {{ $sipPrepAt->format('H:i') }} <span class="wip-timing-countdown" data-sip-countdown></span></span>
                     </div>
                     <div class="wip-sip-panel__actions">
                         @if ($sipPrepDoneAt)
-                            <span class="wip-sip-done">✓ PREP DONE {{ $sipPrepDoneAt->format('H:i') }}</span>
+                            <span class="wip-sip-done">✓ Prep done {{ $sipPrepDoneAt->format('H:i') }}</span>
                         @else
                             <button type="button" class="wip-sip-prep-btn" data-sip-prep-done data-lead-id="{{ $lead->id }}">Prep done</button>
                         @endif
-                        <button type="button" class="wip-sip-edit-btn" data-sip-edit data-lead-id="{{ $lead->id }}" data-case-name="{{ $caseName }}">Edit time</button>
+                        <button type="button" class="wip-sip-edit-btn" data-sip-edit data-lead-id="{{ $lead->id }}" data-case-name="{{ $caseName }}">Edit</button>
                     </div>
                 </div>
             @else
-                <div class="wip-sip-panel__label">⚠ SIP TIME MISSING</div>
                 <div class="wip-sip-panel__main">
-                    <div class="wip-sip-panel__missing">Add the appointment time so Jinx can protect the 15-minute prep call.</div>
-                    <button type="button" class="wip-sip-edit-btn is-primary" data-sip-edit data-lead-id="{{ $lead->id }}" data-case-name="{{ $caseName }}">Add SIP time</button>
+                    <div class="wip-sip-panel__details">
+                        <span class="wip-sip-panel__label">SIP time missing</span>
+                        <span class="wip-sip-panel__missing">Add the appointment to schedule the prep call.</span>
+                    </div>
+                    <button type="button" class="wip-sip-edit-btn is-primary" data-sip-edit data-lead-id="{{ $lead->id }}" data-case-name="{{ $caseName }}">Add time</button>
                 </div>
             @endif
         </div>
@@ -139,34 +126,24 @@
 
     @if ($callback)
         <div class="wip-callback-strip" data-callback-strip>
-            <span class="wip-callback-strip__label">📞 CALLBACK</span>
-            <strong>{{ $callback['callback_display'] }}</strong>
-            <span data-callback-countdown>{{ $callback['relative_due'] }}</span>
+            <div class="wip-callback-strip__main">
+                <span class="wip-callback-strip__icon" aria-hidden="true">↗</span>
+                <span class="wip-callback-strip__label">Callback</span>
+                <strong>{{ $callback['callback_display'] }}</strong>
+            </div>
+            <span class="wip-timing-countdown" data-callback-countdown>{{ $callback['relative_due'] }}</span>
             @if (trim((string) ($callback['comments'] ?? '')) !== '')
-                <span class="wip-callback-strip__note" title="{{ $callback['comments'] }}">{{ \Illuminate\Support\Str::limit($callback['comments'], 72) }}</span>
+                <span class="wip-callback-strip__note" title="{{ $callback['comments'] }}">{{ \Illuminate\Support\Str::limit($callback['comments'], 92) }}</span>
             @endif
         </div>
     @endif
 
-    <div class="wip-card__meta">
-        <span class="wip-meta-k">Created</span> <span class="wip-meta-v">{{ $createdText }}</span>
-        <span class="wip-meta-dot" aria-hidden="true">·</span>
-        <span class="wip-meta-k">Last dialled</span> <span class="wip-meta-v">{{ $lastDialledText }}</span>
-        <span class="wip-meta-dot" aria-hidden="true">·</span>
-        <span class="wip-meta-pill">{{ $sourceLabel }}</span>
-    </div>
-
     <div class="wip-stack-state" data-stack-state>
         @if ($waitingOnLabel)
-            <span class="wip-stack-state__pill">Waiting on: <strong>{{ $waitingOnLabel }}</strong></span>
-        @else
-            <span class="wip-stack-state__pill">Not actioned yet</span>
+            <span class="wip-stack-state__pill">Waiting on <strong>{{ $waitingOnLabel }}</strong></span>
         @endif
         @if ($nextChaseAt)
-            <span class="wip-stack-state__pill {{ $chaseDue ? 'is-due' : '' }}" data-chase-pill>{{ $chaseDue ? 'Chase due' : 'Chase' }}: {{ $nextChaseAt->format('D j M, H:i') }}</span>
-        @endif
-        @if ($lastActionedAt)
-            <span class="wip-stack-state__pill">Last actioned {{ $lastActionedAt->diffForHumans() }}</span>
+            <span class="wip-stack-state__pill {{ $chaseDue ? 'is-due' : '' }}" data-chase-pill>{{ $chaseDue ? 'Chase due' : 'Chase' }} · {{ $nextChaseAt->format('D j M, H:i') }}</span>
         @endif
         @if ($actionNote !== '')
             <span class="wip-stack-state__note" title="{{ $actionNote }}">{{ $actionNote }}</span>
@@ -174,11 +151,11 @@
     </div>
 
     <div class="wip-card__controls">
-        <select data-lead-id="{{ $lead->id }}" data-original="{{ $lead->wip_status }}" class="status-select">
+        <select data-lead-id="{{ $lead->id }}" data-original="{{ $lead->wip_status }}" class="status-select" aria-label="Change stage for {{ $caseName }}">
             @foreach($statuses as $status)
                 <option value="{{ $status }}" {{ $lead->wip_status === $status ? 'selected' : '' }}>{{ $status }}</option>
             @endforeach
         </select>
         <button type="button" class="wip-actioned-btn" data-actioned-lead-id="{{ $lead->id }}" data-actioned-case-name="{{ $caseName }}">Actioned ↓</button>
     </div>
-</div>
+</article>
