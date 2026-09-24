@@ -104,8 +104,8 @@ class WipWorkingStackTest extends TestCase
         $this->assertStringContainsString('class="wip-board-layout"', $index);
         $this->assertStringContainsString('id="wip-dashboard-grid"', $index);
         $this->assertStringContainsString('data-wip-lane="priority"', $index);
-        $this->assertStringContainsString('data-wip-lane="active"', $index);
-        $this->assertStringContainsString('data-wip-lane="dmp"', $index);
+        $this->assertStringContainsString('data-wip-lane="callbacks"', $index);
+        $this->assertStringContainsString('data-wip-lane="without-callbacks"', $index);
         $this->assertStringContainsString('id="wip-next-sip-banner"', $index);
         $this->assertStringContainsString('id="wip-sip-modal"', $index);
         $this->assertStringContainsString('LIVE_SYNC_MS = 15000', $index);
@@ -117,6 +117,22 @@ class WipWorkingStackTest extends TestCase
         $this->assertStringContainsString('.wip-assistant.is-open', $assistant);
         $this->assertStringNotContainsString('backdrop-filter', $assistant);
         $this->assertStringNotContainsString('wip-assistant-scrim', $assistant);
+    }
+
+    public function test_workdesk_lanes_partition_priority_callbacks_and_leads_without_callbacks(): void
+    {
+        $index = file_get_contents(resource_path('views/wip/index.blade.php'));
+
+        $this->assertStringContainsString("['SIP Booked', 'Ready to Refer', 'DMP Transfer']", $index);
+        $this->assertStringContainsString('$callbackLeads = $remainingLeads->filter', $index);
+        $this->assertStringContainsString('$withoutCallbackLeads = $remainingLeads->reject', $index);
+        $this->assertStringContainsString('id="wip-priority-stack"', $index);
+        $this->assertStringContainsString('id="wip-callback-stack"', $index);
+        $this->assertStringContainsString('id="wip-without-callback-stack"', $index);
+        $this->assertStringNotContainsString('id="wip-dmp-stack"', $index);
+        $this->assertStringNotContainsString('id="wip-other-stack"', $index);
+        $this->assertStringContainsString("sortStack(document.getElementById('wip-callback-stack'), callbackRank)", $index);
+        $this->assertStringContainsString("sortStack(document.getElementById('wip-without-callback-stack'), (card) => [20, queuePosition(card)])", $index);
     }
 
     public function test_redesigned_workdesk_has_one_header_and_only_actionable_card_metadata(): void
