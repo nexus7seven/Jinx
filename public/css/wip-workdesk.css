@@ -176,3 +176,18 @@ body{background:var(--desk-page)!important;color:var(--desk-text)}
 .wip-next-sip-banner{background:linear-gradient(100deg,#2b2730,#192233 70%);border:1px solid rgba(246,190,103,.38);border-left:3px solid #ecba6e}
 .wip-next-sip-banner.is-due{background:linear-gradient(100deg,#43252d,#242336 70%);border:1px solid rgba(251,125,125,.64);border-left:3px solid #fb8585}
 .wip-next-sip-banner__open{background:rgba(15,23,42,.55)}
+
+/* Next scheduled action: visible working-time budget in the header. */
+.wip-header-utilities{margin-left:auto;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.wip-next-action{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:235px;max-width:330px;padding:11px 17px;border-radius:15px;border:1px solid rgba(95,211,155,.42);background:linear-gradient(135deg,rgba(24,91,68,.58),rgba(19,42,43,.87));color:#b1f4d0;text-decoration:none;transition:background .2s,border-color .2s}
+.wip-next-action:hover{filter:brightness(1.1)}
+.wip-next-action__label{font-size:10px;letter-spacing:.13em;font-weight:850;opacity:.85}
+.wip-next-action__clock{font-size:clamp(29px,2.5vw,39px);font-weight:820;line-height:1.08;letter-spacing:-.05em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.wip-next-action__detail{font-size:11px;line-height:1.4;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.wip-next-action.is-green{border-color:rgba(95,211,155,.42);background:linear-gradient(135deg,rgba(24,91,68,.58),rgba(19,42,43,.87));color:#b1f4d0}
+.wip-next-action.is-amber{border-color:rgba(246,190,103,.72);background:linear-gradient(135deg,rgba(124,76,24,.72),rgba(53,42,29,.94));color:#ffe1aa}
+.wip-next-action.is-red{border-color:#f88787;background:linear-gradient(135deg,#772c37,#3d242f);color:#fff0f0;box-shadow:0 0 0 1px rgba(248,113,113,.18)}
+.wip-next-action.is-empty{border-color:var(--desk-line);background:#151e2c;color:#91a2b7;cursor:default}
+.wip-next-action.is-empty:hover{filter:none}
+@media(max-width:950px){.wip-header-toolbar{flex-wrap:wrap}.wip-header-utilities{width:100%;margin-left:0;justify-content:flex-start;padding-top:0}.wip-next-action{min-width:210px;flex:1 1 240px;max-width:360px}}
+@media(max-width:480px){.wip-header-utilities{gap:12px}.wip-next-action{max-width:none;flex-basis:100%}.wip-next-action__clock{font-size:34px}}
