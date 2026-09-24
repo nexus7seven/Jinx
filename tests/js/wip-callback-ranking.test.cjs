@@ -49,14 +49,14 @@ test('due SIP prep remains above due callback, and callback above ordinary leads
     assert.deepEqual(sorted([ordinary, due, sip], priorityRank), [3, 2, 1]);
 });
 
-test('due callbacks in Active, DMP and Other use their callback deadline', () => {
-    for (const status of ['Collecting Docs', 'DMP Transfer', 'Lost Contact']) {
-        const ordinary = card(1, status, 1000);
-        const due = card(2, status, 30000, '2026-09-22T16:30:00Z');
-        assert.deepEqual(sorted([ordinary, due], callbackRank), [2, 1]);
-    }
-    assert.match(source, /sortStack\(document\.getElementById\('wip-dmp-stack'\), callbackRank\)/);
-    assert.match(source, /sortStack\(document\.getElementById\('wip-other-stack'\), callbackRank\)/);
+test('booked callbacks rise in the callback lane; DMP callbacks remain in Priority', () => {
+    const ordinary = card(1, 'Collecting Docs', 1000, '2026-09-22T18:00:00Z');
+    const due = card(2, 'Collecting Docs', 30000, '2026-09-22T16:30:00Z');
+    assert.deepEqual(sorted([ordinary, due], callbackRank), [2, 1]);
+    const dmp = card(3, 'DMP Transfer', 30000, '2026-09-22T16:30:00Z');
+    assert.deepEqual(sorted([card(4, 'Ready to Refer', 1000), dmp], priorityRank), [3, 4]);
+    assert.match(source, /sortStack\(document\.getElementById\('wip-callback-stack'\), callbackRank\)/);
+    assert.match(source, /sortStack\(document\.getElementById\('wip-without-callback-stack'\),/);
 });
 
 test('normal position resumes once callback is actioned', () => {

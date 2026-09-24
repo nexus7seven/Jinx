@@ -759,19 +759,21 @@
             };
         };
 
-        $priorityLeads = $leads->filter(fn ($lead) => in_array($lead->wip_status, ['SIP Booked', 'Ready to Refer'], true))->values();
-        $activeLeads = $leads->filter(fn ($lead) => in_array($lead->wip_status, ['New Lead', 'Collecting Docs', 'Callback Set'], true))->values();
-        $dmpLeads = $leads->filter(fn ($lead) => $lead->wip_status === 'DMP Transfer')->values();
-        $primaryLeadIds = $priorityLeads->concat($activeLeads)->concat($dmpLeads)->pluck('id')->all();
-        $otherLeads = $leads->reject(fn ($lead) => in_array($lead->id, $primaryLeadIds, true))->values();
+        // Mutually exclusive lanes. Status takes precedence for Priority; the
+        // remaining active leads are divided by an outstanding VICIdial callback,
+        // not by the legacy "Callback Set" status alone.
+        $priorityLeads = $leads->filter(fn ($lead) => in_array($lead->wip_status, ['SIP Booked', 'Ready to Refer', 'DMP Transfer'], true))->values();
+        $remainingLeads = $leads->reject(fn ($lead) => in_array($lead->wip_status, ['SIP Booked', 'Ready to Refer', 'DMP Transfer'], true))->values();
+        $callbackLeads = $remainingLeads->filter(fn ($lead) => is_array($lead->active_callback ?? null))->values();
+        $withoutCallbackLeads = $remainingLeads->reject(fn ($lead) => is_array($lead->active_callback ?? null))->values();
     @endphp
 
     <div id="wip-dashboard-grid" class="wip-dashboard-grid">
         <section class="wip-lane wip-lane--priority" data-wip-lane="priority">
             <div class="wip-lane__head">
                 <div>
-                    <h3>Priority</h3>
-                    <p>SIP appointments &amp; referrals</p>
+                    <h3>Priority + DMP</h3>
+                    <p>SIP appointments · referrals · transfers</p>
                 </div>
                 <span class="wip-lane__count" data-lane-count="priority">{{ $priorityLeads->count() }}</span>
             </div>
@@ -784,54 +786,41 @@
             </div>
         </section>
 
-        <section class="wip-lane wip-lane--active" data-wip-lane="active">
+        <section class="wip-lane wip-lane--callbacks" data-wip-lane="callbacks">
             <div class="wip-lane__head">
                 <div>
-                    <h3>Active cases</h3>
-                    <p>Documents &amp; callbacks</p>
+                    <h3>Callbacks booked</h3>
+                    <p>Outstanding scheduled calls</p>
                 </div>
-                <span class="wip-lane__count" data-lane-count="active">{{ $activeLeads->count() }}</span>
+                <span class="wip-lane__count" data-lane-count="callbacks">{{ $callbackLeads->count() }}</span>
             </div>
-            <div id="wip-active-stack" class="wip-lane__stack" data-stack-key="active">
-                @forelse($activeLeads as $lead)
+            <div id="wip-callback-stack" class="wip-lane__stack" data-stack-key="callbacks">
+                @forelse($callbackLeads as $lead)
                     @include('wip.partials.lead-card', ['lead' => $lead])
                 @empty
-                    <div class="wip-lane__empty" data-lane-empty>No active cases.</div>
+                    <div class="wip-lane__empty" data-lane-empty>No callbacks booked.</div>
                 @endforelse
             </div>
         </section>
 
-        <section class="wip-lane wip-lane--dmp" data-wip-lane="dmp">
+        <section class="wip-lane wip-lane--without-callbacks" data-wip-lane="without-callbacks">
             <div class="wip-lane__head">
                 <div>
-                    <h3>DMP transfers</h3>
-                    <p>Your transfer queue</p>
+                    <h3>Leads without callbacks</h3>
+                    <p>Working stack</p>
                 </div>
-                <span class="wip-lane__count" data-lane-count="dmp">{{ $dmpLeads->count() }}</span>
+                <span class="wip-lane__count" data-lane-count="without-callbacks">{{ $withoutCallbackLeads->count() }}</span>
             </div>
-            <div id="wip-dmp-stack" class="wip-lane__stack" data-stack-key="dmp">
-                @forelse($dmpLeads as $lead)
+            <div id="wip-without-callback-stack" class="wip-lane__stack" data-stack-key="without-callbacks">
+                @forelse($withoutCallbackLeads as $lead)
                     @include('wip.partials.lead-card', ['lead' => $lead])
                 @empty
-                    <div class="wip-lane__empty" data-lane-empty>No DMP transfers.</div>
+                    <div class="wip-lane__empty" data-lane-empty>No leads without callbacks.</div>
                 @endforelse
             </div>
         </section>
     </div>
 
-    @if ($otherLeads->isNotEmpty())
-        <section class="wip-other-statuses">
-            <div class="wip-lane__head">
-                <div><h3>Other statuses</h3></div>
-                <span class="wip-lane__count">{{ $otherLeads->count() }}</span>
-            </div>
-            <div id="wip-other-stack" class="wip-lane__stack wip-lane__stack--other" data-stack-key="other">
-                @foreach($otherLeads as $lead)
-                    @include('wip.partials.lead-card', ['lead' => $lead])
-                @endforeach
-            </div>
-        </section>
-    @endif
       </div>
 
 
@@ -1967,9 +1956,8 @@
         function runTimeEngine() {
             document.querySelectorAll('.wip-lead-row').forEach(updateCardTiming);
             sortStack(document.getElementById('wip-priority-stack'), priorityRank);
-            sortStack(document.getElementById('wip-active-stack'), callbackRank);
-            sortStack(document.getElementById('wip-dmp-stack'), callbackRank);
-            sortStack(document.getElementById('wip-other-stack'), callbackRank);
+            sortStack(document.getElementById('wip-callback-stack'), callbackRank);
+            sortStack(document.getElementById('wip-without-callback-stack'), (card) => [20, queuePosition(card)]);
             updateNextSipBanner();
             updateLaneCounts();
         }
