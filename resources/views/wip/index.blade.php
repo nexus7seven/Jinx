@@ -561,7 +561,7 @@
         @media(max-width:1280px){.wip-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-lane--dmp{grid-column:1/-1}.wip-lane--dmp .wip-lane__stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media(max-width:820px){.wip-dashboard-grid{grid-template-columns:1fr}.wip-lane--dmp{grid-column:auto}.wip-lane--dmp .wip-lane__stack,.wip-lane__stack--other{display:flex}.wip-next-sip-banner{position:static;grid-template-columns:auto 1fr auto}.wip-next-sip-banner__open{display:none}.wip-next-sip-banner__copy span:last-child{width:100%}}
 </style>
-<link rel="stylesheet" href="{{ asset('css/wip-workdesk.css') }}?v=20260922-1">
+<link rel="stylesheet" href="{{ asset('css/wip-workdesk.css') }}?v=20260924-next-action">
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
@@ -583,6 +583,11 @@
                 </nav>
             </div>
             <div class="wip-header-utilities">
+                <a id="wip-next-action" class="wip-next-action is-empty" href="#" aria-label="Next scheduled action" aria-live="off">
+                    <span class="wip-next-action__label">NEXT ACTION</span>
+                    <span class="wip-next-action__clock" data-next-action-clock>—</span>
+                    <span class="wip-next-action__detail" data-next-action-detail>No upcoming actions</span>
+                </a>
                 <div class="wip-live-meta" aria-label="Dashboard connection status">
                     <span id="wip-live-indicator" class="wip-live-indicator"><span class="wip-live-dot"></span> LIVE</span>
                     <span id="wip-live-updated">Updated just now</span>
@@ -1729,6 +1734,7 @@
         const liveUpdated = document.getElementById('wip-live-updated');
         const refreshBtn = document.getElementById('wip-refresh-btn');
         const nextSipBanner = document.getElementById('wip-next-sip-banner');
+        const nextAction = document.getElementById('wip-next-action');
         const alertedCallbacks = new Set(wipCallbackInitialDueIds);
         const alertedSipPrep = new Set();
         let syncInFlight = false;
@@ -1788,6 +1794,75 @@
             else if (mins > 0) value = mins + 'm ' + secs + 's';
             else value = secs + 's';
             return overdue ? ((dueWord || 'OVERDUE') + ' ' + value) : ('in ' + value);
+        }
+
+        function nextActionCandidate(cards = Array.from(document.querySelectorAll('#wip-dashboard-grid .wip-lead-row'))) {
+            const candidates = [];
+
+            cards.forEach(card => {
+                const leadId = Number(card.dataset.leadId);
+                const name = card.querySelector?.('.wip-card__title')?.innerText?.trim() || ('Lead #' + leadId);
+
+                if (card.dataset.wipStatus === 'SIP Booked'
+                    && card.dataset.sipPrepAt
+                    && !card.dataset.sipPrepCompletedAt) {
+                    const at = new Date(card.dataset.sipPrepAt).getTime();
+                    if (Number.isFinite(at)) {
+                        candidates.push({ type: 'sip', label: 'SIP prep', at, leadId, name });
+                    }
+                }
+
+                if (card.dataset.callbackAt && !window.jinxWipCallbackWasActioned?.(card)) {
+                    const at = new Date(card.dataset.callbackAt).getTime();
+                    if (Number.isFinite(at)) {
+                        candidates.push({ type: 'callback', label: 'Callback', at, leadId, name });
+                    }
+                }
+            });
+
+            return candidates.sort((a, b) => a.at - b.at || a.leadId - b.leadId)[0] || null;
+        }
+
+        function nextActionClock(ms) {
+            const overdue = ms < 0;
+            const total = Math.max(0, Math.floor(Math.abs(ms) / 1000));
+            const hours = Math.floor(total / 3600);
+            const mins = Math.floor((total % 3600) / 60);
+            const secs = total % 60;
+            const clock = hours > 0
+                ? [hours, mins, secs].map((value, index) => index === 0 ? String(value) : String(value).padStart(2, '0')).join(':')
+                : [mins, secs].map(value => String(value).padStart(2, '0')).join(':');
+            return overdue ? ('OVERDUE ' + clock) : clock;
+        }
+
+        function updateNextActionCountdown() {
+            if (!nextAction) return;
+
+            const action = nextActionCandidate();
+            const clock = nextAction.querySelector('[data-next-action-clock]');
+            const detail = nextAction.querySelector('[data-next-action-detail]');
+
+            nextAction.classList.remove('is-green', 'is-amber', 'is-red', 'is-empty');
+
+            if (!action) {
+                nextAction.classList.add('is-empty');
+                nextAction.removeAttribute('href');
+                if (clock) clock.textContent = '—';
+                if (detail) detail.textContent = 'No upcoming actions';
+                return;
+            }
+
+            const ms = action.at - Date.now();
+            const time = new Date(action.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+            if (ms <= 5 * 60000) nextAction.classList.add('is-red');
+            else if (ms <= 15 * 60000) nextAction.classList.add('is-amber');
+            else nextAction.classList.add('is-green');
+
+            nextAction.href = '/lead/' + action.leadId;
+            nextAction.setAttribute('aria-label', action.label + ' for ' + action.name + ' at ' + time);
+            if (clock) clock.textContent = nextActionClock(ms);
+            if (detail) detail.textContent = action.label + ' · ' + action.name + ' · ' + time;
         }
 
         function callbackRank(card) {
@@ -1959,6 +2034,7 @@
             sortStack(document.getElementById('wip-callback-stack'), callbackRank);
             sortStack(document.getElementById('wip-without-callback-stack'), (card) => [20, queuePosition(card)]);
             updateNextSipBanner();
+            updateNextActionCountdown();
             updateLaneCounts();
         }
         window.jinxWipRunTimeEngine = runTimeEngine;
