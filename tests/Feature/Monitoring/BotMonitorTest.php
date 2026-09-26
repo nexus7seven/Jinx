@@ -30,12 +30,29 @@ class BotMonitorTest extends TestCase
         $response->assertJsonStructure(['generated_at', 'thinking_note', 'bots', 'conversations']);
     }
 
+    public function test_configured_owner_receives_full_feed_and_other_staff_do_not(): void
+    {
+        config()->set('bot-monitor.owner_user_id', 1);
+        $staff = User::factory()->make(['id' => 67]);
+        $owner = User::factory()->make(['id' => 1]);
+        $staffData = $this->actingAs($staff)->getJson(route('bot-logs.data'));
+        $staffData->assertOk()->assertJsonPath('full_access', false);
+        $ownerData = $this->actingAs($owner)->getJson(route('bot-logs.data'));
+        $ownerData->assertOk()->assertJsonPath('full_access', true);
+        $this->assertArrayHasKey('feed', $ownerData->json());
+        $this->assertCount(4, $ownerData->json('bots'));
+        $this->assertTrue(collect($ownerData->json('bots'))->every(fn ($bot) => isset($bot['last_action'])));
+        $this->assertTrue(collect($staffData->json('feed'))->every(fn ($message) => $message['from'] !== 'alex' || $message['text'] === '[Private Alex conversation — owner access required]'));
+        config()->set('bot-monitor.owner_user_id', 0);
+        $this->actingAs($owner)->getJson(route('bot-logs.data'))->assertJsonPath('full_access', false);
+    }
+
     public function test_terminal_layout_is_four_across_newest_first_and_typed_only_for_new_messages(): void
     {
         $blade = file_get_contents(resource_path('views/bot-logs/index.blade.php'));
         $this->assertStringContainsString('grid-template-columns:repeat(4,minmax(0,1fr))', $blade);
         $this->assertStringContainsString('width:calc(100vw - 48px)', $blade);
-        $this->assertStringContainsString('data.conversations.flatMap', $blade);
+        $this->assertStringContainsString('(data.feed||[]).slice()', $blade);
         $this->assertStringContainsString('Date.parse(b.time)-Date.parse(a.time)', $blade);
         $this->assertStringContainsString("m.from.toUpperCase()+' → '+m.to.toUpperCase()+':'", $blade);
         $this->assertStringContainsString('!firstLoad?rows.filter(m=>!previousIds.has(m.id)):[]', $blade);
