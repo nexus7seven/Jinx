@@ -30,6 +30,20 @@ class BotMonitorTest extends TestCase
         $response->assertJsonStructure(['generated_at', 'thinking_note', 'bots', 'conversations']);
     }
 
+    public function test_terminal_layout_is_four_across_newest_first_and_typed_only_for_new_messages(): void
+    {
+        $blade = file_get_contents(resource_path('views/bot-logs/index.blade.php'));
+        $this->assertStringContainsString('grid-template-columns:repeat(4,minmax(0,1fr))', $blade);
+        $this->assertStringContainsString('width:calc(100vw - 48px)', $blade);
+        $this->assertStringContainsString('data.conversations.flatMap', $blade);
+        $this->assertStringContainsString('Date.parse(b.time)-Date.parse(a.time)', $blade);
+        $this->assertStringContainsString("m.from.toUpperCase()+' → '+m.to.toUpperCase()+':'", $blade);
+        $this->assertStringContainsString('!firstLoad?rows.filter(m=>!previousIds.has(m.id)):[]', $blade);
+        $this->assertStringContainsString("screen.scrollTop=mostRecent?0:currentScroll", $blade);
+        $this->assertStringContainsString('prefers-reduced-motion: reduce', $blade);
+        $this->assertStringContainsString('textContent', $blade);
+    }
+
     public function test_navigation_replaces_old_label_without_exposing_internal_source_file(): void
     {
         $nav = file_get_contents(resource_path('views/partials/app-nav.blade.php'));
