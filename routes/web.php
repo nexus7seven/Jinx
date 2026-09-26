@@ -41,6 +41,7 @@ use App\Http\Controllers\Webhooks\SendGridInboundEmailWebhookController;
 use App\Services\LeadDebtService;
 use App\Http\Controllers\DataDiallingDashboardController;
 use App\Http\Controllers\SipAvailabilityController;
+use App\Http\Controllers\BotLogsController;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
@@ -172,6 +173,8 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/wip');
 
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
+    Route::get('/bot-logs', [BotLogsController::class, 'index'])->name('bot-logs.index');
+    Route::get('/bot-logs/data', [BotLogsController::class, 'data'])->name('bot-logs.data');
     Route::get('/wip/reengagement-poll', [WipController::class, 'pollReengagement'])->name('wip.reengagement-poll');
     Route::get('/wip/callback-poll', [WipController::class, 'pollCallbacks'])->name('wip.callback-poll');
     Route::patch('/wip/stack/reorder', [WipController::class, 'reorderStack'])->name('wip.stack.reorder');

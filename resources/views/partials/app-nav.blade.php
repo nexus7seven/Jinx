@@ -1,7 +1,6 @@
 @php
     $isWip = request()->routeIs('wip.*');
-    $isRemarketing = request()->routeIs('remarketing.*');
-    $isDialDashboard = request()->routeIs('reports.data-dialling-dashboard');
+    $isBotLogs = request()->routeIs('bot-logs.*');
     $isSipAvailability = request()->routeIs('sip-availability.*');
 @endphp
 <style>
@@ -144,18 +143,11 @@
             @endif
         </a>
         <a
-            href="{{ route('remarketing.index') }}"
-            class="app-nav__tab {{ $isRemarketing ? 'app-nav__tab--active' : '' }}"
-            @if ($isRemarketing) aria-current="page" @endif
+            href="{{ route('bot-logs.index') }}"
+            class="app-nav__tab {{ $isBotLogs ? 'app-nav__tab--active' : '' }}"
+            @if ($isBotLogs) aria-current="page" @endif
         >
-            Remarketing
-        </a>
-        <a
-            href="{{ route('reports.data-dialling-dashboard') }}"
-            class="app-nav__tab {{ $isDialDashboard ? 'app-nav__tab--active' : '' }}"
-            @if ($isDialDashboard) aria-current="page" @endif
-        >
-            Dialling Dashboard
+            Bot Monitor
         </a>
         <a
             href="{{ route('sip-availability.index') }}"
