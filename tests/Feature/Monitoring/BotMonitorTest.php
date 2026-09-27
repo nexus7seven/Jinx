@@ -60,6 +60,12 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString('prefers-reduced-motion: reduce', $blade);
         $this->assertStringContainsString('textContent', $blade);
         $this->assertStringContainsString('LAST ACTION', $blade);
+        $this->assertStringContainsString('SYSTEM EVENTS', $blade);
+        $this->assertStringContainsString('function typeLine(', $blade);
+        $this->assertStringContainsString('Math.ceil(text.length/220)', $blade);
+        $this->assertStringContainsString('},38)', $blade);
+        $this->assertStringContainsString('function updateDecor', str_replace('const updateDecor', 'function updateDecor', $blade));
+        $this->assertStringContainsString('message{font-size:17px', $blade);
         $this->assertStringContainsString('function typeLine(', $blade);
         $this->assertStringContainsString('setInterval(poll,1500)', $blade);
         $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
