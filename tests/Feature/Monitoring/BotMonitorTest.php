@@ -47,10 +47,10 @@ class BotMonitorTest extends TestCase
         $this->actingAs($owner)->getJson(route('bot-logs.data'))->assertJsonPath('full_access', false);
     }
 
-    public function test_terminal_layout_is_four_across_newest_first_and_typed_only_for_new_messages(): void
+    public function test_contact_rail_filters_both_directions_and_source_work_with_newest_first_typing(): void
     {
         $blade = file_get_contents(resource_path('views/bot-logs/index.blade.php'));
-        $this->assertStringContainsString('grid-template-columns:repeat(4,minmax(0,1fr))', $blade);
+        $this->assertStringContainsString('grid-template-columns:205px minmax(0,1fr)', $blade);
         $this->assertStringContainsString("@extends('layouts.monitor')", $blade);
         $this->assertStringContainsString('(snapshot?.feed||[]).slice()', $blade);
         $this->assertStringContainsString('Date.parse(b.time)-Date.parse(a.time)', $blade);
@@ -59,7 +59,15 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString("feed.scrollTop=added.length?0:scroll", $blade);
         $this->assertStringContainsString('prefers-reduced-motion: reduce', $blade);
         $this->assertStringContainsString('textContent', $blade);
-        $this->assertStringContainsString('LAST ACTION', $blade);
+        $this->assertStringNotContainsString('LAST ACTION</', $blade);
+        $this->assertStringContainsString('id="clearFilter"', $blade);
+        $this->assertStringContainsString('contactBreathe', $blade);
+        $this->assertStringContainsString('line.thought', $blade);
+        $this->assertStringContainsString('line:nth-child(4n+2)', $blade);
+        $this->assertStringContainsString('control-layout', $blade);
+        $this->assertStringContainsString("m.kind==='thought'", $blade);
+        $this->assertStringContainsString('m.from===role||m.to===role', $blade);
+        $this->assertStringNotContainsString("el('asOf')", $blade);
         $this->assertStringContainsString('SYSTEM EVENTS', $blade);
         $this->assertStringContainsString('function typeLine(', $blade);
         $this->assertStringContainsString('Math.ceil(text.length/220)', $blade);
