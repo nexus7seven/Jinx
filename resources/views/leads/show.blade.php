@@ -245,6 +245,7 @@
                 <button type="button" class="case-tab" role="tab" id="tabBtnFinancialStatement" data-case-tab="financial-statement" aria-selected="false">Financial Statement</button>
                 <button type="button" class="case-tab" role="tab" id="tabBtnDebts" data-case-tab="debts" aria-selected="false">Debts</button>
                 <button type="button" class="case-tab" role="tab" id="tabBtnCaseAssessment" data-case-tab="case-assessment" aria-selected="false">Case Assessment</button>
+                <button type="button" class="case-tab" role="tab" id="tabBtnBotCaseTracker" data-case-tab="bot-case-tracker" aria-selected="false">Bot Case Tracker</button>
             </div>
             <div class="lead-main-scroll">
     <div id="client-details-section" class="case-tab-panel is-active" role="tabpanel" data-case-panel="client-details">
@@ -501,6 +502,9 @@
 
     <div id="case-assessment-section" class="case-tab-panel" role="tabpanel" data-case-panel="case-assessment">
         @include('leads.partials.case-assessment')
+    </div>
+    <div id="bot-case-tracker-section" class="case-tab-panel" role="tabpanel" data-case-panel="bot-case-tracker">
+        @include('leads.partials.bot-case-tracker')
     </div>
             </div>
         </div>
@@ -2458,7 +2462,8 @@
             'client-details': 'Client Details',
             'financial-statement': 'Financial Statement',
             'debts': 'Debts',
-            'case-assessment': 'Case Assessment'
+            'case-assessment': 'Case Assessment',
+            'bot-case-tracker': 'Bot Case Tracker'
         };
 
         function activateTab(tabId, updateHash) {
@@ -2481,6 +2486,7 @@
             if (updateHash) {
                 history.replaceState(null, '', '#' + tabId);
             }
+            if (tabId === 'bot-case-tracker') { window.dispatchEvent(new CustomEvent('jinx:bot-case-tracker:activate')); }
             if (tabId === 'case-assessment') {
                 window.dispatchEvent(new CustomEvent('jinx:case-assessment:activate'));
             }

@@ -387,6 +387,7 @@ Route::middleware('auth')->group(function () {
     })->name('lead.portal-link');
 
     Route::get('/lead/{lead}/case-assessment', [CaseAssessmentController::class, 'show'])->name('lead.case-assessment.show');
+    Route::get('/lead/{lead}/bot-case-tracker', [CaseAssessmentController::class, 'botTracker'])->name('lead.bot-case-tracker.show');
     Route::patch('/lead/{lead}/case-assessment/fact', [CaseAssessmentController::class, 'updateFact'])->name('lead.case-assessment.fact.update');
 
     Route::patch('/lead/{lead}/case-notes', [LeadCaseController::class, 'updateCaseNotes'])->name('lead.case-notes.update');
