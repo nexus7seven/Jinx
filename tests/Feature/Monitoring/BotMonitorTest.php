@@ -19,9 +19,9 @@ class BotMonitorTest extends TestCase
         // This isolated test DB does not contain the unrelated WIP navigation composer tables.
         // Verify the compiled Blade separately; the data route has no WIP dependency.
         $blade = file_get_contents(resource_path('views/bot-logs/index.blade.php'));
-        $this->assertStringContainsString('Bot Team Monitor', $blade);
-        $this->assertStringContainsString('bmCards', $blade);
-        $this->assertStringContainsString('bmConversations', $blade);
+        $this->assertStringContainsString('BOT CONTROL TERMINAL', $blade);
+        $this->assertStringContainsString( 'id="cards"' , $blade);
+        $this->assertStringContainsString( 'id="feed"' , $blade);
         $this->assertStringContainsString('not private internal reasoning', $blade);
         $response = $this->actingAs($person)->getJson(route('bot-logs.data'));
         $response->assertOk()->assertJsonPath('schema', 2)->assertJsonCount(4, 'bots');
@@ -51,14 +51,18 @@ class BotMonitorTest extends TestCase
     {
         $blade = file_get_contents(resource_path('views/bot-logs/index.blade.php'));
         $this->assertStringContainsString('grid-template-columns:repeat(4,minmax(0,1fr))', $blade);
-        $this->assertStringContainsString('width:calc(100vw - 48px)', $blade);
-        $this->assertStringContainsString('(data.feed||[]).slice()', $blade);
+        $this->assertStringContainsString("@extends('layouts.monitor')", $blade);
+        $this->assertStringContainsString('(snapshot?.feed||[]).slice()', $blade);
         $this->assertStringContainsString('Date.parse(b.time)-Date.parse(a.time)', $blade);
         $this->assertStringContainsString("m.from.toUpperCase()+' → '+m.to.toUpperCase()+':'", $blade);
-        $this->assertStringContainsString('!firstLoad?rows.filter(m=>!previousIds.has(m.id)):[]', $blade);
-        $this->assertStringContainsString("screen.scrollTop=mostRecent?0:currentScroll", $blade);
+        $this->assertStringContainsString('initial?[]:rows.filter(m=>!seen.has(m.id))', $blade);
+        $this->assertStringContainsString("feed.scrollTop=added.length?0:scroll", $blade);
         $this->assertStringContainsString('prefers-reduced-motion: reduce', $blade);
         $this->assertStringContainsString('textContent', $blade);
+        $this->assertStringContainsString('LAST ACTION', $blade);
+        $this->assertStringContainsString('function typeLine(', $blade);
+        $this->assertStringContainsString('setInterval(poll,1500)', $blade);
+        $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
     }
 
     public function test_navigation_replaces_old_label_without_exposing_internal_source_file(): void
