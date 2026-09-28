@@ -85,9 +85,13 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString('function captureQueueDrafts()', $blade);
         $this->assertStringContainsString('function restoreReplyDraft(input)', $blade);
         $this->assertStringContainsString('function queueInputBusy(input)', $blade);
+        $this->assertStringContainsString('function focusedQueueField()', $blade);
+        $this->assertStringContainsString('function patchQueueInPlace(rows)', $blade);
+        $this->assertStringContainsString('if(editing){patchQueueInPlace(rows);return;}', $blade);
         $this->assertStringContainsString('clearReplyDraft(key)', $blade);
         $this->assertStringContainsString('input[data-card-key]', $blade);
         $this->assertStringContainsString('setSelectionRange', $blade);
+        $this->assertStringNotContainsString('fragment.append(prior)', $blade);
         $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
     }
 
