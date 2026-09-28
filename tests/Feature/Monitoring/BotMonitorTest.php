@@ -76,6 +76,10 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString('message{font-size:17px', $blade);
         $this->assertStringContainsString('function typeLine(', $blade);
         $this->assertStringContainsString('setInterval(poll,1500)', $blade);
+        $this->assertStringContainsString('WORK QUEUE', $blade);
+        $this->assertStringContainsString('id="queue"', $blade);
+        $this->assertStringContainsString('id="viewQueue"', $blade);
+        $this->assertStringContainsString('id="cards"', $blade);
         $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
     }
 

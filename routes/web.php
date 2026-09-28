@@ -43,6 +43,7 @@ use App\Http\Controllers\DataDiallingDashboardController;
 use App\Http\Controllers\SipAvailabilityController;
 use App\Http\Controllers\BotLogsController;
 use App\Http\Controllers\AvondaleHubsolvController;
+use App\Http\Controllers\ZebraHubsolvController;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
@@ -176,6 +177,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/wip', [WipController::class, 'index'])->name('wip.index');
     Route::get('/bot-logs', [BotLogsController::class, 'index'])->name('bot-logs.index');
     Route::get('/bot-logs/data', [BotLogsController::class, 'data'])->name('bot-logs.data');
+    Route::post('/bot-logs/reply', [BotLogsController::class, 'reply'])->name('bot-logs.reply');
     Route::get('/wip/reengagement-poll', [WipController::class, 'pollReengagement'])->name('wip.reengagement-poll');
     Route::get('/wip/callback-poll', [WipController::class, 'pollCallbacks'])->name('wip.callback-poll');
     Route::patch('/wip/stack/reorder', [WipController::class, 'reorderStack'])->name('wip.stack.reorder');
@@ -201,8 +203,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::get('/lead-search', LeadSearchController::class)->name('lead.search');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
+    Route::patch('/lead/{lead}/ip-note', [WipController::class, 'updateIpNote'])->name('lead.ip-note');
 
     Route::post('/lead/{lead}/avondale-hubsolv', [AvondaleHubsolvController::class, 'send'])->name('lead.avondale-hubsolv.send');
+    Route::post('/lead/{lead}/zebra-hubsolv', [ZebraHubsolvController::class, 'send'])->name('lead.zebra-hubsolv.send');
 
     Route::get('/lead/{lead}/checklist', [WipController::class, 'checklist'])->name('lead.checklist.index');
     Route::post('/lead/{lead}/checklist', [WipController::class, 'storeChecklistItem'])->name('lead.checklist.store');
