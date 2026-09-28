@@ -331,6 +331,12 @@ Route::middleware('auth')->group(function () {
         ->name('lead.iva-ip.update');
     Route::post('/lead/{lead}/ip-voting/override', [LeadIpVotingController::class, 'storeOverride'])
         ->name('lead.ip-voting.override');
+    Route::get('/lead/{lead}/ip-voting/known-creditors', [LeadIpVotingController::class, 'knownCreditors'])
+        ->name('lead.ip-voting.known-creditors');
+    Route::get('/lead/{lead}/ip-voting/match-preview', [LeadIpVotingController::class, 'previewMatch'])
+        ->name('lead.ip-voting.match-preview');
+    Route::post('/lead/{lead}/ip-voting/match', [LeadIpVotingController::class, 'storeMatch'])
+        ->name('lead.ip-voting.match');
 
     Route::post('/lead/{lead}/portal-link', function (Lead $lead, Request $request, LeadPortalLinkService $leadPortalLinkService) {
         $issued = $leadPortalLinkService->generateForLead($lead, $request->ip());

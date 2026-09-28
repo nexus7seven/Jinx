@@ -92,7 +92,7 @@ class IpCreditorVotingService
         ];
     }
 
-    public function resolveCreditor(?Creditor $creditor, string $ipKey): array
+    public function resolveCreditor(?Creditor $creditor, string $ipKey, bool $allowLearnedMatch = true): array
     {
         if (!$creditor) {
             return $this->emptyAssessment('creditor_missing');
@@ -126,6 +126,30 @@ class IpCreditorVotingService
                     'can_save_override' => true,
                     'reason' => 'manual_override',
                 ]);
+            }
+        }
+
+        if ($allowLearnedMatch && Schema::hasTable('ip_creditor_voting_matches')) {
+            $learnedMatch = DB::table('ip_creditor_voting_matches')
+                ->where('source_creditor_id', $creditor->id)
+                ->where('ip_key', $ipKey)
+                ->first();
+
+            if ($learnedMatch) {
+                $target = Creditor::find((int) $learnedMatch->target_creditor_id);
+
+                if ($target) {
+                    $matchedAssessment = $this->resolveCreditor($target, $ipKey, false);
+                    $matchedAssessment['source_type'] = 'learned_match';
+                    $matchedAssessment['source_label'] = 'Learned match to '.$target->name
+                        .(filled($matchedAssessment['source_label'] ?? null) ? ' · '.$matchedAssessment['source_label'] : '');
+                    $matchedAssessment['matched_creditor_id'] = (int) $target->id;
+                    $matchedAssessment['matched_creditor_name'] = (string) $target->name;
+                    $matchedAssessment['reason'] = 'learned_creditor_match';
+                    $matchedAssessment['can_save_override'] = true;
+
+                    return $this->withPresentation($matchedAssessment);
+                }
             }
         }
 
@@ -230,6 +254,48 @@ class IpCreditorVotingService
             'can_save_override' => true,
             'reason' => $reason,
         ]);
+    }
+
+    public function knownCreditorOptions(string $ipKey, ?int $excludeCreditorId = null): array
+    {
+        if (!array_key_exists($ipKey, Lead::IVA_IPS) || !Schema::hasTable('decision_creditor_source_rows')) {
+            return [];
+        }
+
+        return DB::table('decision_creditor_source_rows as rows')
+            ->join('creditors as creditors', 'creditors.id', '=', 'rows.creditor_id')
+            ->where('rows.partner_key', $ipKey)
+            ->when($excludeCreditorId, fn ($query) => $query->where('creditors.id', '!=', $excludeCreditorId))
+            ->where(function ($query) {
+                $query->whereNotNull('rows.status_text')
+                    ->orWhereNotNull('rows.representative_key');
+            })
+            ->select('creditors.id', 'creditors.name')
+            ->distinct()
+            ->orderBy('creditors.name')
+            ->get()
+            ->map(fn ($creditor) => [
+                'id' => (int) $creditor->id,
+                'name' => (string) $creditor->name,
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function isKnownCreditorForIp(int $creditorId, string $ipKey): bool
+    {
+        if (!array_key_exists($ipKey, Lead::IVA_IPS) || !Schema::hasTable('decision_creditor_source_rows')) {
+            return false;
+        }
+
+        return DB::table('decision_creditor_source_rows')
+            ->where('partner_key', $ipKey)
+            ->where('creditor_id', $creditorId)
+            ->where(function ($query) {
+                $query->whereNotNull('status_text')
+                    ->orWhereNotNull('representative_key');
+            })
+            ->exists();
     }
 
     public function interpretStatus(?string $status): string

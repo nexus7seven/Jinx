@@ -24,6 +24,9 @@
     data-lead-name="{{ $assistantName !== '' ? $assistantName : 'Unknown' }}"
     data-wip-status="{{ $lead->wip_status ?: '—' }}"
     data-ip-voting-override-url="{{ route('lead.ip-voting.override', $lead) }}"
+    data-ip-voting-known-creditors-url="{{ route('lead.ip-voting.known-creditors', $lead) }}"
+    data-ip-voting-match-preview-url="{{ route('lead.ip-voting.match-preview', $lead) }}"
+    data-ip-voting-match-url="{{ route('lead.ip-voting.match', $lead) }}"
 >
     <div class="case-assistant-header">
         <div style="min-width:0;">
@@ -48,6 +51,19 @@
             <form id="caseAssistantIpVotingForm" style="margin-top:10px;">
                 <input type="hidden" id="caseAssistantIpVotingCreditorId">
 
+                <div class="case-assistant-ip-voting-match-box">
+                    <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingMatch">Match to an existing creditor this IP already knows</label>
+                    <select id="caseAssistantIpVotingMatch" class="case-assistant-ip-voting-input">
+                        <option value="">Loading known creditors…</option>
+                    </select>
+                    <div id="caseAssistantIpVotingMatchPreview" class="case-assistant-ip-voting-match-preview">Choose a creditor to see the rule Jinx already knows.</div>
+                    <div class="case-assistant-ip-voting-match-actions">
+                        <button type="button" id="caseAssistantIpVotingSaveMatch" class="case-assistant-ip-voting-save" disabled>Save match</button>
+                    </div>
+                </div>
+
+                <div class="case-assistant-ip-voting-divider"><span>or set a new rule</span></div>
+
                 <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingStatus">Voting</label>
                 <select id="caseAssistantIpVotingStatus" class="case-assistant-ip-voting-input">
                     <option value="">Select voting result…</option>
@@ -61,12 +77,12 @@
                 </select>
 
                 <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingHouse">Voting house</label>
-                <input
-                    id="caseAssistantIpVotingHouse"
-                    class="case-assistant-ip-voting-input"
-                    placeholder="e.g. TIX, WATCH, Evolve — leave blank if independent"
-                    autocomplete="off"
-                >
+                <select id="caseAssistantIpVotingHouse" class="case-assistant-ip-voting-input">
+                    <option value="">Select voting house…</option>
+                    <option value="TIX">TIX</option>
+                    <option value="WATCH">WATCH</option>
+                    <option value="INDEPENDENT">INDEPENDENT</option>
+                </select>
 
                 <label class="case-assistant-ip-voting-label" for="caseAssistantIpVotingNotes">Conditions / notes</label>
                 <textarea
@@ -220,6 +236,11 @@
     .case-assistant-ip-voting-kicker { text-transform:uppercase; color:#fbbf24; font-size:9px; font-weight:900; letter-spacing:.06em; }
     .case-assistant-ip-voting-title { margin-top:5px; color:#fff7ed; font-size:14px; font-weight:900; }
     .case-assistant-ip-voting-reason { margin-top:5px; color:#fed7aa; font-size:11px; line-height:1.45; }
+    .case-assistant-ip-voting-match-box { margin-top:10px; padding:9px; border:1px solid #334155; border-radius:8px; background:rgba(2,6,23,.62); }
+    .case-assistant-ip-voting-match-preview { margin-top:7px; min-height:18px; color:#bfdbfe; font-size:10px; line-height:1.4; }
+    .case-assistant-ip-voting-match-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+    .case-assistant-ip-voting-divider { display:flex; align-items:center; gap:8px; margin:11px 0 2px; color:#64748b; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+    .case-assistant-ip-voting-divider::before, .case-assistant-ip-voting-divider::after { content:""; height:1px; flex:1; background:#334155; }
     .case-assistant-ip-voting-label { display:block; margin:8px 0 4px; color:#cbd5e1; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
     .case-assistant-ip-voting-input { width:100%; box-sizing:border-box; border:1px solid #475569; border-radius:8px; background:#020617; color:#f8fafc; padding:8px 9px; font:inherit; font-size:12px; }
     .case-assistant-ip-voting-input:focus { outline:none; border-color:#f59e0b; }
@@ -260,6 +281,9 @@
     const ipVotingTitle = document.getElementById('caseAssistantIpVotingTitle');
     const ipVotingReason = document.getElementById('caseAssistantIpVotingReason');
     const ipVotingCreditorId = document.getElementById('caseAssistantIpVotingCreditorId');
+    const ipVotingMatch = document.getElementById('caseAssistantIpVotingMatch');
+    const ipVotingMatchPreview = document.getElementById('caseAssistantIpVotingMatchPreview');
+    const ipVotingSaveMatch = document.getElementById('caseAssistantIpVotingSaveMatch');
     const ipVotingStatus = document.getElementById('caseAssistantIpVotingStatus');
     const ipVotingHouse = document.getElementById('caseAssistantIpVotingHouse');
     const ipVotingNotes = document.getElementById('caseAssistantIpVotingNotes');
@@ -273,6 +297,9 @@
     let opening = false;
     let ipVotingQueue = [];
     let ipVotingMeta = { ip_key:null, ip_label:null };
+    let ipVotingKnownCreditors = [];
+    let ipVotingKnownCreditorsForIp = null;
+    let ipVotingMatchPreviewRequest = 0;
 
     const escapeHtml = (value) => String(value ?? '')
         .replaceAll('&','&amp;')
@@ -368,6 +395,65 @@
         }
     }
 
+    function populateIpVotingMatchOptions() {
+        if (!ipVotingMatch) return;
+        const currentCreditorId = Number(ipVotingCreditorId?.value || 0);
+        const options = ipVotingKnownCreditors.filter(item => Number(item.id) !== currentCreditorId);
+        ipVotingMatch.innerHTML = '<option value="">Choose an existing creditor…</option>'
+            + options.map(item => '<option value="' + Number(item.id) + '">' + escapeHtml(item.name) + '</option>').join('');
+        ipVotingMatch.value = '';
+        ipVotingSaveMatch.disabled = true;
+        ipVotingMatchPreview.textContent = options.length
+            ? 'Choose a creditor to see the rule Jinx already knows.'
+            : 'No reusable creditor rules are available for this IP.';
+    }
+
+    async function loadIpVotingKnownCreditors() {
+        if (!ipVotingMeta.ip_key || !shell.dataset.ipVotingKnownCreditorsUrl) return;
+        if (ipVotingKnownCreditorsForIp === ipVotingMeta.ip_key && ipVotingKnownCreditors.length) {
+            populateIpVotingMatchOptions();
+            return;
+        }
+
+        ipVotingMatch.disabled = true;
+        ipVotingMatch.innerHTML = '<option value="">Loading known creditors…</option>';
+        ipVotingMatchPreview.textContent = 'Loading ' + (ipVotingMeta.ip_label || ipVotingMeta.ip_key) + ' creditor rules…';
+
+        try {
+            const response = await fetch(shell.dataset.ipVotingKnownCreditorsUrl, {
+                headers:{'Accept':'application/json'},
+                credentials:'same-origin'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Could not load known creditors');
+            ipVotingKnownCreditors = Array.isArray(data.creditors) ? data.creditors : [];
+            ipVotingKnownCreditorsForIp = data.ip_key || ipVotingMeta.ip_key;
+            populateIpVotingMatchOptions();
+        } catch (error) {
+            ipVotingKnownCreditors = [];
+            ipVotingKnownCreditorsForIp = null;
+            ipVotingMatch.innerHTML = '<option value="">Unable to load creditor list</option>';
+            ipVotingMatchPreview.textContent = error.message;
+        } finally {
+            const current = ipVotingQueue[0] || null;
+            ipVotingMatch.disabled = !current || current.can_save_override === false;
+        }
+    }
+
+    function applyIpVotingSaveResponse(data, messagePrefix) {
+        ipVotingQueue = Array.isArray(data.unresolved) ? data.unresolved : [];
+        ipVotingMeta = {
+            ip_key: data.ip_key || ipVotingMeta.ip_key,
+            ip_label: data.ip_label || ipVotingMeta.ip_label
+        };
+        renderIpVotingAlert();
+        window.dispatchEvent(new CustomEvent('jinx:ip-voting-refresh'));
+        status.textContent = ipVotingQueue.length
+            ? messagePrefix + ' · ' + ipVotingQueue.length + ' still need input'
+            : 'Voting rules complete';
+        setAvailability(ipVotingQueue.length ? 'busy' : 'ready');
+    }
+
     function renderIpVotingAlert() {
         if (!ipVotingAlert || !ipVotingForm) return;
 
@@ -383,6 +469,13 @@
         ipVotingAlert.style.display = 'block';
         ipVotingTitle.textContent = creditor + ' · ' + ipLabel;
         ipVotingCreditorId.value = item.creditor_id || '';
+        ipVotingMatchPreview.textContent = 'Choose a creditor to see the rule Jinx already knows.';
+        ipVotingSaveMatch.disabled = true;
+        if (ipVotingKnownCreditorsForIp === ipVotingMeta.ip_key && ipVotingKnownCreditors.length) {
+            populateIpVotingMatchOptions();
+        } else {
+            loadIpVotingKnownCreditors();
+        }
         if (item.outcome === 'accept') {
             ipVotingStatus.value = ({
                 via_house: 'Accept - via house vote',
@@ -402,7 +495,7 @@
         ipVotingNotes.value = item.notes || '';
 
         if (item.reason === 'not_in_ip_workbook' || item.reason === 'workbook_row_without_voting_data') {
-            ipVotingReason.textContent = 'No usable ' + ipLabel + ' workbook voting entry was found. Tell Jinx what voting result and voting house should be used for this creditor.';
+            ipVotingReason.textContent = 'No usable ' + ipLabel + ' rule was found for this creditor. Match it to a creditor ' + ipLabel + ' already knows, or set a genuinely new rule below.';
         } else if (item.reason === 'representative_route_conflict') {
             ipVotingReason.textContent = 'The workbook contains more than one possible voting-house route. The vote still follows the hard Accept / Reject / Non-vote model; confirm the correct house for this creditor.';
         } else {
@@ -425,6 +518,8 @@
         ipVotingStatus.disabled = !canSave;
         ipVotingHouse.disabled = !canSave;
         ipVotingNotes.disabled = !canSave;
+        ipVotingMatch.disabled = !canSave || !ipVotingKnownCreditors.length;
+        ipVotingSaveMatch.disabled = true;
 
         if (!canSave) {
             ipVotingError.style.display = 'block';
@@ -451,6 +546,82 @@
             setAvailability('ready');
         }
     });
+
+    if (ipVotingMatch) {
+        ipVotingMatch.addEventListener('change', async () => {
+            const creditorId = Number(ipVotingMatch.value || 0);
+            ipVotingSaveMatch.disabled = true;
+            ipVotingMatchPreviewRequest += 1;
+            const requestId = ipVotingMatchPreviewRequest;
+
+            if (!creditorId) {
+                ipVotingMatchPreview.textContent = 'Choose a creditor to see the rule Jinx already knows.';
+                return;
+            }
+
+            ipVotingMatchPreview.textContent = 'Checking known rule…';
+            try {
+                const url = shell.dataset.ipVotingMatchPreviewUrl + '?creditor_id=' + encodeURIComponent(creditorId);
+                const response = await fetch(url, {
+                    headers:{'Accept':'application/json'},
+                    credentials:'same-origin'
+                });
+                const data = await response.json();
+                if (requestId !== ipVotingMatchPreviewRequest) return;
+                if (!response.ok || !data.success) throw new Error(data.message || 'Could not preview creditor rule');
+
+                const rule = data.rule || {};
+                let vote = rule.status_text || ({accept:'Accept',reject:'Reject',non_voting:'Non-vote'})[rule.outcome] || 'Unknown';
+                const house = rule.voting_house || (rule.outcome === 'accept' ? 'INDEPENDENT' : null);
+                const bits = [vote, house].filter(Boolean);
+                ipVotingMatchPreview.textContent = 'Known ' + (ipVotingMeta.ip_label || 'IP') + ' rule: ' + bits.join(' · ')
+                    + (rule.notes ? ' · ' + rule.notes : '')
+                    + (rule.can_match === false ? ' · This rule still needs review.' : '');
+                ipVotingSaveMatch.disabled = rule.can_match === false;
+            } catch (error) {
+                if (requestId !== ipVotingMatchPreviewRequest) return;
+                ipVotingMatchPreview.textContent = error.message;
+            }
+        });
+    }
+
+    if (ipVotingSaveMatch) {
+        ipVotingSaveMatch.addEventListener('click', async () => {
+            if (!ipVotingQueue.length || ipVotingSaveMatch.disabled) return;
+            const targetCreditorId = Number(ipVotingMatch.value || 0);
+            if (!targetCreditorId) return;
+
+            ipVotingSaveMatch.disabled = true;
+            ipVotingSaveMatch.textContent = 'Saving…';
+            ipVotingError.style.display = 'none';
+
+            try {
+                const response = await fetch(shell.dataset.ipVotingMatchUrl, {
+                    method:'POST',
+                    credentials:'same-origin',
+                    headers:{
+                        'Accept':'application/json',
+                        'Content-Type':'application/json',
+                        'X-CSRF-TOKEN':csrf
+                    },
+                    body:JSON.stringify({
+                        source_creditor_id: ipVotingCreditorId.value,
+                        target_creditor_id: targetCreditorId
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.message || 'Could not save creditor match');
+
+                applyIpVotingSaveResponse(data, 'Creditor match remembered');
+            } catch (error) {
+                ipVotingError.style.display = 'block';
+                ipVotingError.textContent = error.message;
+            } finally {
+                ipVotingSaveMatch.textContent = 'Save match';
+                if (ipVotingQueue.length && ipVotingMatch.value) ipVotingSaveMatch.disabled = false;
+            }
+        });
+    }
 
     if (ipVotingForm) {
         ipVotingForm.addEventListener('submit', async event => {
@@ -491,18 +662,7 @@
                     throw new Error(data.message || 'Could not save creditor voting rule');
                 }
 
-                ipVotingQueue = Array.isArray(data.unresolved) ? data.unresolved : [];
-                ipVotingMeta = {
-                    ip_key: data.ip_key || ipVotingMeta.ip_key,
-                    ip_label: data.ip_label || ipVotingMeta.ip_label
-                };
-                renderIpVotingAlert();
-                window.dispatchEvent(new CustomEvent('jinx:ip-voting-refresh'));
-
-                status.textContent = ipVotingQueue.length
-                    ? 'Voting rule saved · ' + ipVotingQueue.length + ' still need input'
-                    : 'Voting rules complete';
-                setAvailability(ipVotingQueue.length ? 'busy' : 'ready');
+                applyIpVotingSaveResponse(data, 'Voting rule saved');
             } catch (error) {
                 ipVotingError.style.display = 'block';
                 ipVotingError.textContent = error.message;
