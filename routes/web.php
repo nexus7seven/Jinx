@@ -42,6 +42,7 @@ use App\Services\LeadDebtService;
 use App\Http\Controllers\DataDiallingDashboardController;
 use App\Http\Controllers\SipAvailabilityController;
 use App\Http\Controllers\BotLogsController;
+use App\Http\Controllers\AvondaleHubsolvController;
 
 Route::post('/webhooks/twilio/inbound-sms', TwilioInboundSmsWebhookController::class);
 Route::post('/webhooks/sendgrid/inbound-email', SendGridInboundEmailWebhookController::class);
@@ -200,6 +201,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/api/click-to-call', [ClickToCallController::class, 'store'])->name('api.click-to-call');
     Route::get('/lead-search', LeadSearchController::class)->name('lead.search');
     Route::patch('/lead/{lead}/wip-status', [WipController::class, 'updateStatus'])->name('lead.wip-status');
+
+    Route::post('/lead/{lead}/avondale-hubsolv', [AvondaleHubsolvController::class, 'send'])->name('lead.avondale-hubsolv.send');
 
     Route::get('/lead/{lead}/checklist', [WipController::class, 'checklist'])->name('lead.checklist.index');
     Route::post('/lead/{lead}/checklist', [WipController::class, 'storeChecklistItem'])->name('lead.checklist.store');

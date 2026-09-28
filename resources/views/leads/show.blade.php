@@ -310,6 +310,8 @@
                     value="{{ $lead->dob }}"
                     class="client-input"
                 >
+                <button type="button" id="sendAvHubsBtn" style="margin-top:10px; width:100%; background:#0f766e; color:#ffffff; border:1px solid #14b8a6; border-radius:8px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;">Send to AV HUBS</button>
+                <div id="sendAvHubsStatus" style="margin-top:7px; font-size:12px; color:#9ca3af; line-height:1.45;"></div>
                 </div>
             </div>
 
@@ -1150,6 +1152,35 @@
 
     repositionQuickPanels();
     window.addEventListener('resize', repositionQuickPanels);
+
+    const sendAvHubsBtn = document.getElementById('sendAvHubsBtn');
+    const sendAvHubsStatus = document.getElementById('sendAvHubsStatus');
+    if (sendAvHubsBtn) {
+        sendAvHubsBtn.addEventListener('click', async function () {
+            if (!window.confirm('Send this lead and its debts to Avondale HubSolv? Jinx will run the required checks first.')) return;
+            sendAvHubsBtn.disabled = true;
+            sendAvHubsBtn.textContent = 'Checking...';
+            sendAvHubsStatus.textContent = 'Running Avondale checks. Nothing is sent unless they pass.';
+            sendAvHubsStatus.style.color = '#fbbf24';
+            try {
+                const response = await fetch('/lead/{{ $lead->id }}/avondale-hubsolv', {method:'POST', headers:{'X-CSRF-TOKEN':csrfToken,'Accept':'application/json'}});
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    const details = Array.isArray(data.errors) && data.errors.length ? ' ' + data.errors.join(' | ') : '';
+                    throw new Error((data.message || 'Avondale transfer failed.') + details);
+                }
+                sendAvHubsStatus.textContent = data.message;
+                sendAvHubsStatus.style.color = '#10b981';
+                sendAvHubsBtn.textContent = 'Sent to AV HUBS';
+                return;
+            } catch (e) {
+                sendAvHubsStatus.textContent = e.message || 'Avondale transfer failed. Nothing confirmed as sent.';
+                sendAvHubsStatus.style.color = '#ef4444';
+            }
+            sendAvHubsBtn.disabled = false;
+            sendAvHubsBtn.textContent = 'Send to AV HUBS';
+        });
+    }
 
     const leadFields = document.querySelectorAll('input[data-field], select[data-field]');
     const originalLeadValues = {};
