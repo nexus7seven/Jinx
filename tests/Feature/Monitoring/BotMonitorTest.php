@@ -80,6 +80,14 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString('id="queue"', $blade);
         $this->assertStringContainsString('id="viewQueue"', $blade);
         $this->assertStringContainsString('id="cards"', $blade);
+        $this->assertStringContainsString('replyDrafts=new Map()', $blade);
+        $this->assertStringContainsString('function queueCardKey(card)', $blade);
+        $this->assertStringContainsString('function captureQueueDrafts()', $blade);
+        $this->assertStringContainsString('function restoreReplyDraft(input)', $blade);
+        $this->assertStringContainsString('function queueInputBusy(input)', $blade);
+        $this->assertStringContainsString('clearReplyDraft(key)', $blade);
+        $this->assertStringContainsString('input[data-card-key]', $blade);
+        $this->assertStringContainsString('setSelectionRange', $blade);
         $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
     }
 
