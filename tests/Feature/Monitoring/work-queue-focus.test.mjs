@@ -34,6 +34,7 @@ class MiniNode {
   this.disabled = false;
   this.title = '';
   this.attributes = {};
+  this.listeners = {};
   const self = this;
   this.classList = {
    contains(name) { return self.className.split(/\s+/).filter(Boolean).includes(name); },
@@ -80,6 +81,8 @@ class MiniNode {
   return parts.some((part) => this._matchOne(part));
  }
  _matchOne(selector) {
+  if (selector === '[data-send]') return !!this.dataset.send;
+  if (selector === '[data-reply-feedback]') return !!this.dataset.replyFeedback;
   const attr = selector.match(/^([a-z0-9]*)(?:\.([a-z0-9_-]+))?(?:\[data-card-key\])?$/i);
   if (!attr) return false;
   const wantTag = attr[1];
@@ -108,7 +111,8 @@ class MiniNode {
   if (name === 'id') this.id = value;
  }
  setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
- addEventListener() {}
+ addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+ click() { for (const fn of this.listeners.click || []) fn(); }
 }
 
 class MiniDocument {
@@ -143,6 +147,7 @@ function makeHarness() {
  const ctx = {
   document,
   replyDrafts: new Map(),
+  replyLocks: new Set(),
   replyEndpoint: '/bot-logs/reply',
   csrf: 'test',
   snapshot: null,
@@ -264,4 +269,47 @@ test('focused dirty input keeps the same node, caret, and selection while siblin
   assert.equal(b.selectionEnd, 10);
   assert.equal(a.value, 'partner earns 1200 maps');
  }
+});
+
+test('Send shows submitting then accepted or a visible error and keeps the same card', async () => {
+ const ctx = makeHarness();
+ const first = waitingCard(335, 111, 'Treat the company?');
+ ctx.snapshot = snapshotFor([first]);
+ let calls = 0;
+ ctx.fetch = async () => {
+  calls += 1;
+  if (calls === 1) return { ok: false, status: 422, json: async () => ({ accepted: false, reason: 'reply_failed' }) };
+  return { ok: true, status: 200, json: async () => ({ accepted: true, instruction: true, woken: true }) };
+ };
+ vm.runInContext('drawQueue()', ctx);
+ const input = cardInput(ctx, 335);
+ input.value = 'treat the company as employed';
+ const send = ctx.queue.querySelector('[data-send]');
+ assert.ok(send);
+ send.click();
+ await new Promise((resolve) => setTimeout(resolve, 0));
+ assert.match(ctx.queue.textContent, /Pacman could not apply that reply/);
+ send.click();
+ await new Promise((resolve) => setTimeout(resolve, 0));
+ assert.match(ctx.queue.textContent, /Accepted — Pacman has the reply/);
+ assert.match(ctx.queue.textContent, /WORKING NOW/);
+ assert.equal(calls, 2);
+});
+
+test('tick/cross uses the same Send path', async () => {
+ const ctx = makeHarness();
+ const card = { ...waitingCard(323, 113, 'Confirm whether the photo ID is a UK licence.'), binary: true };
+ ctx.snapshot = snapshotFor([card]);
+ ctx.fetch = async (_url, opts) => {
+  const body = JSON.parse(opts.body);
+  assert.equal(body.answer, 'yes');
+  assert.equal(body.notice_id, 113);
+  return { ok: true, status: 200, json: async () => ({ accepted: true, instruction: true, woken: true }) };
+ };
+ vm.runInContext('drawQueue()', ctx);
+ const yes = [...ctx.queue.querySelectorAll('button')].find((node) => node.textContent === '✓');
+ assert.ok(yes);
+ yes.click();
+ await new Promise((resolve) => setTimeout(resolve, 0));
+ assert.match(ctx.queue.textContent, /Accepted — Pacman has the reply/);
 });

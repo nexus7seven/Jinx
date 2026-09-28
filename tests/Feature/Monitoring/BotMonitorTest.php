@@ -88,11 +88,27 @@ class BotMonitorTest extends TestCase
         $this->assertStringContainsString('function focusedQueueField()', $blade);
         $this->assertStringContainsString('function patchQueueInPlace(rows)', $blade);
         $this->assertStringContainsString('if(editing){patchQueueInPlace(rows);return;}', $blade);
+        $this->assertStringContainsString('function paintQueueReply(key,state,detail)', $blade);
+        $this->assertStringContainsString("paintQueueReply(key,'submitting')", $blade);
+        $this->assertStringContainsString("paintQueueReply(key,'accepted')", $blade);
+        $this->assertStringContainsString('data-send', $blade);
         $this->assertStringContainsString('clearReplyDraft(key)', $blade);
         $this->assertStringContainsString('input[data-card-key]', $blade);
         $this->assertStringContainsString('setSelectionRange', $blade);
         $this->assertStringNotContainsString('fragment.append(prior)', $blade);
         $this->assertStringNotContainsString("@extends('layouts.app')", $blade);
+    }
+
+    public function test_owner_reply_rejects_short_answers_before_work_queue_spawn(): void
+    {
+        config()->set('bot-monitor.owner_user_id', 1);
+        $owner = User::factory()->make(['id' => 1]);
+        $this->actingAs($owner)->postJson(route('bot-logs.reply'), [
+            'case_id' => 335,
+            'notice_id' => 111,
+            'answer' => 'x',
+        ])->assertStatus(422)->assertJsonPath('accepted', false)->assertJsonPath('reason', 'invalid_reply');
+        config()->set('bot-monitor.owner_user_id', 0);
     }
 
     public function test_navigation_replaces_old_label_without_exposing_internal_source_file(): void
@@ -102,6 +118,8 @@ class BotMonitorTest extends TestCase
         $this->assertStringNotContainsString('Bot Logs', $nav);
         $controller = file_get_contents(app_path('Http/Controllers/BotLogsController.php'));
         $this->assertStringContainsString('overview.json', $controller);
+        $this->assertStringContainsString('/opt/pacman-v2-work/scripts/pacman_work_queue_reply', $controller);
+        $this->assertStringContainsString('sudo', $controller);
         $this->assertStringNotContainsString('team.sqlite', $controller);
     }
 }

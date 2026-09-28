@@ -72,7 +72,7 @@ class BotLogsController extends Controller
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
         ];
-        $proc = proc_open(['/usr/bin/python3', '-B', '-m', 'pacman_v2.work_queue', 'reply'], $spec, $pipes, '/opt/pacman-v2-work', ['PYTHONDONTWRITEBYTECODE' => '1']);
+        $proc = proc_open(['/usr/bin/sudo', '-n', '/opt/pacman-v2-work/scripts/pacman_work_queue_reply'], $spec, $pipes, '/opt/pacman-v2-work', ['PYTHONDONTWRITEBYTECODE' => '1']);
         if (! is_resource($proc)) {
             return response()->json(['accepted' => false, 'reason' => 'reply_unavailable'], 503)->header('Cache-Control', 'no-store');
         }
@@ -83,8 +83,11 @@ class BotLogsController extends Controller
         fclose($pipes[2]);
         $code = proc_close($proc);
         $result = json_decode((string) $stdout, true);
-        if ($code !== 0 || ! is_array($result)) {
+        if (! is_array($result)) {
             return response()->json(['accepted' => false, 'reason' => 'reply_rejected'], 422)->header('Cache-Control', 'no-store');
+        }
+        if ($code !== 0 || ($result['accepted'] ?? false) !== true) {
+            return response()->json(['accepted' => false, 'reason' => $result['reason'] ?? 'reply_rejected'], 422)->header('Cache-Control', 'no-store');
         }
         return response()->json($result)->header('Cache-Control', 'no-store');
     }

@@ -34,7 +34,7 @@ body.monitor-body{font-size:17px;line-height:1.57;background:radial-gradient(ell
 <script>
 (()=>{'use strict';
 const endpoint=@json(route('bot-logs.data')),replyEndpoint=@json(route('bot-logs.reply')),csrf=@json(csrf_token()),el=id=>document.getElementById(id),cards=el('cards'),feed=el('feed'),queue=el('queue'),conn=el('connection');const roles={zebra:'GATEKEEPER',dev:'TECHNICAL',ivy:'SECRETARY',pacman:'PACKAGING'};
-let snapshot=null,paused=false,initial=true,seen=new Set(),signature='',animations=new Map(),requesting=false,viewMode='log',replyDrafts=new Map();
+let snapshot=null,paused=false,initial=true,seen=new Set(),signature='',animations=new Map(),requesting=false,viewMode='log',replyDrafts=new Map(),replyLocks=new Set();
 const make=(tag,cls,value)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(value!==undefined)node.textContent=String(value);return node;};
 const timestamp=t=>t&&Number.isFinite(Date.parse(t))?new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(t)):'—';
 function drawCards(){if(!snapshot)return;const selected=el('filter').value,fragment=document.createDocumentFragment();for(const b of snapshot.bots){const executing=!snapshot.stale&&(snapshot.feed||[]).some(m=>m.from===b.role&&m.executing===true);const card=make('button','node '+b.state+(executing?' executing':'')+([...animations.values()].some(a=>a.role===b.role)?' typing':'')+(selected===b.role?' selected':'')),top=make('div','nodehead'),id=make('div','identity'),head=make('div');card.type='button';card.dataset.role=b.role;card.setAttribute('aria-pressed',selected===b.role?'true':'false');card.setAttribute('aria-label','Show '+b.role+' sent, received and progress entries');head.append(make('div','botname',b.role.toUpperCase()),make('div','botrole',roles[b.role]||'SPECIALIST'));id.append(make('div','monogram',b.role[0].toUpperCase()),head);top.append(id,make('div','state '+b.state,b.state.toUpperCase()));const role=make('div','nodetitle',roles[b.role]||'SPECIALIST'),foot=make('div','nodefoot'),detail=make('span','node-detail',(b.state==='working'||executing)?'PROCESS ACTIVE':b.state==='waiting'?'AWAITING INPUT':b.state==='offline'?'SIGNAL UNAVAILABLE':b.state.toUpperCase()),meter=make('span','node-meter');meter.setAttribute('aria-hidden','true');for(let i=0;i<6;i++)meter.append(make('i'));foot.append(detail,meter);card.append(top,role,foot);card.addEventListener('click',()=>{el('filter').value=b.role;viewMode='queue';setView();drawCards();drawQueue();drawFeed();});fragment.append(card);}cards.replaceChildren(fragment);el('clearFilter').disabled=selected==='all';}
@@ -128,12 +128,38 @@ function bindReplyInput(input,card){
  restoreReplyDraft(input);
 }
 function refreshKeptCard(box,card){
+ if(box.dataset.replyState==='submitting'||box.dataset.replyState==='accepted')return;
  box.className='work-card '+card.status+(box.classList.contains('resolved')?' resolved':'');
  const status=box.querySelector('.work-status'),job=box.querySelector('.work-job'),name=box.querySelector('.work-name'),meta=box.querySelector('.work-meta');
  if(name)name.textContent=(card.case_name||'Case')+' · '+card.case_id;
  if(status){status.className='work-status '+card.status;status.textContent=card.label||card.status;}
  if(job)job.textContent=card.job||'';
  if(meta)meta.textContent=[card.context,card.due_at?'Next chase '+card.due_at:''].filter(Boolean).join(' · ');
+}
+function queueCardBox(key){
+ for(const box of queue.querySelectorAll('.work-card[data-card-key]'))if(box.dataset.cardKey===key)return box;
+ return null;
+}
+function paintQueueReply(key,state,detail){
+ const box=queueCardBox(key);if(!box)return;
+ box.dataset.replyState=state;
+ const status=box.querySelector('.work-status'),send=box.querySelector('[data-send]');
+ let note=box.querySelector('[data-reply-feedback]');
+ if(!note){note=make('div','work-meta');note.dataset.replyFeedback='1';box.append(note);}
+ if(state==='submitting'){
+  replyLocks.add(key);box.classList.add('WORKING_NOW');
+  if(status){status.className='work-status WORKING_NOW';status.textContent='SUBMITTING';}
+  if(send)send.disabled=true;note.textContent='Submitting reply…';
+ }
+ if(state==='accepted'){
+  replyLocks.delete(key);clearReplyDraft(key);box.classList.add('resolved','WORKING_NOW');
+  if(status){status.className='work-status WORKING_NOW';status.textContent='WORKING NOW';}
+  if(send)send.disabled=true;note.textContent='Accepted — Pacman has the reply and will continue this issue.';
+ }
+ if(state==='error'){
+  replyLocks.delete(key);if(send)send.disabled=false;
+  note.textContent=detail||'Send failed. The reply was not stored.';
+ }
 }
 function buildQueueCard(card){
  const key=queueCardKey(card);
@@ -149,15 +175,18 @@ function buildQueueCard(card){
  actions.append(open);
  if(snapshot.full_access&&card.waiting_for_alex&&card.notice_id){
   const input=document.createElement('input');input.type='text';input.maxLength=500;input.placeholder='Type the answer for this issue…';
-  const send=make('button','','Send');send.type='button';
+  const send=make('button','','Send');send.type='button';send.dataset.send='1';
+  const reasons={invalid_reply:'That reply is too short or invalid.',card_not_current:'This card is no longer current.',owner_only:'Only the owner can send this reply.',reply_unavailable:'Reply service is unavailable.',reply_rejected:'Pacman could not apply that reply.',reply_failed:'Pacman could not apply that reply.',unsupported_case_fact_reply:'Could not apply that as a case fact or instruction.',already_applied:'Already recorded.'};
   const post=async(text,remember=false)=>{
-   send.disabled=true;box.classList.add('WORKING_NOW');
+   const answer=String(text||'').trim();
+   if(answer.length<2){paintQueueReply(key,'error','Type at least two characters.');return;}
+   paintQueueReply(key,'submitting');
    try{
-    const r=await fetch(replyEndpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},body:JSON.stringify({case_id:card.case_id,notice_id:card.notice_id,answer:text,remember})});
-    const data=await r.json();
-    if(data.accepted){clearReplyDraft(key);box.classList.add('resolved');box.querySelector('.work-status').textContent='WORKING NOW';}
-    else send.disabled=false;
-   }catch{send.disabled=false;}
+    const r=await fetch(replyEndpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},body:JSON.stringify({case_id:card.case_id,notice_id:card.notice_id,answer,remember})});
+    let data={};try{data=await r.json();}catch{data={accepted:false,reason:'reply_rejected'};}
+    if(data.accepted)paintQueueReply(key,'accepted');
+    else paintQueueReply(key,'error',reasons[data.reason]||('Not accepted: '+(data.reason||r.status)));
+   }catch{paintQueueReply(key,'error','Send failed. The reply was not stored.');}
   };
   send.addEventListener('click',()=>post(input.value,false));
   bindReplyInput(input,card);
@@ -178,7 +207,7 @@ function patchQueueInPlace(rows){
  const existing=new Map();
  for(const box of queue.querySelectorAll('.work-card[data-card-key]'))existing.set(box.dataset.cardKey,box);
  for(const [key,box] of existing){
-  if(!wanted.has(key)&&!(focused&&box.contains(focused)))box.remove();
+  if(!wanted.has(key)&&!(focused&&box.contains(focused))&&box.dataset.replyState!=='submitting'&&!replyLocks.has(key))box.remove();
  }
  for(const card of rows){
   const box=existing.get(queueCardKey(card));
@@ -193,7 +222,7 @@ function drawQueue(){
  const rows=all.filter(c=>role==='all'||c.bot===role);
  const counts=payload.counts||{};
  el('queueCounts').textContent='NEED YOU '+((counts.need_you)||0)+' · WORKING '+((counts.working)||0)+' · WAITING CLIENT '+((counts.waiting_client)||0);
- const editing=focusedQueueField();
+ const editing=focusedQueueField()||replyLocks.size;
  if(role==='all'){if(editing)return;queue.replaceChildren(make('div','empty','Select a bot contact to open its work queue.'));return;}
  if(role!=='pacman'){if(editing)return;queue.replaceChildren(make('div','empty','No open work cards for '+role.toUpperCase()+' yet.'));return;}
  if(!rows.length){if(editing)return;queue.replaceChildren(make('div','empty','No open Pacman case cards.'));return;}
