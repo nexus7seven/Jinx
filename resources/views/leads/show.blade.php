@@ -310,8 +310,12 @@
                     value="{{ $lead->dob }}"
                     class="client-input"
                 >
-                <button type="button" id="sendAvHubsBtn" style="margin-top:10px; width:100%; background:#0f766e; color:#ffffff; border:1px solid #14b8a6; border-radius:8px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;">Send to AV HUBS</button>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+                    <button type="button" id="sendAvHubsBtn" style="background:#0f766e; color:#ffffff; border:1px solid #14b8a6; border-radius:7px; padding:7px 11px; font-size:12px; font-weight:700; line-height:1.2; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.18); transition:filter .15s ease, transform .15s ease;">Send to Avondale</button>
+                    <button type="button" id="sendZebraBtn" style="background:#b45309; color:#ffffff; border:1px solid #f59e0b; border-radius:7px; padding:7px 11px; font-size:12px; font-weight:700; line-height:1.2; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.18); transition:filter .15s ease, transform .15s ease;">Send to Zebra</button>
+                </div>
                 <div id="sendAvHubsStatus" style="margin-top:7px; font-size:12px; color:#9ca3af; line-height:1.45;"></div>
+                <div id="sendZebraStatus" style="margin-top:4px; font-size:12px; color:#9ca3af; line-height:1.45;"></div>
                 </div>
             </div>
 
@@ -1171,14 +1175,43 @@
                 }
                 sendAvHubsStatus.textContent = data.message;
                 sendAvHubsStatus.style.color = '#10b981';
-                sendAvHubsBtn.textContent = 'Sent to AV HUBS';
+                sendAvHubsBtn.textContent = 'Sent to Avondale';
                 return;
             } catch (e) {
                 sendAvHubsStatus.textContent = e.message || 'Avondale transfer failed. Nothing confirmed as sent.';
                 sendAvHubsStatus.style.color = '#ef4444';
             }
             sendAvHubsBtn.disabled = false;
-            sendAvHubsBtn.textContent = 'Send to AV HUBS';
+            sendAvHubsBtn.textContent = 'Send to Avondale';
+        });
+    }
+
+    const sendZebraBtn = document.getElementById('sendZebraBtn');
+    const sendZebraStatus = document.getElementById('sendZebraStatus');
+    if (sendZebraBtn) {
+        sendZebraBtn.addEventListener('click', async function () {
+            if (!window.confirm('Send this lead and its debts to Zebra HubSolv? Jinx will run the required checks first.')) return;
+            sendZebraBtn.disabled = true;
+            sendZebraBtn.textContent = 'Checking...';
+            sendZebraStatus.textContent = 'Running Zebra checks. Nothing is sent unless they pass.';
+            sendZebraStatus.style.color = '#fbbf24';
+            try {
+                const response = await fetch('/lead/{{ $lead->id }}/zebra-hubsolv', {method:'POST', headers:{'X-CSRF-TOKEN':csrfToken,'Accept':'application/json'}});
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    const details = Array.isArray(data.errors) && data.errors.length ? ' ' + data.errors.join(' | ') : '';
+                    throw new Error((data.message || 'Zebra transfer failed.') + details);
+                }
+                sendZebraStatus.textContent = data.message;
+                sendZebraStatus.style.color = '#10b981';
+                sendZebraBtn.textContent = 'Sent to Zebra';
+                return;
+            } catch (e) {
+                sendZebraStatus.textContent = e.message || 'Zebra transfer failed. Nothing confirmed as sent.';
+                sendZebraStatus.style.color = '#ef4444';
+            }
+            sendZebraBtn.disabled = false;
+            sendZebraBtn.textContent = 'Send to Zebra';
         });
     }
 
@@ -1901,6 +1934,26 @@
             ? Number(summary.reject_percent || 0)
             : (eligibleTotal > 0 ? Math.round((100 - acceptPercent) * 10) / 10 : 0);
 
+        rows.forEach(row => {
+            const shareEl = row.querySelector('.debt-voting-share');
+            if (!shareEl) return;
+
+            const outcome = normaliseVotingOutcome(row.dataset.voteOutcome);
+            const balance = Number.parseFloat(row.dataset.balance || '0') || 0;
+
+            if ((outcome === 'accept' || outcome === 'reject') && eligibleTotal > 0) {
+                const share = (balance / eligibleTotal) * 100;
+                shareEl.textContent = share.toFixed(1) + '% of voting debt';
+                shareEl.style.color = '#94a3b8';
+            } else if (outcome === 'non_voting') {
+                shareEl.textContent = 'Not included in voting debt';
+                shareEl.style.color = '#64748b';
+            } else {
+                shareEl.textContent = '— of voting debt';
+                shareEl.style.color = '#64748b';
+            }
+        });
+
         totalDebtValue.textContent = formatMoney(totalDebt);
         if (leadInfoTotalDebt) leadInfoTotalDebt.textContent = totalDebtValue.textContent;
         eligibleBalanceValue.textContent = formatMoney(eligibleTotal);
@@ -2200,6 +2253,10 @@
                         Delete
                     </button>
                 </div>
+            </div>
+
+            <div class="debt-voting-share" style="margin-top:10px; text-align:right; font-size:11px; font-weight:700; color:#64748b;">
+                — of voting debt
             </div>
         `;
     }

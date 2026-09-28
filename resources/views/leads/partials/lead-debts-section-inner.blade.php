@@ -110,6 +110,10 @@
                     </button>
                 </div>
             </div>
+
+            <div class="debt-voting-share" style="margin-top:10px; text-align:right; font-size:11px; font-weight:700; color:#64748b;">
+                — of voting debt
+            </div>
         </div>
     @empty
         <div id="noDebtsMessage" style="background:#020617; border:1px dashed #374151; border-radius:12px; padding:18px; color:#9ca3af;">
