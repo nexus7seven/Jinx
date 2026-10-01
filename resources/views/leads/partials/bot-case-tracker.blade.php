@@ -1,6 +1,6 @@
 <section class="bot-case-tracker" style="padding:22px;color:#dce8e7;background:#0d1616;border:1px solid #26443a;border-radius:12px">
  <h2 style="color:#92f4b3;margin:0 0 7px">Bot Case Tracker</h2>
- <p style="color:#a8beb4;margin:0 0 19px">Pacman's current understanding of this case and what it plans to do next.</p>
+ <p style="color:#a8beb4;margin:0 0 19px">Pacman's packaging status: what is complete, what is active, and what comes next.</p>
  <div id="botTrackerContent" aria-live="polite">Loading the latest case review…</div>
 </section>
 <script>
@@ -8,15 +8,23 @@
  const mount=document.getElementById('botTrackerContent');
  const endpoint=@json(route('lead.bot-case-tracker.show',$lead));
  const escape=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const plan=[
+  'Receiving a case — pre-checks, documents/debts and source differences','Client circumstances','Debts','Income and Expenditure','Eligibility check','Documentation',
+  'Presenting the case to partners','Understanding and actioning partner feedback','Booking the SIP call per partner','SIP preparation calls/messages to client','Learning mechanisms and fault reporting','Finished package'
+ ];
  const list=(items,empty)=>items.length?'<ul style="padding-left:21px;line-height:1.8">'+items.map(x=>'<li>'+escape(x)+'</li>').join('')+'</ul>':'<p style="color:#8da59b">'+empty+'</p>';
+ const badge=s=>{const x=String(s||'not_started').replaceAll('_',' ');return '<span style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 7px;border:1px solid #345e46;border-radius:4px;color:#b8eec8">'+escape(x)+'</span>'};
  async function refresh(){
   try{
    const response=await fetch(endpoint,{credentials:'same-origin',headers:{Accept:'application/json'}});
    if(!response.ok)throw Error('Unable to load the tracker');
    const data=await response.json(),t=data.tracker;
    if(!t){mount.textContent='Pacman has not completed an initial review for this case yet.';return;}
-   const obtained=Array.isArray(t.obtained)?t.obtained:[],missing=Array.isArray(t.missing)?t.missing:[];
-   mount.innerHTML='<div style="margin-bottom:17px;padding:13px;background:#142521;border-radius:8px"><b>'+escape(t.bot)+'</b> · '+escape((t.ip_route||'Zebra').replaceAll('_',' '))+' · '+escape(t.state.replaceAll('_',' '))+'<br><small style="color:#8da59b">Updated '+escape(t.updated_at)+'</small><p>'+escape(t.summary||'Review in progress')+'</p></div>'+
+   const obtained=Array.isArray(t.obtained)?t.obtained:[],missing=Array.isArray(t.missing)?t.missing:[],stages=Array.isArray(t.stages)?t.stages:[];
+   const byStage=new Map(stages.map(x=>[Number(x.stage),x]));
+   const roadmap=plan.map((name,i)=>{const s=byStage.get(i)||{},status=s.status||(i===Number(t.current_stage)?'in_progress':'not_started');return '<div style="padding:11px 12px;border:1px solid #29443b;border-radius:7px;background:#101d1a"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><b><span style="color:#6fae83">'+i+'.</span> '+escape(name)+'</b>'+badge(status)+'</div>'+(s.summary?'<div style="margin-top:7px;color:#91a99f;font-size:13px">'+escape(s.summary)+'</div>':'')+'</div>'}).join('');
+   mount.innerHTML='<div style="margin-bottom:17px;padding:13px;background:#142521;border-radius:8px"><b>'+escape(t.bot)+'</b> · '+escape((t.ip_route||'Zebra').replaceAll('_',' '))+' · '+escape(t.state.replaceAll('_',' '))+(t.current_stage!==null?'<br><strong style="color:#a4ffc2">Current stage: '+escape(t.current_stage)+' — '+escape(plan[Number(t.current_stage)]||'Unknown')+'</strong>':'')+'<br><small style="color:#8da59b">Updated '+escape(t.updated_at)+'</small><p>'+escape(t.summary||'Review in progress')+'</p></div>'+
+    '<h3 style="color:#92f4b3;margin:0 0 10px">Packaging roadmap</h3><div style="display:grid;gap:7px;margin-bottom:18px">'+roadmap+'</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px">'+
     '<div style="padding:15px;border:1px solid #345e46;border-radius:8px"><h3 style="color:#a4ffc2">What we have ('+obtained.length+')</h3>'+list(obtained,'No established items recorded yet.')+'</div>'+
     '<div style="padding:15px;border:1px solid #786239;border-radius:8px"><h3 style="color:#ffdc89">What is missing ('+missing.length+')</h3>'+list(missing,'Nothing outstanding in the latest review.')+'</div></div>'+

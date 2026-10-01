@@ -19,7 +19,7 @@ class CaseAssessmentController extends Controller
     public function botTracker(Lead $lead): JsonResponse
     {
         $row=\Illuminate\Support\Facades\DB::table('bot_case_trackers')->where('lead_id',$lead->id)->first();
-        return response()->json(['success'=>true,'tracker'=>$row ? ['bot'=>$row->bot,'ip_route'=>$row->ip_route,'obtained'=>json_decode($row->obtained,true),'missing'=>json_decode($row->missing,true),'summary'=>$row->summary,'next_action'=>$row->next_action,'state'=>$row->state,'updated_at'=>$row->updated_at] : null]);
+        return response()->json(['success'=>true,'tracker'=>$row ? ['bot'=>$row->bot,'ip_route'=>$row->ip_route,'obtained'=>json_decode($row->obtained,true),'missing'=>json_decode($row->missing,true),'summary'=>$row->summary,'next_action'=>$row->next_action,'state'=>$row->state,'current_stage'=>$row->current_stage,'stages'=>json_decode($row->stages ?? '[]',true) ?: [],'updated_at'=>$row->updated_at] : null]);
     }
 
     public function show(Lead $lead, CaseAssessmentViewService $view): JsonResponse
