@@ -143,6 +143,12 @@
             @endif
         </a>
         <a
+            href="https://bot.hextech.lol/conversations"
+            class="app-nav__tab"
+        >
+            Conversations
+        </a>
+        <a
             href="{{ route('bot-logs.index') }}"
             class="app-nav__tab {{ $isBotLogs ? 'app-nav__tab--active' : '' }}"
             @if ($isBotLogs) aria-current="page" @endif
