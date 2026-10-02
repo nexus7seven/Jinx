@@ -166,6 +166,12 @@
         .wip-card__title a:hover {
             color: #cbd5e1;
         }
+        .wip-ip-note-wrap { flex: 0 1 240px; min-width: 120px; position: relative; margin-left: auto; }
+        .wip-ip-note { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid rgba(71,85,105,.65); border-radius: 7px; background: rgba(15,23,42,.9); color: #e2e8f0; padding: 5px 42px 5px 9px; font-size: 12px; outline: none; }
+        .wip-ip-note::placeholder { color: #64748b; }
+        .wip-ip-note:focus { border-color: rgba(96,165,250,.75); box-shadow: 0 0 0 2px rgba(59,130,246,.12); }
+        .wip-ip-note.is-error { border-color: rgba(248,113,113,.85); }
+        .wip-ip-note-state { position: absolute; right: 7px; top: 8px; font-size: 9px; color: #64748b; pointer-events: none; }
         .wip-card-actions {
             display: flex;
             flex-direction: row;
@@ -557,11 +563,11 @@
         .wip-callback-strip{display:flex;align-items:center;gap:6px;min-width:0;margin:1px 0;padding:6px 8px;border:1px solid rgba(59,130,246,.38);border-radius:7px;background:rgba(30,64,175,.16);font-size:10px;color:#bfdbfe}.wip-callback-strip__label{font-size:8px;font-weight:900;letter-spacing:.08em;color:#93c5fd}.wip-callback-strip strong{white-space:nowrap;color:#dbeafe}.wip-callback-strip [data-callback-countdown]{font-weight:800;margin-left:auto;white-space:nowrap}.wip-callback-strip__note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;max-width:120px}
         .wip-lead-row.is-callback-soon{border-color:rgba(59,130,246,.65)!important}.wip-lead-row.is-callback-urgent{border-color:#3b82f6!important;background:rgba(30,64,175,.16)!important}.wip-lead-row.is-callback-due{border-color:#ef4444!important;background:rgba(127,29,29,.17)!important}.wip-lead-row.is-callback-due .wip-callback-strip{border-color:#ef4444;background:rgba(127,29,29,.23);color:#fecaca}
         .wip-actioned-btn{padding:6px 8px!important;white-space:nowrap}.wip-stack-state{font-size:10px!important}.wip-stack-state__pill{padding:2px 6px!important}
-        .wip-sip-modal .wip-action-modal__card{max-width:470px}.wip-sip-modal input[type="datetime-local"]{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px;color-scheme:dark}
+        .wip-sip-modal .wip-action-modal__card{max-width:470px}.wip-sip-modal input[type="datetime-local"],.wip-sip-modal select{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px;color-scheme:dark}
         @media(max-width:1280px){.wip-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-lane--dmp{grid-column:1/-1}.wip-lane--dmp .wip-lane__stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media(max-width:820px){.wip-dashboard-grid{grid-template-columns:1fr}.wip-lane--dmp{grid-column:auto}.wip-lane--dmp .wip-lane__stack,.wip-lane__stack--other{display:flex}.wip-next-sip-banner{position:static;grid-template-columns:auto 1fr auto}.wip-next-sip-banner__open{display:none}.wip-next-sip-banner__copy span:last-child{width:100%}}
 </style>
-<link rel="stylesheet" href="{{ asset('css/wip-workdesk.css') }}?v=20260924-next-action">
+<link rel="stylesheet" href="{{ asset('css/wip-workdesk.css') }}?v=20260928-ip-note-2">
 </head>
 <body style="margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0a0f1a; color:#f9fafb; min-height:100vh;">
 
@@ -880,6 +886,15 @@
             <div class="wip-action-modal__field">
                 <label for="wip-sip-booked-at">Appointment date & time</label>
                 <input id="wip-sip-booked-at" type="datetime-local" required>
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-sip-invoice-ip">Booked with IP</label>
+                <select id="wip-sip-invoice-ip" required>
+                    <option value="">Choose IP…</option>
+                    @foreach (\App\Models\Lead::SIP_INVOICE_IPS as $ipKey => $ipLabel)
+                        <option value="{{ $ipKey }}">{{ $ipLabel }}</option>
+                    @endforeach
+                </select>
             </div>
             <div style="font-size:11px;color:#94a3b8;line-height:1.45;">Jinx will automatically make the prep call due 15 minutes before this appointment and keep it visible until prep is marked complete.</div>
             <div class="wip-action-modal__actions">
@@ -1439,6 +1454,7 @@
     const sipForm = document.getElementById('wip-sip-form');
     const sipCaseName = document.getElementById('wip-sip-case-name');
     const sipInput = document.getElementById('wip-sip-booked-at');
+    const sipInvoiceIp = document.getElementById('wip-sip-invoice-ip');
     const sipSave = document.getElementById('wip-sip-save');
     const sipClose = document.getElementById('wip-sip-close');
     const sipCancel = document.getElementById('wip-sip-cancel');
@@ -1465,6 +1481,7 @@
         sipModalSelect = null;
         sipModalOriginalStatus = null;
         sipInput.value = '';
+        sipInvoiceIp.value = '';
     }
 
     function openSipModal(card, select) {
@@ -1476,12 +1493,13 @@
         const title = card.querySelector('.wip-card__title')?.innerText?.trim() || ('Lead #' + sipModalLeadId);
         sipCaseName.textContent = title + ' — booked SIP appointment';
         sipInput.value = toLocalDateTimeValue(card.dataset.sipAt || '');
+        sipInvoiceIp.value = card.dataset.sipInvoiceIp || '';
         sipModal.classList.add('is-open');
         sipModal.setAttribute('aria-hidden', 'false');
         window.setTimeout(() => sipInput.focus(), 0);
     }
 
-    async function saveWipStatus(leadId, newValue, deadReason, sipBookedAt) {
+    async function saveWipStatus(leadId, newValue, deadReason, sipBookedAt, sipInvoiceIpValue) {
         const response = await fetch('/lead/' + leadId + '/wip-status', {
             method: 'PATCH',
             headers: {
@@ -1493,6 +1511,7 @@
                 wip_status: newValue,
                 dead_reason: deadReason || null,
                 sip_booked_at: sipBookedAt || null,
+                sip_invoice_ip: sipInvoiceIpValue || null,
             })
         });
         const data = await response.json().catch(() => ({}));
@@ -1503,6 +1522,46 @@
         updateStatusSelect(leadId, data.wip_status);
         return data;
     }
+
+
+
+    const ipNoteTimers = new WeakMap();
+    async function saveIpNote(input) {
+        const state = input.closest('.wip-ip-note-wrap')?.querySelector('[data-ip-note-state]');
+        input.classList.remove('is-error');
+        if (state) state.textContent = 'Saving…';
+        try {
+            const response = await fetch('/lead/' + input.dataset.leadId + '/ip-note', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ ip_note: input.value })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.message || 'Could not save IP note.');
+            if (state) state.textContent = 'Saved';
+            window.setTimeout(() => { if (state?.textContent === 'Saved') state.textContent = ''; }, 1200);
+        } catch (error) {
+            input.classList.add('is-error');
+            if (state) state.textContent = 'Error';
+        }
+    }
+
+    document.addEventListener('input', event => {
+        const input = event.target.closest('[data-ip-note]');
+        if (!input) return;
+        window.clearTimeout(ipNoteTimers.get(input));
+        ipNoteTimers.set(input, window.setTimeout(() => saveIpNote(input), 650));
+    });
+    document.addEventListener('blur', event => {
+        const input = event.target.closest?.('[data-ip-note]');
+        if (!input) return;
+        window.clearTimeout(ipNoteTimers.get(input));
+        saveIpNote(input);
+    }, true);
 
     document.addEventListener('change', async event => {
         const select = event.target.closest('.status-select');
@@ -1581,6 +1640,11 @@
     sipForm.addEventListener('submit', async event => {
         event.preventDefault();
         if (!sipModalLeadId || !sipInput.value) return;
+        if (!sipInvoiceIp.value) {
+            alert('Choose the IP this SIP is booked with.');
+            sipInvoiceIp.focus();
+            return;
+        }
 
         const date = new Date(sipInput.value);
         if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
@@ -1591,7 +1655,7 @@
         sipSave.disabled = true;
         sipSave.textContent = 'Saving…';
         try {
-            await saveWipStatus(sipModalLeadId, 'SIP Booked', null, date.toISOString());
+            await saveWipStatus(sipModalLeadId, 'SIP Booked', null, date.toISOString(), sipInvoiceIp.value);
             closeSipModal(false);
             window.jinxWipToast?.('SIP booked — prep call protected 15 minutes before.');
             await window.jinxWipSyncDashboard?.(true);

@@ -545,6 +545,22 @@ class WipController extends Controller
         ]);
     }
 
+    public function updateIpNote(Request $request, Lead $lead): JsonResponse
+    {
+        $validated = $request->validate([
+            'ip_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $lead->update([
+            'ip_note' => trim((string) ($validated['ip_note'] ?? '')) ?: null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'ip_note' => $lead->ip_note,
+        ]);
+    }
+
     public function updateStatus(Request $request, Lead $lead): JsonResponse
     {
         $previousStatus = (string) $lead->wip_status;
@@ -553,6 +569,7 @@ class WipController extends Controller
             'wip_status' => ['required', Rule::in(Lead::WIP_STATUSES)],
             'dead_reason' => ['nullable', 'string', 'max:1000', Rule::requiredIf(fn () => $request->input('wip_status') === 'Dead')],
             'sip_booked_at' => ['nullable', 'date'],
+            'sip_invoice_ip' => ['nullable', 'string', Rule::in(array_keys(Lead::SIP_INVOICE_IPS))],
         ]);
 
         $targetStatus = (string) $validated['wip_status'];
@@ -563,6 +580,13 @@ class WipController extends Controller
 
         if ($targetStatus === 'SIP Booked') {
             $rawSipAt = $validated['sip_booked_at'] ?? $lead->sip_booked_at;
+            $sipInvoiceIp = $validated['sip_invoice_ip'] ?? $lead->sip_invoice_ip;
+            if (! $sipInvoiceIp) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Choose the IP this SIP is booked with.',
+                ], 422);
+            }
             if (! $rawSipAt) {
                 return response()->json([
                     'success' => false,
@@ -580,6 +604,7 @@ class WipController extends Controller
 
             $existingSipAt = $lead->sip_booked_at;
             $updates['sip_booked_at'] = $sipAt;
+            $updates['sip_invoice_ip'] = $sipInvoiceIp;
             if ($existingSipAt === null || ! $existingSipAt->equalTo($sipAt)) {
                 $updates['sip_prep_completed_at'] = null;
             }

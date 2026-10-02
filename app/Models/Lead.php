@@ -17,6 +17,15 @@ class Lead extends Model
     ];
 
     /** Shown first on WIP with highlight; partner + website intake. */
+    public const SIP_INVOICE_IPS = [
+        'tigg_zebra' => 'TIGG (Zebra leads)',
+        'tigg_rmd' => 'TIGG (RMD leads)',
+        'lawson_fox' => 'Lawson Fox',
+        'anchorage_chambers' => 'Anchorage Chambers',
+        'tig' => 'TIG',
+        'assure' => 'Assure',
+    ];
+
     public const PRIORITY_WIP_STATUSES = [
         'New Lead',
     ];
@@ -92,8 +101,10 @@ class Lead extends Model
         'from_vicidial_webform',
         'wip_status',
         'sip_booked_at',
+        'sip_invoice_ip',
         'sip_prep_completed_at',
         'iva_ip_key',
+        'ip_note',
         'dead_reason',
         'financial_statement',
         'estimated_total_debt',

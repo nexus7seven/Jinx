@@ -5,6 +5,7 @@
     $outstanding = (int) ($lead->checklist_outstanding_count ?? 0);
     $sourceLabel = \App\Support\LeadSourceDisplay::label($lead->source);
     $sourceRaw = trim((string) ($lead->source ?? ''));
+    $selectedIpLabel = \App\Models\Lead::IVA_IPS[$lead->iva_ip_key ?? ''] ?? null;
     $canCall = (bool) trim((string) ($lead->phone_number ?? ''));
     $needsImmediateAttention = $lead->needsImmediateAttention();
     $isReengaged = $lead->wip_status === \App\Models\Lead::WIP_STATUS_REENGAGED;
@@ -58,6 +59,7 @@
     data-queue-position="{{ (int) ($lead->wip_queue_position ?? 0) }}"
     data-last-actioned-at="{{ $lastActionedAt?->toIso8601String() ?? '' }}"
     data-sip-at="{{ $sipAt?->toIso8601String() ?? '' }}"
+    data-sip-invoice-ip="{{ $lead->sip_invoice_ip ?? '' }}"
     data-sip-prep-at="{{ $sipPrepAt?->toIso8601String() ?? '' }}"
     data-sip-prep-completed-at="{{ $sipPrepDoneAt?->toIso8601String() ?? '' }}"
     data-callback-id="{{ $callback['callback_id'] ?? '' }}"
@@ -71,6 +73,9 @@
             <div class="wip-card__title"><a href="{{ url('/lead/' . $lead->id) }}">{{ $caseName }}</a></div>
             <div class="wip-card__source">
                 <span>{{ $sourceLabel }}</span>
+                @if ($selectedIpLabel)
+                    <span class="wip-chip" title="Currently selected IP">IP · {{ $selectedIpLabel }}</span>
+                @endif
                 @if ($isReengaged)
                     <span class="wip-chip wip-card__badge--reengaged" title="Re-engagement — open checklist to acknowledge">{{ $reengagementUnseen ? 'Re-engaged · review' : 'Re-engaged' }}</span>
                     @if ($reengagementChannelLabel !== '')
@@ -81,6 +86,10 @@
                     <span class="wip-chip wip-card__badge--undialled" title="New, never-dialled lead">New · call needed</span>
                 @endif
             </div>
+        </div>
+        <div class="wip-ip-note-wrap">
+            <input type="text" class="wip-ip-note" data-ip-note data-lead-id="{{ $lead->id }}" value="{{ $lead->ip_note }}" placeholder="IP note" maxlength="500" aria-label="IP note for {{ $caseName }}" title="IP note — saved to this record">
+            <span class="wip-ip-note-state" data-ip-note-state aria-live="polite"></span>
         </div>
         <div class="wip-card-actions">
             <button type="button"
