@@ -560,10 +560,10 @@
         .wip-sip-panel__label{font-size:9px;font-weight:950;letter-spacing:.11em;color:#fbbf24}.wip-sip-panel__main{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px}.wip-sip-panel__time{font-size:16px;font-weight:900;color:#fff}.wip-sip-panel__prep{font-size:11px;font-weight:850;color:#fde68a;margin-top:1px}.wip-sip-panel__prep [data-sip-countdown]{margin-left:4px;color:#fbbf24}.wip-sip-panel__actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
         .wip-sip-prep-btn,.wip-sip-edit-btn{border-radius:6px;padding:5px 7px;font-size:9px;font-weight:900;cursor:pointer}.wip-sip-prep-btn{border:1px solid #f59e0b;background:#78350f;color:#fef3c7}.wip-sip-edit-btn{border:1px solid #475569;background:#111827;color:#cbd5e1}.wip-sip-edit-btn.is-primary{border-color:#f59e0b;color:#fef3c7}.wip-sip-done{font-size:9px;font-weight:900;color:#86efac}.wip-sip-panel__missing{font-size:10px;color:#fecaca;line-height:1.3}
         .wip-card-sip-upcoming{border-color:rgba(245,158,11,.55)!important}.wip-card-sip-soon{border-color:#f59e0b!important;box-shadow:0 0 0 1px rgba(245,158,11,.15),0 8px 22px rgba(120,53,15,.12)}.wip-card-sip-urgent{border-color:#fb923c!important;background:rgba(124,45,18,.16)!important;box-shadow:0 0 0 1px rgba(251,146,60,.2)}.wip-card-sip-due{border-color:#ef4444!important;background:rgba(127,29,29,.22)!important;box-shadow:0 0 0 1px rgba(239,68,68,.22),0 10px 30px rgba(127,29,29,.2)}.wip-card-sip-due .wip-sip-panel{border-color:#ef4444;box-shadow:inset 3px 0 0 #ef4444}.wip-card-sip-due .wip-sip-panel__label,.wip-card-sip-due .wip-sip-panel__prep,.wip-card-sip-due .wip-sip-panel__prep [data-sip-countdown]{color:#fecaca}.wip-card-sip-prepped .wip-sip-panel{border-color:rgba(34,197,94,.45);box-shadow:inset 3px 0 0 #22c55e;background:rgba(20,83,45,.13)}.wip-card-sip-missing{border-color:#ef4444!important}
-        .wip-callback-strip{display:flex;align-items:center;gap:6px;min-width:0;margin:1px 0;padding:6px 8px;border:1px solid rgba(59,130,246,.38);border-radius:7px;background:rgba(30,64,175,.16);font-size:10px;color:#bfdbfe}.wip-callback-strip__label{font-size:8px;font-weight:900;letter-spacing:.08em;color:#93c5fd}.wip-callback-strip strong{white-space:nowrap;color:#dbeafe}.wip-callback-strip [data-callback-countdown]{font-weight:800;margin-left:auto;white-space:nowrap}.wip-callback-strip__note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;max-width:120px}
+        .wip-callback-strip{display:flex;align-items:center;gap:6px;min-width:0;margin:1px 0;padding:6px 8px;border:1px solid rgba(59,130,246,.38);border-radius:7px;background:rgba(30,64,175,.16);font-size:10px;color:#bfdbfe}.wip-callback-strip__main{display:flex;align-items:center;gap:5px;min-width:0}.wip-callback-strip__label{font-size:8px;font-weight:900;letter-spacing:.08em;color:#93c5fd}.wip-callback-strip strong{white-space:nowrap;color:#dbeafe}.wip-callback-strip [data-callback-countdown]{font-weight:800;margin-left:auto;white-space:nowrap}.wip-callback-strip__note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;max-width:120px}.wip-callback-edit-btn{flex:0 0 auto;border:1px solid rgba(96,165,250,.55);border-radius:6px;background:#172554;color:#bfdbfe;padding:4px 7px;font-size:9px;font-weight:900;cursor:pointer}.wip-callback-edit-btn:hover{border-color:#60a5fa;background:#1e3a8a}
         .wip-lead-row.is-callback-soon{border-color:rgba(59,130,246,.65)!important}.wip-lead-row.is-callback-urgent{border-color:#3b82f6!important;background:rgba(30,64,175,.16)!important}.wip-lead-row.is-callback-due{border-color:#ef4444!important;background:rgba(127,29,29,.17)!important}.wip-lead-row.is-callback-due .wip-callback-strip{border-color:#ef4444;background:rgba(127,29,29,.23);color:#fecaca}
         .wip-actioned-btn{padding:6px 8px!important;white-space:nowrap}.wip-stack-state{font-size:10px!important}.wip-stack-state__pill{padding:2px 6px!important}
-        .wip-sip-modal .wip-action-modal__card{max-width:470px}.wip-sip-modal input[type="datetime-local"],.wip-sip-modal select{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px;color-scheme:dark}
+        .wip-sip-modal .wip-action-modal__card,.wip-callback-modal .wip-action-modal__card{max-width:470px}.wip-sip-modal input[type="datetime-local"],.wip-sip-modal select,.wip-callback-modal input[type="datetime-local"],.wip-callback-modal textarea{width:100%;box-sizing:border-box;border:1px solid #334155;border-radius:8px;background:#0b1220;color:#f8fafc;padding:10px;font:inherit;font-size:13px;color-scheme:dark}.wip-callback-modal textarea{min-height:92px;resize:vertical;color-scheme:normal}.wip-callback-modal__hint{font-size:11px;color:#64748b;line-height:1.45}
         @media(max-width:1280px){.wip-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wip-lane--dmp{grid-column:1/-1}.wip-lane--dmp .wip-lane__stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media(max-width:820px){.wip-dashboard-grid{grid-template-columns:1fr}.wip-lane--dmp{grid-column:auto}.wip-lane--dmp .wip-lane__stack,.wip-lane__stack--other{display:flex}.wip-next-sip-banner{position:static;grid-template-columns:auto 1fr auto}.wip-next-sip-banner__open{display:none}.wip-next-sip-banner__copy span:last-child{width:100%}}
 </style>
@@ -900,6 +900,33 @@
             <div class="wip-action-modal__actions">
                 <button type="button" id="wip-sip-cancel" class="wip-action-modal__cancel">Cancel</button>
                 <button type="submit" id="wip-sip-save" class="wip-action-modal__save">Save SIP time</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="wip-callback-modal" class="wip-action-modal wip-callback-modal" aria-hidden="true">
+    <div class="wip-action-modal__card" role="dialog" aria-modal="true" aria-labelledby="wip-callback-title">
+        <div class="wip-action-modal__head">
+            <div>
+                <div id="wip-callback-title" class="wip-action-modal__title">Edit callback</div>
+                <div id="wip-callback-case-name" class="wip-action-modal__sub">Change the callback date, time or note.</div>
+            </div>
+            <button type="button" id="wip-callback-close" class="wip-action-modal__close" aria-label="Close">×</button>
+        </div>
+        <form id="wip-callback-form" class="wip-action-modal__body">
+            <div class="wip-action-modal__field">
+                <label for="wip-callback-at">Callback date & time</label>
+                <input id="wip-callback-at" type="datetime-local" required>
+            </div>
+            <div class="wip-action-modal__field">
+                <label for="wip-callback-comments">Callback note</label>
+                <textarea id="wip-callback-comments" maxlength="255" placeholder="Optional note"></textarea>
+            </div>
+            <div class="wip-callback-modal__hint">Saving replaces the current active VICIdial callback for this case, so there will still only be one live callback.</div>
+            <div class="wip-action-modal__actions">
+                <button type="button" id="wip-callback-cancel" class="wip-action-modal__cancel">Cancel</button>
+                <button type="submit" id="wip-callback-save" class="wip-action-modal__save">Save callback</button>
             </div>
         </form>
     </div>
@@ -1499,6 +1526,35 @@
         window.setTimeout(() => sipInput.focus(), 0);
     }
 
+    const callbackModal = document.getElementById('wip-callback-modal');
+    const callbackForm = document.getElementById('wip-callback-form');
+    const callbackCaseName = document.getElementById('wip-callback-case-name');
+    const callbackInput = document.getElementById('wip-callback-at');
+    const callbackComments = document.getElementById('wip-callback-comments');
+    const callbackSave = document.getElementById('wip-callback-save');
+    const callbackClose = document.getElementById('wip-callback-close');
+    const callbackCancel = document.getElementById('wip-callback-cancel');
+    let callbackModalLeadId = null;
+
+    function closeCallbackModal() {
+        callbackModal.classList.remove('is-open');
+        callbackModal.setAttribute('aria-hidden', 'true');
+        callbackModalLeadId = null;
+        callbackInput.value = '';
+        callbackComments.value = '';
+    }
+
+    function openCallbackModal(card) {
+        callbackModalLeadId = Number(card.dataset.leadId);
+        const title = card.querySelector('.wip-card__title')?.innerText?.trim() || ('Lead #' + callbackModalLeadId);
+        callbackCaseName.textContent = title + ' — current callback';
+        callbackInput.value = toLocalDateTimeValue(card.dataset.callbackAt || '');
+        callbackComments.value = card.dataset.callbackComments || '';
+        callbackModal.classList.add('is-open');
+        callbackModal.setAttribute('aria-hidden', 'false');
+        window.setTimeout(() => callbackInput.focus(), 0);
+    }
+
     async function saveWipStatus(leadId, newValue, deadReason, sipBookedAt, sipInvoiceIpValue) {
         const response = await fetch('/lead/' + leadId + '/wip-status', {
             method: 'PATCH',
@@ -1599,6 +1655,13 @@
     });
 
     document.addEventListener('click', async event => {
+        const callbackEdit = event.target.closest('[data-callback-edit]');
+        if (callbackEdit) {
+            const card = callbackEdit.closest('.wip-lead-row');
+            if (card) openCallbackModal(card);
+            return;
+        }
+
         const edit = event.target.closest('[data-sip-edit]');
         if (edit) {
             const card = edit.closest('.wip-lead-row');
@@ -1628,6 +1691,55 @@
             alert(error.message || 'Could not mark prep complete.');
             done.disabled = false;
             done.textContent = 'Prep done';
+        }
+    });
+
+    callbackClose.addEventListener('click', closeCallbackModal);
+    callbackCancel.addEventListener('click', closeCallbackModal);
+    callbackModal.addEventListener('click', event => {
+        if (event.target === callbackModal) closeCallbackModal();
+    });
+
+    callbackForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!callbackModalLeadId || !callbackInput.value) return;
+
+        const date = new Date(callbackInput.value);
+        if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
+            alert('Choose a future callback time.');
+            callbackInput.focus();
+            return;
+        }
+
+        callbackSave.disabled = true;
+        callbackSave.textContent = 'Saving…';
+        try {
+            const response = await fetch('/lead/' + callbackModalLeadId + '/callback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    callback_time: date.toISOString(),
+                    comments: callbackComments.value.trim(),
+                }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                const validation = data.errors ? Object.values(data.errors).flat().join(' ') : '';
+                throw new Error(validation || data.message || 'Could not update callback.');
+            }
+
+            closeCallbackModal();
+            window.jinxWipToast?.('Callback updated.');
+            await window.jinxWipSyncDashboard?.(true);
+        } catch (error) {
+            alert(error.message || 'Could not update callback.');
+        } finally {
+            callbackSave.disabled = false;
+            callbackSave.textContent = 'Save callback';
         }
     });
 
