@@ -64,6 +64,7 @@
     data-sip-prep-completed-at="{{ $sipPrepDoneAt?->toIso8601String() ?? '' }}"
     data-callback-id="{{ $callback['callback_id'] ?? '' }}"
     data-callback-at="{{ $callbackAt ?? '' }}"
+    data-callback-comments="{{ e($callback['comments'] ?? '') }}"
 >
     <button type="button" class="wip-stack-handle" draggable="true" aria-label="Drag {{ $caseName }} to reorder" title="Drag to reorder">
         <span aria-hidden="true">⠿</span>
@@ -144,6 +145,7 @@
             @if (trim((string) ($callback['comments'] ?? '')) !== '')
                 <span class="wip-callback-strip__note" title="{{ $callback['comments'] }}">{{ \Illuminate\Support\Str::limit($callback['comments'], 92) }}</span>
             @endif
+            <button type="button" class="wip-callback-edit-btn" data-callback-edit data-lead-id="{{ $lead->id }}" data-case-name="{{ $caseName }}">Edit</button>
         </div>
     @endif
 
